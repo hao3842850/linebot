@@ -54,8 +54,77 @@ def save_db(db):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
 
-def handle_reboot_time(event, text):
-    chat_id = event.source.group_id if event.source.type == "group" else event.source.user_id
+def handle_reboot_time(event, text, db, boss_db):
+    """
+    開機指令：
+    玩家輸入 → 開機 HHMM
+    功能：
+    - 將「所有未登記的 CD 王」全部記錄死亡時間 = 開機時間
+    - 固定王不處理
+    """
+
+    parts = text.split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        return line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("❌ 格式錯誤\n\n用法：開機 HHMM\n例：開機 0930")
+        )
+
+    reboot_token = parts[1]
+    kill_time = parse_time(reboot_token)
+
+    if kill_time is None:
+        return line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("❌ 時間格式錯誤")
+        )
+
+    updated = []
+
+    # 逐一檢查所有 CD 王
+    for boss, cd in cd_map.items():
+
+        # 已登記過的不重設
+        if boss in boss_db and len(boss_db[boss]) > 0:
+            continue
+
+        # 固定王不處理（保險雙重判斷）
+        if boss in fixed_bosses:
+            continue
+
+        # 計算重生時間
+        respawn = kill_time + timedelta(hours=cd)
+
+        record = {
+            "date": now_tw().strftime("%Y-%m-%d"),
+            "kill": kill_time.strftime("%H:%M:%S"),
+            "respawn": respawn.isoformat(),
+            "note": "開機",
+            "user": event.source.user_id,
+        }
+
+        if boss not in boss_db:
+            boss_db[boss] = []
+
+        boss_db[boss].append(record)
+
+        updated.append(f"{boss} → {kill_time.strftime('%H:%M')}")
+
+    save_db(db)
+
+    if not updated:
+        return line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("所有 CD 王皆已有紀錄，無需重置。")
+        )
+
+    text_output = ["【開機 — 已更新未登記 CD 王】", ""]
+    text_output.extend(updated)
+
+    return line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage("\n".join(text_output))
+    )
 
     parts = text.split()
     if len(parts) != 2 or not parts[1].isdigit():
