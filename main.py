@@ -57,20 +57,19 @@ def save_db(db):
 def handle_reboot_time(event, text, db, boss_db):
     """
     開機指令：
-    玩家輸入 → 開機 HHMM
-    功能：
-    - 將「所有未登記的 CD 王」全部記錄死亡時間 = 開機時間
-    - 固定王不處理
+    玩家輸入 → 開機 0930 或 開機0930
     """
 
-    parts = text.split()
-    if len(parts) != 2 or not parts[1].isdigit():
+    # 允許：開機0930 / 開機 0930
+    t = text.replace("開機", "").replace("維修", "").strip()
+
+    if not t.isdigit():
         return line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage("❌ 格式錯誤\n\n用法：開機 HHMM\n例：開機 0930")
         )
 
-    reboot_token = parts[1]
+    reboot_token = t
     kill_time = parse_time(reboot_token)
 
     if kill_time is None:
