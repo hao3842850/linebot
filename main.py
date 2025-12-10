@@ -89,6 +89,47 @@ alias_map = {
     "烏勒庫斯": ["烏勒庫斯", "烏", "231"],
     "奈克偌斯": ["奈克偌斯", "奈", "571"],
 }
+emoji_map = {
+    "四色": "🔥",
+    "小紅": "🔴",
+    "小綠": "🟢",
+    "巨大蜈蚣": "🐛",
+    "伊弗利特": "🔥",
+    "巨大飛龍": "🐉",
+    "中飛龍": "🐉",
+    "東飛龍": "🐉",
+    "左飛龍": "🐉",
+    "右飛龍": "🐉",
+    "大黑長者": "🖤",
+    "死亡騎士": "🗡️",
+    "蜘蛛": "🕷️",
+    "樹精": "🌲",
+    "古代巨人": "🗿",
+    "變形怪首領": "👾",
+    "不死鳥": "🔥",
+    "曼波王": "🐰",
+    "守護螞蟻": "🐜",
+    "大腳瑪幽": "🦶",
+    "卡司特": "🏹",
+    "力卡溫": "🐺",
+    "巨大鱷魚": "🐊",
+    "強盜頭目": "🧔",
+    "貝里斯": "🛡️",
+    "烏勒庫斯": "💀",
+    "奈克偌斯": "💀",
+
+    # 固定王
+    "奇岩一樓王": "🏰",
+    "奇岩二樓王": "🏰",
+    "奇岩三樓王": "🏰",
+    "奇岩四樓王": "🏰",
+    "黑暗四樓王": "🏰",
+    "三王": "🏰",
+    "惡魔": "😈",
+    "巴風特": "🐐",
+    "異界炎魔": "🔥",
+    "魔法師": "🧙‍♂️",
+}
 
 cd_map = {
     "四色": 2, "小紅": 2, "小綠": 2, "守護螞蟻": 3.5, "巨大蜈蚣": 2,
@@ -225,55 +266,89 @@ def handle_message(event):
         )
         return
 
+    # --------------------------------------------------------
+    # 王列表（顯示簡稱對照表）
+    # --------------------------------------------------------
+    if msg in ["王列表", "王清單", "全部王", "boss list"]:
+        lines = ["【王列表 - 簡稱對照表】", ""]
+        for boss, names in alias_map.items():
+            lines.append(f"{boss}：{' / '.join(names)}")
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("\n".join(lines))
+        )
+        return
+        
+    # --------------------------------------------------------
+    # 王重生：顯示所有 CD 王的重生時間（CD 小時）
+    # --------------------------------------------------------
+    if msg in ["王重生", "cd王", "重生時間", "cd列表"]:
+        lines = ["【CD 王重生時間表】", ""]
+        for boss, cd in cd_map.items():
+            lines.append(f"{boss}：{cd} 小時")
 
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("\n".join(lines))
+        )
+        return
+        
     if msg == "出":
         lines = ["【即將重生列表】", ""]
         now = now_tw()
         items = []
 
-        # 處理有 CD 的王 (會計算是否過場以及過幾場)
+        # 處理 CD 王
         for boss, cd in cd_map.items():
             if boss in db and db[boss]:
                 rec = db[boss][-1]
-                # rec['respawn'] 存的是上次紀錄推算出的下次重生 isoformat
                 base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
 
                 t = base_respawn
                 missed = 0
-
-                # Advance t forward until t >= now, counting missed spawns (t < now -> missed)
-                # 每次加上 cd 小時 (支援小數 cd)
                 step = timedelta(hours=cd)
+
+                # 計算過幾場
                 while t < now:
                     t += step
                     missed += 1
 
-                # t 是下一次應該重生的時間（>= now）
-                note_part = f" ({rec['note']})" if rec.get("note") else ""
-                if missed > 0:
-                    items.append((t, f"{t.strftime('%H:%M:%S')} {boss}（過{missed}）{note_part}"))
-                else:
-                    items.append((t, f"{t.strftime('%H:%M:%S')} {boss}{note_part}"))
+                # 取得 emoji
+                icon = emoji_map.get(boss, "•")
 
-        # 處理固定時間的王（維持原本行為）
+                # 原本格式：時間 + 王名 + 備註 + 過幾場
+                line = f"{icon} {t.strftime('%H:%M:%S')} {boss}"
+
+                if rec.get("note"):
+                    line += f" ({rec['note']})"
+
+                if missed > 0:
+                    line += f"（過{missed}）"
+
+                items.append((t, line))
+
+        # 處理固定王
         for boss, times in fixed_bosses.items():
             t = get_next_fixed_time(times)
-            items.append((t, f"{t.strftime('%H:%M:%S')} {boss}（固定）"))
+            icon = emoji_map.get(boss, "•")
+            line = f"{icon} {t.strftime('%H:%M:%S')} {boss}（固定）"
+            items.append((t, line))
 
+        # 排序
         items.sort(key=lambda x: x[0])
-        for t, s in items:
-            lines.append(s)
 
-        lines.append("")
-        lines.append("--- 未登記 ---")
-        for boss in alias_map:
-            if boss not in db or not db[boss]:
-                lines.append(boss)
+        # 輸出
+        for _, line in items:
+            lines.append(line)
 
-        line_bot_api.reply_message(event.reply_token,
-                                   TextSendMessage("\n".join(lines)))
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("\n".join(lines))
+        )
         return
 
+
+    
     if msg.startswith("查 "):
         name = msg.split(" ",1)[1]
         boss = get_boss(name)
@@ -287,15 +362,27 @@ def handle_message(event):
 
         lines = [f"【{boss} 最近登記紀錄】", ""]
 
-        for rec in db[boss][-5:]:
+        for rec in db[boss][-5:]:  # 顯示最多五筆
             nickname = get_username(rec["user"])
+            # 解析重生時間，去除 +08:00
+            resp = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+            resp_str = resp.strftime("%H:%M:%S")
+
+            lines.append(f"🔥 登記日期：{rec['date']}")
+            lines.append(f"🧍‍♂️ 玩家：{nickname}")
+            lines.append(f"🕒 死亡時間：{rec['kill']}")
+            lines.append(f"✨ 重生時間：{resp_str}")
+
+            if rec["note"].strip() != "":
+                lines.append(f"📌 備註：{rec['note']}")
+
+            lines.append("")  # 空行分隔記錄
+            
             lines.append(f"{rec['date']} by {nickname}")
             lines.append(f"死亡 {rec['kill']}")
-            lines.append(f"重生 {rec['respawn'].split('T')[1]}")
-            if rec["note"]:
-                lines.append(f"備註: {rec['note']}")
-            lines.append("")
-
+            resp = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+            lines.append(f"重生 {resp.strftime('%H:%M:%S')}")
+            
         line_bot_api.reply_message(event.reply_token,
                                    TextSendMessage("\n".join(lines)))
         return
@@ -329,11 +416,20 @@ def handle_message(event):
                 db[boss].append(rec)
                 save_db(db)
 
+                # 美化登記成功訊息
+                kill_time = rec['kill']
+                resp_time = respawn.strftime('%H:%M:%S')
+                msg_lines = [
+                    f"🔥 已登記 {boss}",
+                    f"🕒 死亡時間：{kill_time}",
+                    f"✨ 重生時間：{resp_time}"
+                ]
+                if note.strip() != "":
+                    msg_lines.append(f"📌 備註：{note}")
+
                 line_bot_api.reply_message(
                     event.reply_token,
-                    TextSendMessage(
-                        f"已登記 {boss}\n死亡時間：{rec['kill']}\n下次重生時間：{respawn.strftime('%H:%M:%S')}"
-                    )
+                    TextSendMessage("\n".join(msg_lines))
                 )
                 return
 
