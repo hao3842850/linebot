@@ -313,9 +313,6 @@ def handle_message(event):
                     t += step
                     missed += 1
 
-                # 取得 emoji
-                icon = emoji_map.get(boss, "•")
-
                 # 原本格式：時間 + 王名 + 備註 + 過幾場
                 line = f"{icon} {t.strftime('%H:%M:%S')} {boss}"
 
@@ -330,10 +327,16 @@ def handle_message(event):
         # 處理固定王
         for boss, times in fixed_bosses.items():
             t = get_next_fixed_time(times)
-            icon = emoji_map.get(boss, "•")
-            line = f"{icon} {t.strftime('%H:%M:%S')} {boss}（固定）"
+            line = f"{icon} {t.strftime('%H:%M:%S')} {boss}"
             items.append((t, line))
 
+        # 未登記王永遠放在最下面
+        for boss in boss_list:
+            if boss not in cd_map and boss not in fixed_bosses:
+                line = boss   # 不再加「未登記」
+                fake_time = datetime(9999, 1, 1, tzinfo=TZ)
+                items.append((fake_time, line))
+                
         # 排序
         items.sort(key=lambda x: x[0])
 
@@ -375,13 +378,6 @@ def handle_message(event):
 
             if rec["note"].strip() != "":
                 lines.append(f"📌 備註：{rec['note']}")
-
-            lines.append("")  # 空行分隔記錄
-            
-            lines.append(f"{rec['date']} by {nickname}")
-            lines.append(f"死亡 {rec['kill']}")
-            resp = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
-            lines.append(f"重生 {resp.strftime('%H:%M:%S')}")
             
         line_bot_api.reply_message(event.reply_token,
                                    TextSendMessage("\n".join(lines)))
