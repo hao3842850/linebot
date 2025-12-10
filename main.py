@@ -1,15 +1,3 @@
-# ============================================================
-# 天堂M 吃王小幫手 - 完整最終版 main.py
-# 支援：
-# - 登記 6666 / HHMM / HHMMSS
-# - 查詢王 / 查 王名
-# - 出（固定王 + CD 王混排序）
-# - 過一 / 過二
-# - clear → 是
-# - 刪除王
-# - 群組聊天不回覆，僅處理指令
-# - 全台灣時間 UTC+8
-# ============================================================
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -50,7 +38,17 @@ if not os.path.exists(DB_FILE):
 
 def load_db():
     with open(DB_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+        db = json.load(f)
+
+    # 確保 KPI 結構存在
+    if "kpi" not in db:
+        db["kpi"] = {
+            "yes": 0,
+            "no": 0
+        }
+
+    return db
+
 
 def save_db(db):
     with open(DB_FILE, "w", encoding="utf-8") as f:
@@ -209,6 +207,21 @@ def handle_message(event):
     user = event.source.user_id
     msg = event.message.text.strip()
     db = load_db()
+    # 取得群組 ID，私訊就用 user ID
+    group_id = (
+        event.source.group_id 
+        if event.source.type == "group"
+        else user
+    )
+    # 讓每個群組有自己的王紀錄空間
+    if "boss" not in db:
+        db["boss"] = {}
+
+    if group_id not in db["boss"]:
+        db["boss"][group_id] = {}
+
+    boss_db = db["boss"][group_id]
+
 
     if msg == "clear":
         db["__WAIT_CONFIRM__"] = user
@@ -229,8 +242,8 @@ def handle_message(event):
     if msg.startswith("刪除 ") or msg.startswith("del "):
         name = msg.split(" ",1)[1]
         boss = get_boss(name)
-        if boss and boss in db:
-            db.pop(boss)
+        if boss and boss in boss_db:
+            boss_db.pop(boss)
             save_db(db)
             line_bot_api.reply_message(event.reply_token,
                                        TextSendMessage(f"已刪除 {boss} 的紀錄"))
@@ -292,26 +305,29 @@ def handle_message(event):
             TextSendMessage("\n".join(lines))
         )
         return
-        
+    # --------------------------------------------------------
+    # 出：顯示所有重生排序（CD + 固定 + 未登記）
+    # --------------------------------------------------------
     if msg == "出":
         now = now_tw()
         items = []
-         # 定義 boss_list（所有王）
-        boss_list = list(alias_map.keys()) + list(fixed_bosses.keys())
 
-    # ============================
-    # 處理 CD 王
-    # ============================
+        # 所有可能會被列出的王（CD + 固定）
+        boss_list = list(cd_map.keys()) + list(fixed_bosses.keys())
+
+        # ============================
+        # 處理 CD 王
+        # ============================
         for boss, cd in cd_map.items():
-            if boss in db and db[boss]:
-                rec = db[boss][-1]
+            if boss in boss_db and boss_db[boss]:
+                rec = boss_db[boss][-1]
                 base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
 
                 t = base_respawn
                 missed = 0
                 step = timedelta(hours=cd)
 
-            # 過一處理
+                # 過一處理
                 while t < now:
                     t += step
                     missed += 1
@@ -326,82 +342,70 @@ def handle_message(event):
 
                 items.append((t, line))
 
-    # ============================
-    # 處理固定王
-    # ============================
+        # ============================
+        # 處理固定王
+        # ============================
         for boss, times in fixed_bosses.items():
             next_time = get_next_fixed_time(times)
             line = f"{next_time.strftime('%H:%M:%S')} {boss}"
             items.append((next_time, line))
 
-    # ============================
-    # 處理未登記王（永遠放最下面）
-    # ============================
-                # ============================
-        # 處理未登記王（永遠放最下面）
         # ============================
-            for boss in boss_list:
-            # ✔ 正確判斷：在 alias/fixed/CD 中，但沒有任何登記紀錄
-                if boss not in db:
-                    line = boss
-                    fake_time = datetime(9999, 1, 1, tzinfo=TZ)
-                    items.append((fake_time, line))
+        # 處理未登記王（永遠在下面）
+        # ============================
+        for boss in boss_list:
+            if boss not in boss_db or len(boss_db[boss]) == 0:
+                fake_time = datetime(9999, 1, 1, tzinfo=TZ)
+                items.append((fake_time, boss))
 
-    # ============================
-    # 排序（未登記會因為9999排最後）
-    # ============================
+        # 排序（未登記因 fake_time 排最後）
         items.sort(key=lambda x: x[0])
 
-    # ============================
-    # 開始輸出
-    # ============================
+        # ============================
+        # 開始輸出
+        # ============================
         output = []
         output.append("【即將重生列表】")
         output.append("")
 
-    # 先輸出已登記（CD王 + 固定王）
+        # 已登記
         for t, line in items:
             if t.year == 9999:
                 continue
             output.append(line)
 
-    # ============================
-    # 分隔線（左右平均）
-    # ============================
+        # 分隔線
         title = "未登記"
-        total_width = 24     # 可調整整體寬度
+        total_width = 24
         dash_each_side = (total_width - len(title)) // 2
         separator = f"{'—' * dash_each_side} {title} {'—' * dash_each_side}"
         output.append(separator)
 
-    # ============================
-    # 最後輸出未登記王（只名字）
-    # ============================
+        # 未登記
         for t, line in items:
             if t.year == 9999:
                 output.append(line)
 
-    # 發送訊息
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage("\n".join(output))
         )
         return
-        
+
     if msg.startswith("查 "):
         name = msg.split(" ",1)[1]
         boss = get_boss(name)
         if boss is None:
             return
 
-        if boss not in db:
+        if boss not in boss_db:
             line_bot_api.reply_message(event.reply_token,
                                        TextSendMessage("尚無紀錄"))
             return
 
         lines = [f"【{boss} 最近登記紀錄】", ""]
 
-        for rec in db[boss][-5:]:  # 顯示最多五筆
+        for rec in boss_db[boss][-5:]:  # 顯示最多五筆
             nickname = get_username(rec["user"])
             # 解析重生時間，去除 +08:00
             resp = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
@@ -443,9 +447,9 @@ def handle_message(event):
                     "user": user
                 }
 
-                if boss not in db:
-                    db[boss] = []
-                db[boss].append(rec)
+                if boss not in boss_db:
+                    boss_db[boss] = []
+                boss_db[boss].append(rec)
                 save_db(db)
 
                 # 美化登記成功訊息
