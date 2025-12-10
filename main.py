@@ -117,7 +117,7 @@ def handle_reboot_time(event, text, db, boss_db):
             TextSendMessage("所有 CD 王皆已有紀錄，無需重置。")
         )
 
-    text_output = ["【開機 — 已更新未登記 CD 王】", ""]
+    text_output = ["【開機 — 已更新未登記王】", ""]
     text_output.extend(updated)
 
     return line_bot_api.reply_message(
