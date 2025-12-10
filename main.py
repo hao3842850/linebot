@@ -10,7 +10,6 @@
 # - 群組聊天不回覆，僅處理指令
 # - 全台灣時間 UTC+8
 # ============================================================
-
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -20,6 +19,7 @@ import os
 import json
 from datetime import datetime, timedelta
 import pytz
+import math
 
 def get_username(user_id):
     try:
@@ -231,17 +231,31 @@ def handle_message(event):
         now = now_tw()
         items = []
 
+        # 處理有 CD 的王 (會計算是否過場以及過幾場)
         for boss, cd in cd_map.items():
-            if boss in db:
+            if boss in db and db[boss]:
                 rec = db[boss][-1]
-                t = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
-                while t < now:
-                    t += timedelta(hours=cd)
-                items.append(
-                    (t, f"{t.strftime('%H:%M:%S')} {boss}" +
-                        (f" ({rec['note']})" if rec["note"] else ""))
-                )
+                # rec['respawn'] 存的是上次紀錄推算出的下次重生 isoformat
+                base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
 
+                t = base_respawn
+                missed = 0
+
+                # Advance t forward until t >= now, counting missed spawns (t < now -> missed)
+                # 每次加上 cd 小時 (支援小數 cd)
+                step = timedelta(hours=cd)
+                while t < now:
+                    t += step
+                    missed += 1
+
+                # t 是下一次應該重生的時間（>= now）
+                note_part = f" ({rec['note']})" if rec.get("note") else ""
+                if missed > 0:
+                    items.append((t, f"{t.strftime('%H:%M:%S')} {boss}（過{missed}）{note_part}"))
+                else:
+                    items.append((t, f"{t.strftime('%H:%M:%S')} {boss}{note_part}"))
+
+        # 處理固定時間的王（維持原本行為）
         for boss, times in fixed_bosses.items():
             t = get_next_fixed_time(times)
             items.append((t, f"{t.strftime('%H:%M:%S')} {boss}（固定）"))
@@ -253,7 +267,7 @@ def handle_message(event):
         lines.append("")
         lines.append("--- 未登記 ---")
         for boss in alias_map:
-            if boss not in db:
+            if boss not in db or not db[boss]:
                 lines.append(boss)
 
         line_bot_api.reply_message(event.reply_token,
@@ -293,7 +307,13 @@ def handle_message(event):
             boss = get_boss(parts[1])
             if boss:
                 note = " ".join(parts[2:]) if len(parts) > 2 else ""
-                cd = cd_map[boss]
+                cd = cd_map.get(boss, None)
+                if cd is None:
+                    # 如果是固定時間的王，可以用不同邏輯或直接回覆不可用 cd 登記
+                    line_bot_api.reply_message(event.reply_token,
+                                               TextSendMessage("此王為固定時間或未設定 CD，請用固定時間查詢"))
+                    return
+
                 respawn = t + timedelta(hours=cd)
 
                 rec = {
