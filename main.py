@@ -54,6 +54,34 @@ def save_db(db):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
 
+def handle_reboot_time(event, text):
+    chat_id = event.source.group_id if event.source.type == "group" else event.source.user_id
+
+    parts = text.split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        return reply_text(event.reply_token, "格式錯誤\n正確用法：開機 0930")
+
+    reboot_time = parts[1]
+
+    if chat_id not in boss_data:
+        return reply_text(event.reply_token, "尚未初始化資料")
+
+    updated_list = []
+
+    # 只更新 CD 王
+    for boss, info in boss_data[chat_id]["CD王"].items():
+        if info["time"] == "未登記":
+            info["time"] = reboot_time
+            updated_list.append(f"{boss} → {reboot_time}")
+
+    if not updated_list:
+        return reply_text(event.reply_token, "所有 CD 王都已有登記時間\n無需更新。")
+
+    save_database()
+
+    return reply_flex_message(event.reply_token, generate_reboot_flex(reboot_time, updated_list))
+
+
 alias_map = {
     "四色": ["四色", "76", "4", "四", "4色"],
     "小紅": ["小紅", "55", "紅", "R", "r"],
@@ -430,6 +458,12 @@ def handle_message(event):
                                    TextSendMessage("\n".join(lines)))
         return
 
+    if msg.startswith("開機") or msg.startswith("維修"):
+        return handle_reboot_time(event, msg, db, boss_db)
+
+    parts = msg.split(" ")
+
+    
     parts = msg.split(" ")
     if len(parts) >= 2:
         t = parse_time(parts[0])
