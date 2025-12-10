@@ -294,11 +294,14 @@ def handle_message(event):
         return
         
     if msg == "出":
-        lines = ["【即將重生列表】", ""]
         now = now_tw()
         items = []
+         # 定義 boss_list（所有王）
+        boss_list = list(alias_map.keys()) + list(fixed_bosses.keys())
 
-        # 處理 CD 王
+    # ============================
+    # 處理 CD 王
+    # ============================
         for boss, cd in cd_map.items():
             if boss in db and db[boss]:
                 rec = db[boss][-1]
@@ -308,13 +311,12 @@ def handle_message(event):
                 missed = 0
                 step = timedelta(hours=cd)
 
-                # 計算過幾場
+            # 過一處理
                 while t < now:
                     t += step
                     missed += 1
 
-                # 原本格式：時間 + 王名 + 備註 + 過幾場
-                line = f"{icon} {t.strftime('%H:%M:%S')} {boss}"
+                line = f"{t.strftime('%H:%M:%S')} {boss}"
 
                 if rec.get("note"):
                     line += f" ({rec['note']})"
@@ -324,34 +326,68 @@ def handle_message(event):
 
                 items.append((t, line))
 
-        # 處理固定王
+    # ============================
+    # 處理固定王
+    # ============================
         for boss, times in fixed_bosses.items():
-            t = get_next_fixed_time(times)
-            line = f"{icon} {t.strftime('%H:%M:%S')} {boss}"
-            items.append((t, line))
+            next_time = get_next_fixed_time(times)
+            line = f"{next_time.strftime('%H:%M:%S')} {boss}"
+            items.append((next_time, line))
 
-        # 未登記王永遠放在最下面
-        for boss in boss_list:
-            if boss not in cd_map and boss not in fixed_bosses:
-                line = boss   # 不再加「未登記」
-                fake_time = datetime(9999, 1, 1, tzinfo=TZ)
-                items.append((fake_time, line))
-                
-        # 排序
+    # ============================
+    # 處理未登記王（永遠放最下面）
+    # ============================
+                # ============================
+        # 處理未登記王（永遠放最下面）
+        # ============================
+            for boss in boss_list:
+            # ✔ 正確判斷：在 alias/fixed/CD 中，但沒有任何登記紀錄
+                if boss not in db:
+                    line = boss
+                    fake_time = datetime(9999, 1, 1, tzinfo=TZ)
+                    items.append((fake_time, line))
+
+    # ============================
+    # 排序（未登記會因為9999排最後）
+    # ============================
         items.sort(key=lambda x: x[0])
 
-        # 輸出
-        for _, line in items:
-            lines.append(line)
+    # ============================
+    # 開始輸出
+    # ============================
+        output = []
+        output.append("【即將重生列表】")
+        output.append("")
 
+    # 先輸出已登記（CD王 + 固定王）
+        for t, line in items:
+            if t.year == 9999:
+                continue
+            output.append(line)
+
+    # ============================
+    # 分隔線（左右平均）
+    # ============================
+        title = "未登記"
+        total_width = 24     # 可調整整體寬度
+        dash_each_side = (total_width - len(title)) // 2
+        separator = f"{'—' * dash_each_side} {title} {'—' * dash_each_side}"
+        output.append(separator)
+
+    # ============================
+    # 最後輸出未登記王（只名字）
+    # ============================
+        for t, line in items:
+            if t.year == 9999:
+                output.append(line)
+
+    # 發送訊息
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage("\n".join(lines))
+            TextSendMessage("\n".join(output))
         )
         return
-
-
-    
+        
     if msg.startswith("查 "):
         name = msg.split(" ",1)[1]
         boss = get_boss(name)
