@@ -441,15 +441,11 @@ def handle_message(event):
                 continue
             output.append(line)
 
-# 如果有未登記王，才顯示分隔線
         if has_unregistered:
             title = "未登記"
-            total_width = 24
-            dash_each_side = 5
-            separator = f"{'—' * dash_each_side} {title} {'—' * dash_each_side}"
+            separator = f"— {title} —"   # ← 超短分隔線
             output.append(separator)
 
-    # 列出未登記王
             for t, line in items:
                 if t.year == 9999:
                     output.append(line)
