@@ -483,7 +483,7 @@ def handle_message(event):
             event.reply_token,
             TextSendMessage("\n".join(output))
         )
-    return
+        return
     # ============================
     # 名冊系統
     # ============================
