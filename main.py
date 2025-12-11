@@ -1,11 +1,3 @@
-    # 顯示自己的 LINE User ID
-if msg == "我的ID":
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(f"你的 LINE USER ID：\n{user}")
-    )
-    return
-
 # === MongoDB 名冊系統 ===
 from pymongo import MongoClient
 
@@ -299,6 +291,15 @@ def handle_message(event):
     boss_db = db["boss"][group_id]
 
 
+        # 顯示自己的 LINE User ID
+    if msg == "我的ID":
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(f"你的 LINE USER ID：\n{user}")
+        )
+        return
+
+    
     if msg == "clear":
         db["__WAIT_CONFIRM__"] = user
         save_db(db)
