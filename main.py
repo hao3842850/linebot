@@ -1,7 +1,7 @@
 # === MongoDB 名冊系統 ===
 from pymongo import MongoClient
 
-MONGO_URL = "mongodb+srv://hao:wenhao0222@cluster0.utvdkw9.mongodb.net/?appName=Cluster0"
+MONGO_URL = "mongodb+srv://hao:wenhao0222@cluster0.utvdkw9.mongodb.net/?retryWrites=true&w=majority&tls=true"
 mongo_client = MongoClient(MONGO_URL)
 mongo_db = mongo_client["line_bot"]
 roster_collection = mongo_db["roster"]   # 名冊資料表
