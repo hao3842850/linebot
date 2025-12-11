@@ -1,10 +1,16 @@
 # === MongoDB 名冊系統 ===
 from pymongo import MongoClient
 
-MONGO_URL = "mongodb+srv://hao:wenhao0222@cluster0.utvdkw9.mongodb.net/?retryWrites=true&w=majority&tls=true"
-mongo_client = MongoClient(MONGO_URL)
+MONGO_URL = "mongodb+srv://hao:wenhao0222@cluster0.utvdkw9.mongodb.net/?retryWrites=true&w=majority&tls=true&tlsAllowInvalidCertificates=true&ssl=true"
+
+mongo_client = MongoClient(
+    MONGO_URL,
+    serverSelectionTimeoutMS=20000
+)
+
 mongo_db = mongo_client["line_bot"]
-roster_collection = mongo_db["roster"]   # 名冊資料表
+roster_collection = mongo_db["roster"]
+
 
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
