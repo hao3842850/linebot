@@ -13,8 +13,7 @@ from linebot.exceptions import InvalidSignatureError
 
 # === 管理員清單 ===
 ADMINS = {
-    "Uxxxxxxxxxxxxxx",   # 管理員 LINE user_id（可新增多個）
-    "Uyyyyyyyyyyyyyy"
+    "U68c2e4197ef63a2c7fc923baae1f3667"   # 管理員 LINE user_id（可新增多個）
 }
 
 import os
