@@ -455,7 +455,7 @@ def handle_message(event):
             event.reply_token,
             TextSendMessage("\n".join(output))
         )
-return
+    return
 
     if msg.startswith("查 "):
         name = msg.split(" ",1)[1]
