@@ -190,61 +190,68 @@ def handle_message(event):
     # =========================
     if msg == "出":
         now = now_tw()
-        items = []
+        time_items = []
+        unregistered = []
 
-    # ============================
-    # 處理 CD 王（含 30 分鐘未打排序）
-    # ============================
+    # ===== CD 王 =====
         for boss, cd in cd_map.items():
-            if boss in boss_db and boss_db[boss]:
-                rec = boss_db[boss][-1]
-                base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+            if boss not in boss_db or not boss_db[boss]:
+                unregistered.append(boss)
+                continue
 
-                t = base_respawn
-                missed = 0
-                step = timedelta(hours=cd)
+            rec = boss_db[boss][-1]
+            base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
 
-            # 過一處理
-                while t < now:
-                    t += step
-                    missed += 1
+            t = base_respawn
+            missed = 0
+            step = timedelta(hours=cd)
 
-        # 已重生多久（分鐘）
-                passed_minutes = int((now - base_respawn).total_seconds() // 60)
+            while t < now:
+                t += step
+                missed += 1
 
-                line = f"{t.strftime('%H:%M:%S')} {boss}"
+            passed_minutes = int((now - base_respawn).total_seconds() // 60)
 
-                if rec.get("note"):
-                    line += f" ({rec['note']})"
+            line = f"{t.strftime('%H:%M:%S')} {boss}"
 
-        # 30 分鐘內未吃 → 顯示 <XX分未打>
-                if passed_minutes >= 0 and passed_minutes <= 30:
-                    line += f" <{passed_minutes}分未打>"
+            if rec.get("note"):
+                line += f" ({rec['note']})"
 
-        # 過一顯示（你原本就有）
-                if missed > 0:
-                    line += f"#過{missed}"
+            if 0 <= passed_minutes <= 30:
+                line += f" <{passed_minutes}分未打>"
+                priority = 0
+            else:
+                priority = 1
 
-        # ⭐ 排序權重
-        # 0 = 30 分鐘內未打
-        # 1 = 其他已登記
-                priority = 0 if 0 <= passed_minutes <= 30 else 1
+            if missed > 0:
+                line += f"#過{missed}"
 
-                items.append((priority, t, line))
+            time_items.append((priority, t, line))
 
-
+    # ===== 固定王 =====
         for boss, times in fixed_bosses.items():
             t = get_next_fixed_time(times)
-            items.append((2, t, f"{t.strftime('%H:%M:%S')} {boss}"))
-            
-        items.sort(key=lambda x: (x[0], x[1]))
+            time_items.append((2, t, f"{t.strftime('%H:%M:%S')} {boss}"))
+
+    # 排序
+        time_items.sort(key=lambda x: (x[0], x[1]))
+
+    # ===== 組輸出 =====
         output = ["【即將重生列表】", ""]
-        for _, t, line in items:
+        for _, _, line in time_items:
             output.append(line)
 
-        line_bot_api.reply_message(event.reply_token, TextSendMessage("\n".join(output)))
-        return
+        if unregistered:
+            output.append("")
+            output.append("— 未登記 —")
+            for b in unregistered:
+                output.append(b)
 
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("\n".join(output))
+        )
+        return
     # =========================
     # 登記王
     # =========================
