@@ -383,6 +383,51 @@ def clear_confirm_flex():
         }
     }
 
+def build_boot_init_flex(base_time_str):
+    return FlexSendMessage(
+        alt_text="已紀錄開機時間",
+        contents={
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "🔌 開機時間已紀錄",
+                        "weight": "bold",
+                        "size": "lg"
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "spacing": "sm",
+                        "margin": "md",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": f"🕒 開機時間：{base_time_str}",
+                                "wrap": True
+                            },
+                            {
+                                "type": "text",
+                                "text": "📌 僅補齊尚未登記的 CD 王",
+                                "size": "sm",
+                                "color": "#666666",
+                                "wrap": True
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    )
+
 
 # =========================
 # 王資料
@@ -621,12 +666,13 @@ def handle_message(event):
         init_cd_boss_with_given_time(db, group_id, base_time)
         save_db(db)
     
+        flex_msg = build_boot_init_flex(
+            base_time.strftime('%H:%M')
+        )
+        
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(
-                f"🔌 已以 {base_time.strftime('%H:%M')} 紀錄開機時間\n"
-                "📌 僅補齊尚未登記的 CD 王"
-            )
+            flex_msg
         )
         return
     
