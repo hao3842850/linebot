@@ -535,6 +535,28 @@ def get_next_fixed_time_fixed(boss_conf):
                 return dt
 
     return None
+
+def init_cd_boss_with_given_time(db, group_id, base_time):
+    db.setdefault("boss", {})
+    db["boss"].setdefault(group_id, {})
+    boss_db = db["boss"][group_id]
+
+    for boss, cd in cd_map.items():
+        # 已有紀錄就跳過
+        if boss in boss_db and boss_db[boss]:
+            continue
+
+        respawn = base_time + timedelta(hours=cd)
+
+        boss_db.setdefault(boss, []).append({
+            "date": base_time.strftime("%Y-%m-%d"),
+            "kill": base_time.strftime("%H:%M:%S"),
+            "respawn": respawn.isoformat(),
+            "note": "開機初始化",
+            "user": "__SYSTEM__"
+        })
+
+
 # =========================
 # FastAPI Webhook
 # =========================
@@ -553,6 +575,33 @@ def handle_message(event):
     msg = event.message.text.strip()
     db = load_db()
 
+    # =========================
+    # 開機 初始化 CD 王
+    # =========================
+    if msg.startswith("開機 "):
+        parts = msg.split(" ", 1)
+        time_token = parts[1].strip()
+    
+        base_time = parse_time(time_token)
+        if not base_time:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
+            )
+            return
+    
+        init_cd_boss_with_given_time(db, group_id, base_time)
+        save_db(db)
+    
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                f"🔌 已以 {base_time.strftime('%H:%M:%S')} 紀錄開機時間\n"
+                "📌 僅補齊尚未登記的 CD 王"
+            )
+        )
+        return
+    
     if msg.lower() == "help":
         line_bot_api.reply_message(
             event.reply_token,
