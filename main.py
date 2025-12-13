@@ -639,6 +639,51 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
         })
 
 
+def get_kpi_range(now):
+    """
+    KPI 統計區間：
+    星期三 05:00 ～ 下星期三 05:00
+    """
+    # weekday(): Monday=0 ... Sunday=6
+    # Wednesday = 2
+    days_since_wed = (now.weekday() - 2) % 7
+    start = now - timedelta(days=days_since_wed)
+    start = start.replace(hour=5, minute=0, second=0, microsecond=0)
+
+    # 如果現在還沒到本週三 05:00，往前推一週
+    if now < start:
+        start -= timedelta(days=7)
+
+    end = start + timedelta(days=7)
+    return start, end
+def calculate_kpi(boss_db, start, end):
+    """
+    boss_db = db["boss"][group_id]
+    回傳 dict: {user_id: count}
+    """
+    result = {}
+
+    for boss, records in boss_db.items():
+        for rec in records:
+            # 排除開機補登記
+            if rec.get("user") == "__SYSTEM__":
+                continue
+
+            kill_dt = TZ.localize(
+                datetime.strptime(
+                    f"{rec['date']} {rec['kill']}",
+                    "%Y-%m-%d %H:%M:%S"
+                )
+            )
+
+            if start <= kill_dt < end:
+                uid = rec["user"]
+                result[uid] = result.get(uid, 0) + 1
+
+    return result
+
+
+
 # =========================
 # FastAPI Webhook
 # =========================
@@ -792,6 +837,48 @@ def handle_message(event):
         )
         return
 
+    # =========================
+    # KPI
+    # =========================
+    if msg.upper() == "KPI":
+        now = now_tw()
+        start, end = get_kpi_range(now)
+    
+        kpi_data = calculate_kpi(boss_db, start, end)
+    
+        if not kpi_data:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("📊 本週尚無 KPI 紀錄")
+            )
+            return
+    
+        # 排序（吃王次數多 → 少）
+        ranking = sorted(
+            kpi_data.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+    
+        lines = []
+        medals = ["🥇", "🥈", "🥉"]
+    
+        for idx, (uid, count) in enumerate(ranking):
+            name = get_username(uid)
+            prefix = medals[idx] if idx < 3 else f"{idx+1}."
+            lines.append(f"{prefix} {name}：{count} 次")
+    
+        output = [
+            "📊【本週 KPI 排行榜】",
+            f"（{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}）",
+            ""
+        ] + lines
+    
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("\n".join(output))
+        )
+        return
     # =========================
     # 出
     # =========================
