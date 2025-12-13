@@ -552,7 +552,7 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
             "date": base_time.strftime("%Y-%m-%d"),
             "kill": base_time.strftime("%H:%M:%S"),
             "respawn": respawn.isoformat(),
-            "note": "開機初始化",
+            "note": "開機",
             "user": "__SYSTEM__"
         })
 
@@ -714,31 +714,49 @@ def handle_message(event):
         time_items = []
         unregistered = []
 
-    # ===== CD 王 =====
+        # ===== CD 王 =====
         for boss, cd in cd_map.items():
             if boss not in boss_db or not boss_db[boss]:
                 unregistered.append(boss)
                 continue
 
             rec = boss_db[boss][-1]
+
             base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
-
-            t = base_respawn
-            missed = 0
-            step = timedelta(hours=cd)
-
-            while t < now:
-                t += step
-                missed += 1
-
             passed_minutes = int((now - base_respawn).total_seconds() // 60)
 
+            step = timedelta(hours=cd)
+
+            # ===== 是否允許跳下一場 =====
+            allow_jump = False
+
+            # 有新登記（代表這筆就是最新場）
+            # → 這裡不用特別判斷，因為 rec 就是最後一筆
+
+            # 超過 30 分鐘 → 視為放生
+            if passed_minutes >= 30:
+                allow_jump = True
+
+            if allow_jump:
+                missed = 0
+                t = base_respawn
+                while t < now:
+                    t += step
+                    missed += 1
+            else:
+                # ❗ 未滿 30 分鐘 → 卡在這一場
+                t = base_respawn
+                missed = 0
+
+            # ===== 組輸出 =====
             line = f"{t.strftime('%H:%M:%S')} {boss}"
 
+            # 備註（包含 開機）
             if rec.get("note"):
                 line += f" ({rec['note']})"
 
-            if 0 <= passed_minutes <= 30:
+            # 未打顯示（只在未跳場時）
+            if not allow_jump and passed_minutes > 0:
                 line += f" <{passed_minutes}分未打>"
                 priority = 0
             else:
@@ -763,7 +781,7 @@ def handle_message(event):
         time_items.sort(key=lambda x: (x[0], x[1]))
 
     # ===== 組輸出 =====
-        output = ["【即將重生列表】", ""]
+        output = ["💥【即將重生列表】☄️", ""]
         for _, _, line in time_items:
             output.append(line)
 
