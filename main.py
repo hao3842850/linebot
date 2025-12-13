@@ -624,7 +624,7 @@ def handle_message(event):
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                f"🔌 已以 {base_time.strftime('%H:%M:%S')} 紀錄開機時間\n"
+                f"🔌 已以 {base_time.strftime('%H:%M')} 紀錄開機時間\n"
                 "📌 僅補齊尚未登記的 CD 王"
             )
         )
