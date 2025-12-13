@@ -1,5 +1,5 @@
 # ============================================================
-# 天堂M 吃王小幫手 - 乾淨穩定版（已移除 MongoDB / 名冊功能）
+# 天堂M 吃王小幫手
 # ============================================================
 # 功能：
 # - 登記王：6666 / HHMM / HHMMSS 王名 [備註]
@@ -206,18 +206,29 @@ def handle_message(event):
     # 查 王名
     # =========================
     if msg.startswith("查 "):
-        boss = get_boss(msg.split(" ", 1)[1])
-        if not boss or boss not in boss_db:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("尚無紀錄"))
+        name = msg.split(" ",1)[1]
+        boss = get_boss(name)
+        if boss is None:
             return
-        rec = boss_db[boss][-1]
-        resp = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
-        text = (
-            f"【{boss}】\n"
-            f"死亡：{rec['kill']}\n"
-            f"重生：{resp.strftime('%H:%M:%S')}"
-        )
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text))
+
+        if boss not in db:
+            line_bot_api.reply_message(event.reply_token,
+                                       TextSendMessage("尚無紀錄"))
+            return
+
+        lines = [f"【{boss} 最近登記紀錄】", ""]
+
+        for rec in db[boss][-5:]:
+            nickname = get_username(rec["user"])
+            lines.append(f"{rec['date']} by {nickname}")
+            lines.append(f"🕒死亡 {rec['kill']}")
+            lines.append(f"✨重生 {rec['respawn'].split('T')[1]}")
+            if rec["note"]:
+                lines.append(f"📌備註: {rec['note']}")
+            lines.append("")
+
+        line_bot_api.reply_message(event.reply_token,
+                                   TextSendMessage("\n".join(lines)))
         return
 
     # =========================
