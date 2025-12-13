@@ -381,12 +381,12 @@ def handle_message(event):
     msg = event.message.text.strip()
     db = load_db()
 
-        if msg.lower() == "help":
-            line_bot_api.reply_message(
-                event.reply_token,
-                build_help_flex()
-            )
-            return
+    if msg.lower() == "help":
+        line_bot_api.reply_message(
+            event.reply_token,
+            build_help_flex()
+        )
+        return
             
     group_id = event.source.group_id if event.source.type == "group" else user
     db.setdefault("boss", {})
@@ -406,24 +406,24 @@ def handle_message(event):
         return
 
 
-        if (
-            msg == "是"
-            and "__WAIT__" in db
-            and db["__WAIT__"].get(group_id) == user
-        ):
-            db["boss"].pop(group_id, None)
-            db["__WAIT__"].pop(group_id, None)
+    if (
+        msg == "是"
+        and "__WAIT__" in db
+        and db["__WAIT__"].get(group_id) == user
+    ):
+        db["boss"].pop(group_id, None)
+        db["__WAIT__"].pop(group_id, None)
         
-            if not db["__WAIT__"]:
-                db.pop("__WAIT__", None)
+        if not db["__WAIT__"]:
+            db.pop("__WAIT__", None)
         
-            save_db(db)
+        save_db(db)
         
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("✅ 已清空本群所有紀錄")
-            )
-            return
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("✅ 已清空本群所有紀錄")
+        )
+        return
     # =========================
     # 查 王名
     # =========================
