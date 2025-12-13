@@ -375,12 +375,12 @@ async def callback(request: Request, x_line_signature=Header(None)):
         return "Invalid signature"
     return "OK"
 
-if msg.lower() == "help":
-    line_bot_api.reply_message(
-        event.reply_token,
-        build_help_flex()
-    )
-    return
+    if msg.lower() == "help":
+        line_bot_api.reply_message(
+            event.reply_token,
+            build_help_flex()
+        )
+        return
 
 
 @handler.add(MessageEvent, message=TextMessage)
