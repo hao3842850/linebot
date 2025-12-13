@@ -30,6 +30,14 @@ DB_FILE = "database.json"
 # =========================
 # 工具函式
 # =========================
+def get_source_id(event):
+    if event.source.type == "group":
+        return event.source.group_id
+    elif event.source.type == "room":
+        return event.source.room_id
+    else:
+        return event.source.user_id
+
 def now_tw():
     return datetime.now(TZ)
 
@@ -279,7 +287,7 @@ def build_help_flex():
                 },
                 {
                     "type": "text",
-                    "text": "範例：開機 2100",
+                    "text": "範例：\n開機 2100",
                     "wrap": True
                 }
             ]
@@ -672,7 +680,7 @@ def handle_message(event):
         )
 
     
-    group_id = event.source.group_id if event.source.type == "group" else user
+    group_id = get_source_id(event)
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
@@ -710,11 +718,12 @@ def handle_message(event):
     # clear
     # =========================
     if msg == "clear":
-        db["__WAIT__"] = {
-            "user": user,
-            "group": group_id
+        db.setdefault("__WAIT__", {})
+        db["__WAIT__"][group_id] = {
+            "user": user
         }
         save_db(db)
+
     
         flex = FlexSendMessage(
             alt_text="清除確認",
@@ -726,13 +735,15 @@ def handle_message(event):
 
 
     if msg == "確定清除":
-        wait = db.get("__WAIT__")
-    
-        if not wait or wait["user"] != user or wait["group"] != group_id:
+        wait = db.get("__WAIT__", {}).get(group_id)
+        
+        if not wait or wait["user"] != user:
             return
+
     
         db["boss"].pop(group_id, None)
-        db.pop("__WAIT__", None)
+        db["__WAIT__"].pop(group_id, None)
+
         save_db(db)
     
         line_bot_api.reply_message(
@@ -742,7 +753,7 @@ def handle_message(event):
         return
 
     if msg == "取消":
-        db.pop("__WAIT__", None)
+        db.get("__WAIT__", {}).pop(group_id, None)
         save_db(db)
     
         line_bot_api.reply_message(
