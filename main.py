@@ -114,7 +114,7 @@ def build_help_flex():
             "contents": [
                 {
                     "type": "text",
-                    "text": "📌 登記王",
+                    "text": "📌 登記BOSS",
                     "weight": "bold",
                     "size": "lg"
                 },
@@ -125,12 +125,12 @@ def build_help_flex():
                 },
                 {
                     "type": "text",
-                    "text": "6666 四色\n0930 四色\n093045 四色 備註",
+                    "text": "6666 四色\nK 四色\n0930 四色\n093045 四色 備註",
                     "wrap": True
                 },
                 {
                     "type": "text",
-                    "text": "※ 6666 = 現在時間",
+                    "text": "※ 6666 = 現在時間 and K = 現在時間",
                     "size": "sm",
                     "color": "#888888"
                 }
@@ -150,7 +150,7 @@ def build_help_flex():
             "contents": [
                 {
                     "type": "text",
-                    "text": "🔍 查詢王",
+                    "text": "🔍 查詢歷史登記",
                     "weight": "bold",
                     "size": "lg"
                 },
@@ -191,7 +191,7 @@ def build_help_flex():
                 },
                 {
                     "type": "text",
-                    "text": "顯示即將重生的王",
+                    "text": "顯示即將重生的BOSS",
                     "size": "sm",
                     "color": "#888888"
                 }
@@ -223,7 +223,7 @@ def build_help_flex():
                 },
                 {
                     "type": "text",
-                    "text": "※ 目前為全域清除\n需輸入「是」確認",
+                    "text": "※ 確定清除所有時間\n需輸入「是」確認",
                     "size": "sm",
                     "color": "#888888",
                     "wrap": True
@@ -244,13 +244,13 @@ def build_help_flex():
             "contents": [
                 {
                     "type": "text",
-                    "text": "💡 小技巧",
+                    "text": "📃 BOSS資料",
                     "weight": "bold",
                     "size": "lg"
                 },
                 {
                     "type": "text",
-                    "text": "✔ 支援王別名\n✔ 支援備註\n✔ 自動算重生時間",
+                    "text": "王列表➡️所有王的簡稱\n王重生➡️所有王的CD時間",
                     "wrap": True
                 }
             ]
@@ -258,7 +258,7 @@ def build_help_flex():
     })
 
     return FlexSendMessage(
-        alt_text="天堂M 吃王小幫手 使用說明",
+        alt_text="伊娃小幫手 使用說明",
         contents={
             "type": "carousel",
             "contents": bubbles
