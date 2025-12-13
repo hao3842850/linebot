@@ -908,22 +908,33 @@ def handle_message(event):
     # KPI
     # =========================
     if msg.upper() == "KPI":
+        now = now_tw()
+        start, end = get_kpi_range(now)
+    
+        # ⭐ 一定要有這行
+        kpi_data = calculate_kpi(boss_db, start, end)
+    
+        if not kpi_data:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("📊 本週尚無 KPI 紀錄")
+            )
+            return
+    
         ranking = sorted(
             kpi_data.items(),
             key=lambda x: x[1],
             reverse=True
         )
-        
-        display = []
-        for uid, count in ranking:
-            display.append((get_username(uid), count))
-        
+    
+        display = [(get_username(uid), count) for uid, count in ranking]
+    
         bubble = build_kpi_flex(
             "📊 本週 KPI 排行榜",
             f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}",
             display
         )
-        
+    
         line_bot_api.reply_message(
             event.reply_token,
             FlexSendMessage(
