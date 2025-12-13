@@ -373,18 +373,48 @@ cd_map = {
 }
 
 fixed_bosses = {
-    "奇岩一樓王": ["00:00", "06:00", "12:00", "18:00"],
-    "奇岩二樓王": ["07:00", "14:00", "21:00"],
-    "奇岩三樓王": ["20:15"],
-    "奇岩四樓王": ["21:15"],
-    "黑暗四樓王": ["00:00", "18:00"],
-    "三王": ["19:15"],
-    "惡魔": ["22:00"],
-    "巴風特": ["14:00", "20:00"],
-    "異界炎魔": ["23:00"],
-    "烈焰大死騎": ["23:30"],
-    "魔法師": ["01:00","03:00","05:00","07:00","09:00","11:00",
-              "13:00","15:00","17:00","19:00","21:00","23:00"],
+     "奇岩一樓王": {
+        "times": ["00:00", "06:00", "12:00", "18:00"],
+        "weekdays": [0, 1, 2, 3, 4]  # 週一～週五
+    },
+    "奇岩二樓王": {
+        "times": ["07:00", "14:00", "21:00"],
+        "weekdays": [0, 1, 2, 3, 4]
+    },
+    "奇岩三樓王": {
+        "times": ["20:15"],
+        "weekdays": [0, 1, 2, 3, 4]
+    },
+    "奇岩四樓王": {
+        "times": ["21:15"],
+        "weekdays": [0, 1, 2, 3, 4]
+    },
+
+    "黑暗四樓王": {
+        "times": ["00:00", "18:00"]
+    },
+    "三王": {
+        "times": ["19:15"]
+    },
+    "惡魔": {
+        "times": ["22:00"]
+    },
+    "巴風特": {
+        "times": ["14:00", "20:00"]
+    },
+    "異界炎魔": {
+        "times": ["23:00"]
+    },
+    "烈焰大死騎": {
+        "times": ["23:30"]
+    },
+    "涅默西斯高輪": {
+        "times": ["22:30"]
+    },
+    "魔法師": {
+        "times": ["01:00","03:00","05:00","07:00","09:00","11:00",
+                  "13:00","15:00","17:00","19:00","21:00","23:00"]
+    }
 }
 # =========================
 # 邏輯函式
@@ -423,6 +453,31 @@ def get_next_fixed_time(time_list):
         return min(times)
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
     return TZ.localize(datetime.strptime(f"{tomorrow} {time_list[0]}", "%Y-%m-%d %H:%M"))
+
+def get_next_fixed_time_fixed(boss_conf):
+    now = now_tw()
+    today = now.date()
+
+    for day_offset in range(0, 8):  # 最多找一週
+        current_date = today + timedelta(days=day_offset)
+        weekday = current_date.weekday()
+
+        # 有設定 weekdays，但今天不在 → 跳過
+        if "weekdays" in boss_conf and weekday not in boss_conf["weekdays"]:
+            continue
+
+        for t in boss_conf["times"]:
+            dt = TZ.localize(
+                datetime.strptime(
+                    f"{current_date} {t}",
+                    "%Y-%m-%d %H:%M"
+                )
+            )
+
+            if dt >= now:
+                return dt
+
+    return None
 # =========================
 # FastAPI Webhook
 # =========================
@@ -575,9 +630,14 @@ def handle_message(event):
             time_items.append((priority, t, line))
 
     # ===== 固定王 =====
-        for boss, times in fixed_bosses.items():
-            t = get_next_fixed_time(times)
-            time_items.append((2, t, f"{t.strftime('%H:%M:%S')} {boss}"))
+        for boss, conf in fixed_bosses.items():
+            t = get_next_fixed_time_fixed(conf)
+            if not t:
+                continue
+        
+            time_items.append(
+                (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
+            )
 
     # 排序
         time_items.sort(key=lambda x: (x[0], x[1]))
