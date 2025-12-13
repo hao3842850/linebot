@@ -223,7 +223,7 @@ def build_help_flex():
                 },
                 {
                     "type": "text",
-                    "text": "※ 確定清除所有時間\n需輸入「是」確認",
+                    "text": "※ 確定清除所有時間\n需按下『確定清除』",
                     "size": "sm",
                     "color": "#888888",
                     "wrap": True
