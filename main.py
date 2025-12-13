@@ -574,33 +574,6 @@ def handle_message(event):
     user = event.source.user_id
     msg = event.message.text.strip()
     db = load_db()
-
-    # =========================
-    # 開機 初始化 CD 王
-    # =========================
-    if msg.startswith("開機 "):
-        parts = msg.split(" ", 1)
-        time_token = parts[1].strip()
-    
-        base_time = parse_time(time_token)
-        if not base_time:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
-            )
-            return
-    
-        init_cd_boss_with_given_time(db, group_id, base_time)
-        save_db(db)
-    
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(
-                f"🔌 已以 {base_time.strftime('%H:%M:%S')} 紀錄開機時間\n"
-                "📌 僅補齊尚未登記的 CD 王"
-            )
-        )
-        return
     
     if msg.lower() == "help":
         line_bot_api.reply_message(
@@ -629,6 +602,35 @@ def handle_message(event):
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
+   
+    # =========================
+    # 開機 初始化 CD 王
+    # =========================
+    if msg.startswith("開機 "):
+        parts = msg.split(" ", 1)
+        time_token = parts[1].strip()
+    
+        base_time = parse_time(time_token)
+        if not base_time:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
+            )
+            return
+    
+        init_cd_boss_with_given_time(db, group_id, base_time)
+        save_db(db)
+    
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                f"🔌 已以 {base_time.strftime('%H:%M:%S')} 紀錄開機時間\n"
+                "📌 僅補齊尚未登記的 CD 王"
+            )
+        )
+        return
+    
+    
     # =========================
     # clear
     # =========================
