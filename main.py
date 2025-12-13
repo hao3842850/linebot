@@ -99,6 +99,172 @@ def build_register_boss_flex(boss, kill_time, respawn_time, note=None):
         }
     )
 
+def build_help_flex():
+    bubbles = []
+
+    # =====================
+    # 1️⃣ 登記王
+    # =====================
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "📌 登記王",
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "指令格式：",
+                    "weight": "bold"
+                },
+                {
+                    "type": "text",
+                    "text": "6666 四色\n0930 四色\n093045 四色 備註",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": "※ 6666 = 現在時間",
+                    "size": "sm",
+                    "color": "#888888"
+                }
+            ]
+        }
+    })
+
+    # =====================
+    # 2️⃣ 查詢王
+    # =====================
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🔍 查詢王",
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "查 王名",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": "範例：\n查 四色",
+                    "wrap": True
+                }
+            ]
+        }
+    })
+
+    # =====================
+    # 3️⃣ 出王清單
+    # =====================
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "⏰ 出王清單",
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "出",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": "顯示即將重生的王",
+                    "size": "sm",
+                    "color": "#888888"
+                }
+            ]
+        }
+    })
+
+    # =====================
+    # 4️⃣ clear 說明
+    # =====================
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "⚠️ 清除紀錄",
+                    "weight": "bold",
+                    "size": "lg",
+                    "color": "#D32F2F"
+                },
+                {
+                    "type": "text",
+                    "text": "clear",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": "※ 目前為全域清除\n需輸入「是」確認",
+                    "size": "sm",
+                    "color": "#888888",
+                    "wrap": True
+                }
+            ]
+        }
+    })
+
+    # =====================
+    # 5️⃣ 小技巧
+    # =====================
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "💡 小技巧",
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "✔ 支援王別名\n✔ 支援備註\n✔ 自動算重生時間",
+                    "wrap": True
+                }
+            ]
+        }
+    })
+
+    return FlexSendMessage(
+        alt_text="天堂M 吃王小幫手 使用說明",
+        contents={
+            "type": "carousel",
+            "contents": bubbles
+        }
+    )
+
 
 # =========================
 # 王資料
@@ -208,6 +374,13 @@ async def callback(request: Request, x_line_signature=Header(None)):
     except InvalidSignatureError:
         return "Invalid signature"
     return "OK"
+
+if msg.lower() == "help":
+    line_bot_api.reply_message(
+        event.reply_token,
+        build_help_flex()
+    )
+    return
 
 
 @handler.add(MessageEvent, message=TextMessage)
