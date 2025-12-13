@@ -3,12 +3,12 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
 
-try:
-    mongo_client.admin.command("ping")
-    print("✅ MongoDB connected")
-except Exception as e:
-    print("❌ MongoDB connection failed:", e)
+import os
+from pymongo import MongoClient
 
+client = MongoClient(os.getenv("MONGO_URL"))
+client.admin.command("ping")
+print("✅ MongoDB connected")
 # === MongoDB 名冊系統 ===
 from pymongo import MongoClient
 import os
