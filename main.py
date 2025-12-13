@@ -781,7 +781,7 @@ def handle_message(event):
         time_items.sort(key=lambda x: (x[0], x[1]))
 
     # ===== 組輸出 =====
-        output = ["💥【即將重生列表】☄️", ""]
+        output = ["📢【即將重生列表】", ""]
         for _, _, line in time_items:
             output.append(line)
 
