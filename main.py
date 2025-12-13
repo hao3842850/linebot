@@ -195,48 +195,48 @@ def handle_message(event):
     # ============================
     # 處理 CD 王（含 30 分鐘未打排序）
     # ============================
-    for boss, cd in cd_map.items():
-        if boss in boss_db and boss_db[boss]:
-            rec = boss_db[boss][-1]
-            base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+        for boss, cd in cd_map.items():
+            if boss in boss_db and boss_db[boss]:
+                rec = boss_db[boss][-1]
+                base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
 
-            t = base_respawn
-            missed = 0
-            step = timedelta(hours=cd)
+                t = base_respawn
+                missed = 0
+                step = timedelta(hours=cd)
 
             # 過一處理
-            while t < now:
-                t += step
-                missed += 1
+                while t < now:
+                    t += step
+                    missed += 1
 
         # 已重生多久（分鐘）
-            passed_minutes = int((now - base_respawn).total_seconds() // 60)
+                passed_minutes = int((now - base_respawn).total_seconds() // 60)
 
-            line = f"{t.strftime('%H:%M:%S')} {boss}"
+                line = f"{t.strftime('%H:%M:%S')} {boss}"
 
-            if rec.get("note"):
-                line += f" ({rec['note']})"
+                if rec.get("note"):
+                    line += f" ({rec['note']})"
 
         # 30 分鐘內未吃 → 顯示 <XX分未打>
-            if passed_minutes >= 0 and passed_minutes <= 30:
-                line += f" <{passed_minutes}分未打>"
+                if passed_minutes >= 0 and passed_minutes <= 30:
+                    line += f" <{passed_minutes}分未打>"
 
         # 過一顯示（你原本就有）
-            if missed > 0:
-                line += f"#過{missed}"
+                if missed > 0:
+                    line += f"#過{missed}"
 
         # ⭐ 排序權重
         # 0 = 30 分鐘內未打
         # 1 = 其他已登記
-            priority = 0 if 0 <= passed_minutes <= 30 else 1
+                priority = 0 if 0 <= passed_minutes <= 30 else 1
 
-            items.append((priority, t, line))
+                items.append((priority, t, line))
 
 
         for boss, times in fixed_bosses.items():
             t = get_next_fixed_time(times)
-            items.append((t, f"{t.strftime('%H:%M:%S')} {boss}"))
-
+            items.append((2, t, f"{t.strftime('%H:%M:%S')} {boss}"))
+            
         items.sort(key=lambda x: (x[0], x[1]))
         output = ["【即將重生列表】", ""]
         for _, t, line in items:
