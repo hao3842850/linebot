@@ -198,38 +198,53 @@ def handle_message(event):
         return
 
     if msg == "是" and db.get("__WAIT__") == user:
-        save_db({"boss": {}})
+        db["boss"].pop(group_id, None)
+        db.pop("__WAIT__", None)
+        save_db(db)
+
         line_bot_api.reply_message(event.reply_token, TextSendMessage("✅ 已清空所有紀錄"))
         return
 
     # =========================
     # 查 王名
     # =========================
+    
     if msg.startswith("查 "):
-        name = msg.split(" ",1)[1]
-        boss = get_boss(name)
-        if boss is None:
-            return
+    name = msg.split(" ", 1)[1]
+    boss = get_boss(name)
 
-        if boss not in db:
-            line_bot_api.reply_message(event.reply_token,
-                                       TextSendMessage("尚無紀錄"))
-            return
-
-        lines = [f"【{boss} 最近登記紀錄】", ""]
-
-        for rec in db[boss][-5:]:
-            nickname = get_username(rec["user"])
-            lines.append(f"{rec['date']} by {nickname}")
-            lines.append(f"🕒死亡 {rec['kill']}")
-            lines.append(f"✨重生 {rec['respawn'].split('T')[1]}")
-            if rec["note"]:
-                lines.append(f"📌備註: {rec['note']}")
-            lines.append("")
-
-        line_bot_api.reply_message(event.reply_token,
-                                   TextSendMessage("\n".join(lines)))
+    if not boss:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("找不到此王")
+        )
         return
+
+    if boss not in boss_db or not boss_db[boss]:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("尚無紀錄")
+        )
+        return
+
+    rec = boss_db[boss][-5]
+    respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+
+    text = (
+        f"【{boss}】\n"
+        f"🕒 死亡時間：{rec['kill']}\n"
+        f"✨ 重生時間：{respawn.strftime('%H:%M:%S')}"
+    )
+
+    if rec.get("note"):
+        text += f"\n📌 備註：{rec['note']}"
+
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text)
+    )
+    return
+
 
     # =========================
     # 出
