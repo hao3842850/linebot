@@ -256,6 +256,35 @@ def build_help_flex():
             ]
         }
     })
+    # =====================
+    # 六 
+    # =====================
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🔌開機時間",
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "開機 時間",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": "範例：開機 2100",
+                    "wrap": True
+                }
+            ]
+        }
+    })
 
     return FlexSendMessage(
         alt_text="伊娃小幫手 使用說明",
