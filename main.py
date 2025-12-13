@@ -326,6 +326,63 @@ def build_query_record_bubble(boss, rec):
         }
     }
 
+def clear_confirm_flex():
+    return {
+        "type": "bubble",
+        "hero": {
+            "type": "image",
+            "url": "https://i.imgur.com/9M0ZK4N.png",  # 可換
+            "size": "full",
+            "aspectRatio": "20:13",
+            "aspectMode": "cover"
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "⚠️ 危險操作",
+                    "weight": "bold",
+                    "size": "xl",
+                    "color": "#D32F2F"
+                },
+                {
+                    "type": "text",
+                    "text": "此操作將清除【本群組】所有王的紀錄\n此動作無法復原",
+                    "wrap": True,
+                    "margin": "md"
+                }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "action": {
+                        "type": "message",
+                        "label": "取消",
+                        "text": "CLEAR_CANCEL"
+                    }
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#D32F2F",
+                    "action": {
+                        "type": "message",
+                        "label": "確認清除",
+                        "text": "CLEAR_OK"
+                    }
+                }
+            ]
+        }
+    }
+
 
 # =========================
 # 王資料
@@ -527,32 +584,44 @@ def handle_message(event):
     # clear
     # =========================
     if msg == "clear":
-        db.setdefault("__WAIT__", {})
-        db["__WAIT__"][group_id] = user
+        db["__WAIT__"] = {
+            "user": user,
+            "group": group_id
+        }
         save_db(db)
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage("⚠️ 輸入『是』確認清除本群資料")
+    
+        flex = FlexSendMessage(
+            alt_text="清除確認",
+            contents=clear_confirm_flex()
         )
+        line_bot_api.reply_message(event.reply_token, flex)
         return
 
 
-    if (
-        msg == "是"
-        and "__WAIT__" in db
-        and db["__WAIT__"].get(group_id) == user
-    ):
+
+    if msg == "CLEAR_OK":
+        wait = db.get("__WAIT__")
+    
+        if not wait or wait["user"] != user or wait["group"] != group_id:
+            return
+    
         db["boss"].pop(group_id, None)
-        db["__WAIT__"].pop(group_id, None)
-        
-        if not db["__WAIT__"]:
-            db.pop("__WAIT__", None)
-        
+        db.pop("__WAIT__", None)
         save_db(db)
-        
+    
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage("✅ 已清空本群所有紀錄")
+            TextSendMessage("✅ 已清除本群組所有王紀錄")
+        )
+        return
+
+    if msg == "CLEAR_CANCEL":
+        db.pop("__WAIT__", None)
+        save_db(db)
+    
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("❎ 已取消清除")
         )
         return
     # =========================
