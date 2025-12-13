@@ -375,20 +375,19 @@ async def callback(request: Request, x_line_signature=Header(None)):
         return "Invalid signature"
     return "OK"
 
-    if msg.lower() == "help":
-        line_bot_api.reply_message(
-            event.reply_token,
-            build_help_flex()
-        )
-        return
-
-
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user = event.source.user_id
     msg = event.message.text.strip()
     db = load_db()
 
+        if msg.lower() == "help":
+            line_bot_api.reply_message(
+                event.reply_token,
+                build_help_flex()
+            )
+            return
+            
     group_id = event.source.group_id if event.source.type == "group" else user
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
