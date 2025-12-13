@@ -465,6 +465,73 @@ def build_boot_init_flex(base_time_str):
         }
     )
 
+def build_kpi_flex(title, period_text, ranking):
+    rows = []
+
+    medals = ["🥇", "🥈", "🥉"]
+
+    for idx, (name, count) in enumerate(ranking):
+        icon = medals[idx] if idx < 3 else f"{idx+1}"
+
+        rows.append({
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": icon,
+                    "size": "sm",
+                    "flex": 1
+                },
+                {
+                    "type": "text",
+                    "text": name,
+                    "size": "sm",
+                    "flex": 4
+                },
+                {
+                    "type": "text",
+                    "text": f"{count} 次",
+                    "size": "sm",
+                    "align": "end",
+                    "flex": 2
+                }
+            ]
+        })
+
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": title,
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": period_text,
+                    "size": "xs",
+                    "color": "#888888"
+                },
+                {
+                    "type": "separator"
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "sm",
+                    "contents": rows
+                }
+            ]
+        }
+    }
+
 
 # =========================
 # 王資料
@@ -841,44 +908,31 @@ def handle_message(event):
     # KPI
     # =========================
     if msg.upper() == "KPI":
-        now = now_tw()
-        start, end = get_kpi_range(now)
-    
-        kpi_data = calculate_kpi(boss_db, start, end)
-    
-        if not kpi_data:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("📊 本週尚無 KPI 紀錄")
-            )
-            return
-    
-        # 排序（吃王次數多 → 少）
         ranking = sorted(
             kpi_data.items(),
             key=lambda x: x[1],
             reverse=True
         )
-    
-        lines = []
-        medals = ["🥇", "🥈", "🥉"]
-    
-        for idx, (uid, count) in enumerate(ranking):
-            name = get_username(uid)
-            prefix = medals[idx] if idx < 3 else f"{idx+1}."
-            lines.append(f"{prefix} {name}：{count} 次")
-    
-        output = [
-            "📊【本週 KPI 排行榜】",
-            f"（{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}）",
-            ""
-        ] + lines
-    
+        
+        display = []
+        for uid, count in ranking:
+            display.append((get_username(uid), count))
+        
+        bubble = build_kpi_flex(
+            "📊 本週 KPI 排行榜",
+            f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}",
+            display
+        )
+        
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage("\n".join(output))
+            FlexSendMessage(
+                alt_text="本週 KPI 排行榜",
+                contents=bubble
+            )
         )
         return
+
     # =========================
     # 出
     # =========================
