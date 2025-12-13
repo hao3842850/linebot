@@ -265,6 +265,67 @@ def build_help_flex():
         }
     )
 
+def build_query_record_bubble(boss, rec):
+    respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+
+    contents = [
+        {
+            "type": "text",
+            "text": f"🔥 {boss}",
+            "weight": "bold",
+            "size": "lg",
+            "wrap": True
+        },
+        {
+            "type": "separator",
+            "margin": "md"
+        },
+        {
+            "type": "box",
+            "layout": "vertical",
+            "margin": "md",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": f"📅 登記日期：{rec['date']}",
+                    "size": "sm",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": f"🕒 死亡時間：{rec['kill']}",
+                    "size": "sm",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": f"✨ 重生時間：{respawn.strftime('%H:%M:%S')}",
+                    "size": "sm",
+                    "wrap": True
+                }
+            ]
+        }
+    ]
+
+    if rec.get("note"):
+        contents.append({
+            "type": "text",
+            "text": f"📌 備註：{rec['note']}",
+            "size": "sm",
+            "margin": "md",
+            "wrap": True
+        })
+
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": contents
+        }
+    }
+
 
 # =========================
 # 王資料
@@ -387,7 +448,23 @@ def handle_message(event):
             build_help_flex()
         )
         return
-            
+
+    def build_query_boss_flex(boss, records):
+        bubbles = []
+    
+        # ⭐ 新 → 舊（保險再 reversed 一次）
+        for rec in reversed(records):
+            bubbles.append(build_query_record_bubble(boss, rec))
+    
+        return FlexSendMessage(
+            alt_text=f"{boss} 最近紀錄",
+            contents={
+                "type": "carousel",
+                "contents": bubbles
+            }
+        )
+
+    
     group_id = event.source.group_id if event.source.type == "group" else user
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
@@ -445,28 +522,13 @@ def handle_message(event):
             )
             return
     
-        records = boss_db[boss][-5:]  # 最近五筆（不足五筆也 OK）
+        records = boss_db[boss][-5:]  # 最近 5 筆（舊 → 新）
     
-        lines = [f"【{boss} 最近{len(records)}筆登記紀錄】", ""]
-    
-        # ⭐ 新 → 舊：用 reversed
-        for rec in reversed(records):
-            respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
-            nickname = get_username(rec["user"])
-    
-            lines.append(f"🔥 登記日期：{rec['date']}")
-            lines.append(f"👤 玩家：{nickname}")
-            lines.append(f"🕒 死亡時間：{rec['kill']}")
-            lines.append(f"✨ 重生時間：{respawn.strftime('%H:%M:%S')}")
-    
-            if rec.get("note"):
-                lines.append(f"📌 備註：{rec['note']}")
-    
-            lines.append("")  # 空行
+        flex_msg = build_query_boss_flex(boss, records)
     
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage("\n".join(lines))
+            flex_msg
         )
         return
 
