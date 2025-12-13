@@ -1,14 +1,6 @@
 # ============================================================
 # 天堂M 吃王小幫手
 # ============================================================
-# 功能：
-# - 登記王：6666 / HHMM / HHMMSS 王名 [備註]
-# - 查詢王：查 王名
-# - 出：顯示即將重生排序（含過一）
-# - 開機 / 維修：自動補登尚未登記的 CD 王
-# - clear → 是：清空資料
-# ============================================================
-
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -36,7 +28,6 @@ DB_FILE = "database.json"
 # =========================
 # 工具函式
 # =========================
-
 def now_tw():
     return datetime.now(TZ)
 
@@ -58,11 +49,9 @@ def save_db(db):
 
 
 init_db()
-
 # =========================
 # 王資料
 # =========================
-
 alias_map = {
     "四色": ["四色", "76", "4", "四", "4色"],
     "小紅": ["小紅", "55", "紅", "R", "r"],
@@ -120,17 +109,14 @@ fixed_bosses = {
     "魔法師": ["01:00","03:00","05:00","07:00","09:00","11:00",
               "13:00","15:00","17:00","19:00","21:00","23:00"],
 }
-
 # =========================
 # 邏輯函式
 # =========================
-
 def get_boss(name):
     for boss, aliases in alias_map.items():
         if name in aliases:
             return boss
     return None
-
 
 def parse_time(token):
     now = now_tw()
@@ -148,7 +134,6 @@ def parse_time(token):
         return t
     return None
 
-
 def get_next_fixed_time(time_list):
     now = now_tw()
     today = now.strftime("%Y-%m-%d")
@@ -161,12 +146,9 @@ def get_next_fixed_time(time_list):
         return min(times)
     tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
     return TZ.localize(datetime.strptime(f"{tomorrow} {time_list[0]}", "%Y-%m-%d %H:%M"))
-
-
 # =========================
 # FastAPI Webhook
 # =========================
-
 @app.post("/callback")
 async def callback(request: Request, x_line_signature=Header(None)):
     body = await request.body()
@@ -187,64 +169,82 @@ def handle_message(event):
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
-
     # =========================
     # clear
     # =========================
     if msg == "clear":
-        db["__WAIT__"] = user
+        db.setdefault("__WAIT__", {})
+        db["__WAIT__"][group_id] = user
         save_db(db)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage("⚠️ 輸入『是』確認清除"))
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("⚠️ 輸入『是』確認清除本群資料")
+        )
         return
 
-    if msg == "是" and db.get("__WAIT__") == user:
-        db["boss"].pop(group_id, None)
-        db.pop("__WAIT__", None)
-        save_db(db)
 
-        line_bot_api.reply_message(event.reply_token, TextSendMessage("✅ 已清空所有紀錄"))
-        return
-
+        if (
+            msg == "是"
+            and "__WAIT__" in db
+            and db["__WAIT__"].get(group_id) == user
+        ):
+            db["boss"].pop(group_id, None)
+            db["__WAIT__"].pop(group_id, None)
+        
+            if not db["__WAIT__"]:
+                db.pop("__WAIT__", None)
+        
+            save_db(db)
+        
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("✅ 已清空本群所有紀錄")
+            )
+            return
     # =========================
     # 查 王名
     # =========================
-    
     if msg.startswith("查 "):
-    name = msg.split(" ", 1)[1]
-    boss = get_boss(name)
-
-    if not boss:
+        name = msg.split(" ", 1)[1]
+        boss = get_boss(name)
+    
+        if not boss:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("找不到此王")
+            )
+            return
+    
+        if boss not in boss_db or not boss_db[boss]:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("尚無紀錄")
+            )
+            return
+    
+        records = boss_db[boss][-5:]  # ⭐ 最近五筆
+    
+        lines = [f"【{boss} 最近{len(records)}筆登記紀錄】", ""]
+    
+        for idx, rec in enumerate(reversed(records), start=1):
+            respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+    
+            lines.append(f"【{idx}】")
+            lines.append(f"🔥 登記日期：{rec['date']}")
+            lines.append(f"👤 玩家：{rec.get('user', '-')}")
+            lines.append(f"🕒 死亡時間：{rec['kill']}")
+            lines.append(f"✨ 重生時間：{respawn.strftime('%H:%M:%S')}")
+    
+            if rec.get("note"):
+                lines.append(f"📌 備註：{rec['note']}")
+    
+            lines.append("")  # 空行
+    
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage("找不到此王")
+            TextSendMessage("\n".join(lines))
         )
         return
-
-    if boss not in boss_db or not boss_db[boss]:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage("尚無紀錄")
-        )
-        return
-
-    rec = boss_db[boss][-5]
-    respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
-
-    text = (
-        f"【{boss}】\n"
-        f"🕒 死亡時間：{rec['kill']}\n"
-        f"✨ 重生時間：{respawn.strftime('%H:%M:%S')}"
-    )
-
-    if rec.get("note"):
-        text += f"\n📌 備註：{rec['note']}"
-
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text)
-    )
-    return
-
 
     # =========================
     # 出
