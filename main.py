@@ -5,6 +5,8 @@ from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
+from linebot.models import FlexSendMessage
+
 
 import os
 import json
@@ -31,6 +33,12 @@ DB_FILE = "database.json"
 def now_tw():
     return datetime.now(TZ)
 
+def get_username(user_id):
+    try:
+        profile = line_bot_api.get_profile(user_id)
+        return profile.display_name
+    except:
+        return "未知玩家"
 
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -49,6 +57,49 @@ def save_db(db):
 
 
 init_db()
+
+def build_register_boss_flex(boss, kill_time, respawn_time, note=None):
+    contents = [
+        {
+            "type": "text",
+            "text": f"🔥 已登記 {boss}",
+            "weight": "bold",
+            "size": "lg",
+            "wrap": True
+        },
+        {
+            "type": "text",
+            "text": f"🕒 死亡時間：{kill_time}",
+            "wrap": True
+        },
+        {
+            "type": "text",
+            "text": f"✨ 重生時間：{respawn_time}",
+            "wrap": True
+        }
+    ]
+
+    if note:
+        contents.append({
+            "type": "text",
+            "text": f"📌 備註：{note}",
+            "wrap": True
+        })
+
+    return FlexSendMessage(
+        alt_text=f"已登記 {boss}",
+        contents={
+            "type": "bubble",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "sm",
+                "contents": contents
+            }
+        }
+    )
+
+
 # =========================
 # 王資料
 # =========================
@@ -222,16 +273,17 @@ def handle_message(event):
             )
             return
     
-        records = boss_db[boss][-5:]  # ⭐ 最近五筆
+        records = boss_db[boss][-5:]  # 最近五筆（不足五筆也 OK）
     
         lines = [f"【{boss} 最近{len(records)}筆登記紀錄】", ""]
     
-        for idx, rec in enumerate(reversed(records), start=1):
+        # ⭐ 新 → 舊：用 reversed
+        for rec in reversed(records):
             respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+            nickname = get_username(rec["user"])
     
-            lines.append(f"【{idx}】")
             lines.append(f"🔥 登記日期：{rec['date']}")
-            lines.append(f"👤 玩家：{rec.get('user', '-')}")
+            lines.append(f"👤 玩家：{nickname}")
             lines.append(f"🕒 死亡時間：{rec['kill']}")
             lines.append(f"✨ 重生時間：{respawn.strftime('%H:%M:%S')}")
     
@@ -357,19 +409,19 @@ def handle_message(event):
         save_db(db)
 
     # 回覆
-        msg_lines = [
-            f"🔥 已登記 {boss}",
-            f"🕒 死亡時間：{rec['kill']}",
-            f"✨ 重生時間：{respawn.strftime('%H:%M:%S')}"
-        ]
-        if note:
-            msg_lines.append(f"📌 備註：{note}")
-
+        flex_msg = build_register_boss_flex(
+            boss=boss,
+            kill_time=rec['kill'],
+            respawn_time=respawn.strftime('%H:%M:%S'),
+            note=note
+        )
+        
         line_bot_api.reply_message(
             event.reply_token,
-                TextSendMessage("\n".join(msg_lines))
+            flex_msg
         )
         return
+
 
 
 
