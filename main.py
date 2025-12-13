@@ -349,7 +349,7 @@ def clear_confirm_flex():
                 },
                 {
                     "type": "text",
-                    "text": "此操作將清除【本群組】所有王的紀錄\n此動作無法復原",
+                    "text": "此操作將清除所有王的紀錄\n此動作無法復原",
                     "wrap": True,
                     "margin": "md"
                 }
@@ -366,7 +366,7 @@ def clear_confirm_flex():
                     "action": {
                         "type": "message",
                         "label": "取消",
-                        "text": "CLEAR_CANCEL"
+                        "text": "取消"
                     }
                 },
                 {
@@ -376,7 +376,7 @@ def clear_confirm_flex():
                     "action": {
                         "type": "message",
                         "label": "確認清除",
-                        "text": "CLEAR_OK"
+                        "text": "確定清除"
                     }
                 }
             ]
@@ -599,7 +599,7 @@ def handle_message(event):
 
 
 
-    if msg == "CLEAR_OK":
+    if msg == "確定清除":
         wait = db.get("__WAIT__")
     
         if not wait or wait["user"] != user or wait["group"] != group_id:
@@ -615,7 +615,7 @@ def handle_message(event):
         )
         return
 
-    if msg == "CLEAR_CANCEL":
+    if msg == "取消":
         db.pop("__WAIT__", None)
         save_db(db)
     
