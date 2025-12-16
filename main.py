@@ -3,6 +3,7 @@
 # ============================================================
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
+from linebot.models import Mention, Mentionee
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import FlexSendMessage
@@ -808,6 +809,89 @@ def handle_message(event):
         )
         return
     
+    # ===== 查名冊 @某人 =====
+    if msg.startswith("查名冊") and event.message.mention:
+        mentions = event.message.mention.mentionees
+
+        if not mentions:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("❌ 請使用：查名冊 @某人")
+            )
+            return
+
+        target_user_id = mentions[0]["userId"]
+
+        roster = load_roster()
+        player = roster.get(target_user_id)
+
+        if not player:
+            reply = "❌ 此玩家尚未加入名冊"
+        else:
+            reply = (
+                "👤 玩家名冊資料\n"
+                f"遊戲名：{player.get('name')}\n"
+                f"血盟：{player.get('clan')}"
+            )
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(reply)
+        )
+        return
+    
+    # ===== 查名冊 玩家名字（模糊查詢）=====
+    if msg.startswith("查名冊 ") and not event.message.mention:
+        keyword = msg.replace("查名冊", "").strip()
+
+        if not keyword:
+            return
+
+        roster = load_roster()
+        results = []
+
+        # 🔍 模糊搜尋
+        for uid, info in roster.items():
+            name = info.get("name", "")
+            if keyword in name:
+                results.append((uid, info))
+
+        # ❌ 找不到
+        if not results:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("❌ 名冊中找不到符合的玩家")
+            )
+            return
+
+        messages = []
+
+    # ⚠️ LINE 一次最多回 5 則（保險）
+        for i, (uid, info) in enumerate(results[:5], start=1):
+            text = (
+                f"{i}️⃣ @玩家 是\n"
+                f"血盟：{info['clan']}\n"
+                f"遊戲名：{info['name']}"
+            )
+
+            messages.append(
+                TextSendMessage(
+                    text=text,
+                    mention=Mention(
+                        mentionees=[
+                            Mentionee(
+                                user_id=uid,
+                                index=text.find("@玩家"),
+                                length=3
+                            )
+                        ]
+                    )
+                )
+            )
+
+        line_bot_api.reply_message(event.reply_token, messages)
+        return
+
     if msg.lower() == "help":
         line_bot_api.reply_message(
             event.reply_token,
