@@ -3,7 +3,7 @@
 # ============================================================
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage,Mention, Mentionee
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import FlexSendMessage
 
@@ -788,6 +788,7 @@ async def callback(request: Request, x_line_signature=Header(None)):
 def handle_message(event):
     user = event.source.user_id
     text = event.message.text.strip()
+    msg = text
     db = load_db()
     
     if msg.startswith("加入名冊"):
@@ -816,45 +817,45 @@ def handle_message(event):
         return
     
         # 查名冊 玩家名字（模糊查詢 + @人）
-    if text.startswith("查名冊 "):
-        keyword = text.replace("查名冊 ", "").strip()
-
+    if msg.startswith("查名冊 "):
+        keyword = msg.replace("查名冊 ", "").strip()
+    
         roster = load_roster()
         matches = find_roster_by_name(keyword, roster)
-
+    
         if not matches:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="❌ 查無符合的玩家")
+                TextSendMessage("❌ 查無符合的玩家")
             )
             return
-
+    
         messages = []
-
-        for idx, (uid, data) in enumerate(matches, start=1):
-            name = data.get("display_name", "玩家")
+    
+        for idx, (uid, data) in enumerate(matches[:5], start=1):
+            name = data.get("name", "玩家")
             clan = data.get("clan", "未知")
-            game_name = data.get("game_name", "")
-
-            text_msg = f"{idx}️⃣ @{name} 是\n血盟：{clan}\n遊戲名：{game_name}"
-
+    
+            text_msg = f"{idx}️⃣ @{name} 是\n血盟：{clan}\n遊戲名：{name}"
+    
             messages.append(
                 TextSendMessage(
                     text=text_msg,
-                    mentions=Mention(
-                        mentionees=[
-                            Mentionee(
-                                user_id=uid,
-                                index=3,  # @{name} 的 @ 位置
-                                length=len(name) + 1
-                            )
+                    mention={
+                        "mentionees": [
+                            {
+                                "userId": uid,
+                                "index": 3,
+                                "length": len(name) + 1
+                            }
                         ]
-                    )
+                    }
                 )
             )
-
+    
         line_bot_api.reply_message(event.reply_token, messages)
         return
+
 
 
     # ⚠️ LINE 一次最多回 5 則（保險）
