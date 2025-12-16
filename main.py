@@ -3,7 +3,6 @@
 # ============================================================
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import Mention, Mentionee
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import FlexSendMessage
