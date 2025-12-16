@@ -16,6 +16,8 @@ import pytz
 # =========================
 # 基本設定
 # =========================
+ROSTER_FILE = "roster.json"
+
 app = FastAPI()
 
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
@@ -30,6 +32,21 @@ DB_FILE = "database.json"
 # =========================
 # 工具函式
 # =========================
+def init_roster():
+    if not os.path.exists(ROSTER_FILE):
+        with open(ROSTER_FILE, "w", encoding="utf-8") as f:
+            json.dump({}, f, ensure_ascii=False, indent=2)
+
+def load_roster():
+    with open(ROSTER_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_roster(roster):
+    with open(ROSTER_FILE, "w", encoding="utf-8") as f:
+        json.dump(roster, f, ensure_ascii=False, indent=2)
+
+init_roster()
+
 def get_source_id(event):
     if event.source.type == "group":
         return event.source.group_id
@@ -42,11 +59,8 @@ def now_tw():
     return datetime.now(TZ)
 
 def get_username(user_id):
-    try:
-        profile = line_bot_api.get_profile(user_id)
-        return profile.display_name
-    except:
-        return "未知玩家"
+    roster = load_roster()
+    return roster.get(user_id, {}).get("name", "未登記玩家")
 
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -768,6 +782,31 @@ def handle_message(event):
     user = event.source.user_id
     msg = event.message.text.strip()
     db = load_db()
+    
+    if msg.startswith("加入名冊"):
+        parts = msg.split(" ", 2)
+        if len(parts) < 3:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("❌ 用法：加入名冊 血盟名 遊戲名")
+            )
+            return
+
+        _, clan, game_name = parts
+        roster = load_roster()
+        roster[user] = {
+            "name": game_name,
+            "clan": clan
+        }
+        save_roster(roster)
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                f"✅ 已加入名冊\n玩家：{game_name}\n血盟：{clan}"
+            )
+        )
+        return
     
     if msg.lower() == "help":
         line_bot_api.reply_message(
