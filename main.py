@@ -810,8 +810,8 @@ def handle_message(event):
     
     # ===== 查名冊 @某人 =====
     if msg.startswith("查名冊") and event.message.mention:
-        mentions = event.message.mention.mentionees
-
+       mentions = event.message.mention.mentionees
+        
         if not mentions:
             line_bot_api.reply_message(
                 event.reply_token,
@@ -819,8 +819,8 @@ def handle_message(event):
             )
             return
 
-        target_user_id = mentions[0]["userId"]
-
+        target_user_id = mentions[0].user_id
+        
         roster = load_roster()
         player = roster.get(target_user_id)
 
