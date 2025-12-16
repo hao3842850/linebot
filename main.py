@@ -49,9 +49,13 @@ init_roster()
 
 def find_roster_by_name(keyword, roster):
     result = []
+    keyword = keyword.lower()
+
     for user_id, data in roster.items():
-        if keyword in data.get("game_name", ""):
+        name = data.get("name", "").lower()
+        if keyword in name:
             result.append((user_id, data))
+
     return result
 
 def get_source_id(event):
