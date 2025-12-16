@@ -876,15 +876,6 @@ def handle_message(event):
             messages.append(
                 TextSendMessage(
                     text=text,
-                    mention=Mention(
-                        mentionees=[
-                            Mentionee(
-                                user_id=uid,
-                                index=text.find("@玩家"),
-                                length=3
-                            )
-                        ]
-                    )
                 )
             )
 
