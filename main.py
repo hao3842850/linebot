@@ -3,7 +3,7 @@
 # ============================================================
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import MessageEvent, TextMessage, TextSendMessage,Mention, Mentionee
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import FlexSendMessage
 
@@ -46,6 +46,13 @@ def save_roster(roster):
         json.dump(roster, f, ensure_ascii=False, indent=2)
 
 init_roster()
+
+def find_roster_by_name(keyword, roster):
+    result = []
+    for user_id, data in roster.items():
+        if keyword in data.get("game_name", ""):
+            result.append((user_id, data))
+    return result
 
 def get_source_id(event):
     if event.source.type == "group":
@@ -780,7 +787,7 @@ async def callback(request: Request, x_line_signature=Header(None)):
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user = event.source.user_id
-    msg = event.message.text.strip()
+    text = event.message.text.strip()
     db = load_db()
     
     if msg.startswith("加入名冊"):
@@ -808,62 +815,47 @@ def handle_message(event):
         )
         return
     
-    # ===== 查名冊 @某人 =====
-    if msg.startswith("查名冊") and event.message.mention:
-        mentions = event.message.mention.mentionees
-        
-        if not mentions:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("❌ 請使用：查名冊 @某人")
-            )
-            return
-
-        target_user_id = mentions[0].user_id
-        
-        roster = load_roster()
-        player = roster.get(target_user_id)
-
-        if not player:
-            reply = "❌ 此玩家尚未加入名冊"
-        else:
-            reply = (
-                "👤 玩家名冊資料\n"
-                f"遊戲名：{player.get('name')}\n"
-                f"血盟：{player.get('clan')}"
-            )
-
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(reply)
-        )
-        return
-    
-    # ===== 查名冊 玩家名字（模糊查詢）=====
-    if msg.startswith("查名冊 ") and not event.message.mention:
-        keyword = msg.replace("查名冊", "").strip()
-
-        if not keyword:
-            return
+        # 查名冊 玩家名字（模糊查詢 + @人）
+    if text.startswith("查名冊 "):
+        keyword = text.replace("查名冊 ", "").strip()
 
         roster = load_roster()
-        results = []
+        matches = find_roster_by_name(keyword, roster)
 
-        # 🔍 模糊搜尋
-        for uid, info in roster.items():
-            name = info.get("name", "")
-            if keyword in name:
-                results.append((uid, info))
-
-        # ❌ 找不到
-        if not results:
+        if not matches:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("❌ 名冊中找不到符合的玩家")
+                TextSendMessage(text="❌ 查無符合的玩家")
             )
             return
 
         messages = []
+
+        for idx, (uid, data) in enumerate(matches, start=1):
+            name = data.get("display_name", "玩家")
+            clan = data.get("clan", "未知")
+            game_name = data.get("game_name", "")
+
+            text_msg = f"{idx}️⃣ @{name} 是\n血盟：{clan}\n遊戲名：{game_name}"
+
+            messages.append(
+                TextSendMessage(
+                    text=text_msg,
+                    mentions=Mention(
+                        mentionees=[
+                            Mentionee(
+                                user_id=uid,
+                                index=3,  # @{name} 的 @ 位置
+                                length=len(name) + 1
+                            )
+                        ]
+                    )
+                )
+            )
+
+        line_bot_api.reply_message(event.reply_token, messages)
+        return
+
 
     # ⚠️ LINE 一次最多回 5 則（保險）
         for i, (uid, info) in enumerate(results[:5], start=1):
