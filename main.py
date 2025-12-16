@@ -810,7 +810,7 @@ def handle_message(event):
     
     # ===== 查名冊 @某人 =====
     if msg.startswith("查名冊") and event.message.mention:
-       mentions = event.message.mention.mentionees
+        mentions = event.message.mention.mentionees
         
         if not mentions:
             line_bot_api.reply_message(
