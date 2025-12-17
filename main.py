@@ -7,7 +7,8 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import FlexSendMessage
 
-
+import psycopg2
+from urllib.parse import urlparse
 import os
 import json
 from datetime import datetime, timedelta
@@ -16,8 +17,6 @@ import pytz
 # =========================
 # 基本設定
 # =========================
-ROSTER_FILE = "roster.json"
-
 app = FastAPI()
 
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
@@ -32,32 +31,6 @@ DB_FILE = "database.json"
 # =========================
 # 工具函式
 # =========================
-def init_roster():
-    if not os.path.exists(ROSTER_FILE):
-        with open(ROSTER_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f, ensure_ascii=False, indent=2)
-
-def load_roster():
-    with open(ROSTER_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_roster(roster):
-    with open(ROSTER_FILE, "w", encoding="utf-8") as f:
-        json.dump(roster, f, ensure_ascii=False, indent=2)
-
-init_roster()
-
-def find_roster_by_name(keyword, roster):
-    result = []
-    keyword = keyword.lower()
-
-    for user_id, data in roster.items():
-        name = data.get("name", "").lower()
-        if keyword in name:
-            result.append((user_id, data))
-
-    return result
-
 def get_source_id(event):
     if event.source.type == "group":
         return event.source.group_id
@@ -650,6 +623,17 @@ fixed_bosses = {
 # =========================
 # 邏輯函式
 # =========================
+def get_roster_profile(user_id):
+    row = roster_get_by_user(user_id)
+    if not row:
+        return None
+
+    game_name, clan_name = row
+    return {
+        "name": game_name,
+        "clan": clan_name
+    }
+
 def get_boss(name):
     for boss, aliases in alias_map.items():
         if name in aliases:
@@ -787,13 +771,61 @@ def build_query_boss_flex(boss, records):
             "contents": bubbles
         }
     )
-def get_roster_profile(user_id):
-    roster = load_roster()
-    user = roster.get(user_id)
-    if not user:
-        return None
-    # 目前只取第一個角色
-    return user["characters"][0]
+    
+def get_pg_conn():
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL not set")
+
+    result = urlparse(url)
+    return psycopg2.connect(
+        host=result.hostname,
+        port=result.port,
+        user=result.username,
+        password=result.password,
+        dbname=result.path[1:],
+        sslmode="require"
+    )
+def roster_get_by_user(user_id):
+    with get_pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT game_name, clan_name FROM roster WHERE line_user_id = %s",
+                (user_id,)
+            )
+            return cur.fetchone()
+
+def roster_insert(user_id, game_name, clan_name):
+    with get_pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO roster (line_user_id, game_name, clan_name)
+                VALUES (%s, %s, %s)
+                """,
+                (user_id, game_name, clan_name)
+            )
+
+def roster_update(user_id, game_name, clan_name):
+    with get_pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE roster
+                SET game_name = %s, clan_name = %s
+                WHERE line_user_id = %s
+                """,
+                (game_name, clan_name, user_id)
+            )
+
+def roster_delete(user_id):
+    with get_pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM roster WHERE line_user_id = %s",
+                (user_id,)
+            )
+
 # =========================
 # FastAPI Webhook
 # =========================
@@ -813,6 +845,11 @@ def handle_message(event):
     msg = text
     db = load_db()
 
+    group_id = get_source_id(event)
+    db.setdefault("boss", {})
+    db["boss"].setdefault(group_id, {})
+    boss_db = db["boss"][group_id]
+
     # =========================
     # 名冊功能
     # =========================
@@ -830,45 +867,40 @@ def handle_message(event):
             return
     
         _, clan, game_name = parts
-        roster = load_roster()
-    
-        # 已存在 → 等待確認
-        if user in roster:
+        exists = roster_get_by_user(user)
+
+        if exists:
+            old_game, old_clan = exists
             db["__ROSTER_WAIT__"][user] = {
                 "action": "update",
-                "clan": clan,
-                "name": game_name
+                "clan": clan,          # 新血盟
+                "name": game_name      # 新角色
             }
+
             save_db(db)
-    
+        
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
                     f"⚠️ 你已加入名冊\n"
-                    f"目前角色：{roster[user]['characters'][0]['name']}\n\n"
+                    f"目前角色：{old_game}\n"
+                    f"血盟：{old_clan}\n\n"
+                    f"即將修改為：\n"
+                    f"玩家：{game_name}\n"
+                    f"血盟：{clan}\n\n"
                     f"請輸入「確認修改」或「取消」"
                 )
             )
-            return
-    
-        # 新加入
-        roster[user] = {
-            "characters": [
-                {
-                    "name": game_name,
-                    "clan": clan
-                }
-            ]
-        }
-        save_roster(roster)
-    
+        
+        # 新增
+        roster_insert(user, game_name, clan)
+        
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(
-                f"✅ 已加入名冊\n玩家：{game_name}\n血盟：{clan}"
-            )
+            TextSendMessage(f"✅ 已加入名冊\n玩家：{game_name}\n血盟：{clan}")
         )
         return
+
     
     
     # === 確認修改名冊 ===
@@ -877,27 +909,17 @@ def handle_message(event):
         if not wait or wait["action"] != "update":
             return
     
-        roster = load_roster()
-        roster[user] = {
-            "characters": [
-                {
-                    "name": wait["name"],
-                    "clan": wait["clan"]
-                }
-            ]
-        }
-        save_roster(roster)
+        roster_update(user, wait["name"], wait["clan"])
     
         db["__ROSTER_WAIT__"].pop(user)
         save_db(db)
     
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(
-                f"✅ 名冊已更新\n玩家：{wait['name']}\n血盟：{wait['clan']}"
-            )
+            TextSendMessage("✅ 名冊已更新")
         )
         return
+
     
     
     # === 查自己 ===
@@ -919,17 +941,17 @@ def handle_message(event):
             )
         )
         return
-    
-    
-    # === 刪除名冊 ===
+        
     if msg == "刪除名冊":
-        roster = load_roster()
-        if user not in roster:
+        exists = roster_get_by_user(user)
+        if not exists:
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage("❌ 你尚未加入名冊")
             )
             return
+    
+        game_name, clan_name = exists
     
         db["__ROSTER_WAIT__"][user] = {
             "action": "delete"
@@ -938,20 +960,22 @@ def handle_message(event):
     
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage("⚠️ 確定刪除名冊？\n請輸入「確認刪除」或「取消」")
+            TextSendMessage(
+                f"⚠️ 是否刪除名冊？\n"
+                f"玩家：{game_name}\n"
+                f"血盟：{clan_name}\n\n"
+                f"請輸入「確認刪除」或「取消」"
+            )
         )
         return
-    
-    
-    # === 確認刪除名冊 ===
+        
+    # === 刪除名冊 ===
     if msg == "確認刪除":
         wait = db.get("__ROSTER_WAIT__", {}).get(user)
         if not wait or wait["action"] != "delete":
             return
     
-        roster = load_roster()
-        roster.pop(user, None)
-        save_roster(roster)
+        roster_delete(user)
     
         db["__ROSTER_WAIT__"].pop(user)
         save_db(db)
@@ -961,7 +985,6 @@ def handle_message(event):
             TextSendMessage("✅ 名冊已刪除")
         )
         return
-    
     
     # === 取消（共用）===
     if msg == "取消":
@@ -973,20 +996,13 @@ def handle_message(event):
                 TextSendMessage("❎ 已取消操作")
             )
             return
-    
-        
-        if msg.lower() == "help":
-            line_bot_api.reply_message(
-                event.reply_token,
-                build_help_flex()
-            )
-            return
-    
-        group_id = get_source_id(event)
-        db.setdefault("boss", {})
-        db["boss"].setdefault(group_id, {})
-        boss_db = db["boss"][group_id]
-       
+
+    if msg.lower() == "help":
+        line_bot_api.reply_message(
+            event.reply_token,
+            build_help_flex()
+        )
+        return
     # =========================
     # 開機 初始化 CD 王
     # =========================
