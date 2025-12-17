@@ -827,7 +827,7 @@ if msg.startswith("加入名冊"):
             event.reply_token,
             TextSendMessage("❌ 用法：加入名冊 血盟名 遊戲名")
         )
-        return
+     return
 
     _, clan, game_name = parts
     roster = load_roster()
