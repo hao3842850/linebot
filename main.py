@@ -530,6 +530,20 @@ def build_kpi_flex(title, period_text, ranking):
         }
     }
 
+def ensure_roster_table():
+    with get_pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+            CREATE TABLE IF NOT EXISTS roster (
+                id SERIAL PRIMARY KEY,
+                line_user_id TEXT NOT NULL,
+                game_name TEXT NOT NULL,
+                clan_name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+            """)
+        conn.commit()
 
 # =========================
 # 王資料
@@ -829,6 +843,10 @@ def roster_delete(user_id):
 # =========================
 # FastAPI Webhook
 # =========================
+@app.on_event("startup")
+def startup():
+    ensure_roster_table()
+
 @app.post("/callback")
 async def callback(request: Request, x_line_signature=Header(None)):
     body = await request.body()
@@ -891,7 +909,8 @@ def handle_message(event):
                     f"請輸入「確認修改」或「取消」"
                 )
             )
-        
+            return
+            
         # 新增
         roster_insert(user, game_name, clan)
         
