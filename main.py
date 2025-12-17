@@ -70,8 +70,8 @@ def now_tw():
     return datetime.now(TZ)
 
 def get_username(user_id):
-    roster = load_roster()
-    return roster.get(user_id, {}).get("name", "未登記玩家")
+    profile = get_roster_profile(user_id)
+    return profile["name"] if profile else "未登記玩家"
 
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -773,9 +773,27 @@ def calculate_kpi(boss_db, start, end):
                 result[uid] = result.get(uid, 0) + 1
 
     return result
-
-
-
+def build_query_boss_flex(boss, records):
+    bubbles = []
+    
+    # ⭐ 新 → 舊（保險再 reversed 一次）
+    for rec in reversed(records):
+        bubbles.append(build_query_record_bubble(boss, rec))
+    
+    return FlexSendMessage(
+         alt_text=f"{boss} 最近紀錄",
+        contents={
+            "type": "carousel",
+            "contents": bubbles
+        }
+    )
+def get_roster_profile(user_id):
+    roster = load_roster()
+    user = roster.get(user_id)
+    if not user:
+        return None
+    # 目前只取第一個角色
+    return user["characters"][0]
 # =========================
 # FastAPI Webhook
 # =========================
@@ -794,91 +812,169 @@ def handle_message(event):
     text = event.message.text.strip()
     msg = text
     db = load_db()
-    
-    if msg.startswith("加入名冊"):
-        parts = msg.split(" ", 2)
-        if len(parts) < 3:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("❌ 用法：加入名冊 血盟名 遊戲名")
-            )
-            return
 
-        _, clan, game_name = parts
-        roster = load_roster()
-        roster[user] = {
-            "name": game_name,
-            "clan": clan
+    # =========================
+# 名冊功能
+# =========================
+
+db.setdefault("__ROSTER_WAIT__", {})
+
+# === 加入名冊 ===
+if msg.startswith("加入名冊"):
+    parts = msg.split(" ", 2)
+    if len(parts) < 3:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("❌ 用法：加入名冊 血盟名 遊戲名")
+        )
+        return
+
+    _, clan, game_name = parts
+    roster = load_roster()
+
+    # 已存在 → 等待確認
+    if user in roster:
+        db["__ROSTER_WAIT__"][user] = {
+            "action": "update",
+            "clan": clan,
+            "name": game_name
         }
-        save_roster(roster)
+        save_db(db)
 
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                f"✅ 已加入名冊\n玩家：{game_name}\n血盟：{clan}"
+                f"⚠️ 你已加入名冊\n"
+                f"目前角色：{roster[user]['characters'][0]['name']}\n\n"
+                f"請輸入「確認修改」或「取消」"
             )
         )
         return
-    
-        # 查名冊 玩家名字（模糊查詢 + @人）
-    if msg.startswith("查名冊 "):
-        keyword = msg.replace("查名冊 ", "").strip()
-    
-        roster = load_roster()
-        matches = find_roster_by_name(keyword, roster)
-    
-        if not matches:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("❌ 查無符合的玩家")
-            )
-            return
-    
-        messages = []
-    
-        for idx, (uid, data) in enumerate(matches[:5], start=1):
-            name = data.get("name", "玩家")
-            clan = data.get("clan", "未知")
-    
-            text_msg = f"{idx}️⃣ @{name} 是\n血盟：{clan}\n遊戲名：{name}"
-    
-            messages.append(
-                TextSendMessage(
-                    text=text_msg,
-                    mention={
-                        "mentionees": [
-                            {
-                                "userId": uid,
-                                "index": 3,
-                                "length": len(name) + 1
-                            }
-                        ]
-                    }
-                )
-            )
-    
-        line_bot_api.reply_message(event.reply_token, messages)
+
+    # 新加入
+    roster[user] = {
+        "characters": [
+            {
+                "name": game_name,
+                "clan": clan
+            }
+        ]
+    }
+    save_roster(roster)
+
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(
+            f"✅ 已加入名冊\n玩家：{game_name}\n血盟：{clan}"
+        )
+    )
+    return
+
+
+# === 確認修改名冊 ===
+if msg == "確認修改":
+    wait = db.get("__ROSTER_WAIT__", {}).get(user)
+    if not wait or wait["action"] != "update":
         return
 
+    roster = load_roster()
+    roster[user] = {
+        "characters": [
+            {
+                "name": wait["name"],
+                "clan": wait["clan"]
+            }
+        ]
+    }
+    save_roster(roster)
+
+    db["__ROSTER_WAIT__"].pop(user)
+    save_db(db)
+
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(
+            f"✅ 名冊已更新\n玩家：{wait['name']}\n血盟：{wait['clan']}"
+        )
+    )
+    return
 
 
-    # ⚠️ LINE 一次最多回 5 則（保險）
-        for i, (uid, info) in enumerate(results[:5], start=1):
-            text = (
-                f"{i}️⃣ @玩家 是\n"
-                f"血盟：{info['clan']}\n"
-                f"遊戲名：{info['name']}"
-            )
-
-            messages.append(
-                TextSendMessage(
-                    text=text,
-                )
-            )
-
-        line_bot_api.reply_message(event.reply_token, messages)
+# === 查自己 ===
+if msg == "查自己":
+    profile = get_roster_profile(user)
+    if not profile:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("❌ 你尚未加入名冊")
+        )
         return
 
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(
+            f"📇 我的名冊資料\n"
+            f"玩家：{profile['name']}\n"
+            f"血盟：{profile['clan']}"
+        )
+    )
+    return
+
+
+# === 刪除名冊 ===
+if msg == "刪除名冊":
+    roster = load_roster()
+    if user not in roster:
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("❌ 你尚未加入名冊")
+        )
+        return
+
+    db["__ROSTER_WAIT__"][user] = {
+        "action": "delete"
+    }
+    save_db(db)
+
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage("⚠️ 確定刪除名冊？\n請輸入「確認刪除」或「取消」")
+    )
+    return
+
+
+# === 確認刪除名冊 ===
+if msg == "確認刪除":
+    wait = db.get("__ROSTER_WAIT__", {}).get(user)
+    if not wait or wait["action"] != "delete":
+        return
+
+    roster = load_roster()
+    roster.pop(user, None)
+    save_roster(roster)
+
+    db["__ROSTER_WAIT__"].pop(user)
+    save_db(db)
+
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage("✅ 名冊已刪除")
+    )
+    return
+
+
+# === 取消（共用）===
+if msg == "取消":
+    if user in db.get("__ROSTER_WAIT__", {}):
+        db["__ROSTER_WAIT__"].pop(user)
+        save_db(db)
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("❎ 已取消操作")
+        )
+        return
+
+    
     if msg.lower() == "help":
         line_bot_api.reply_message(
             event.reply_token,
@@ -886,22 +982,6 @@ def handle_message(event):
         )
         return
 
-    def build_query_boss_flex(boss, records):
-        bubbles = []
-    
-        # ⭐ 新 → 舊（保險再 reversed 一次）
-        for rec in reversed(records):
-            bubbles.append(build_query_record_bubble(boss, rec))
-    
-        return FlexSendMessage(
-            alt_text=f"{boss} 最近紀錄",
-            contents={
-                "type": "carousel",
-                "contents": bubbles
-            }
-        )
-
-    
     group_id = get_source_id(event)
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
