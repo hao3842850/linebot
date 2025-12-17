@@ -43,8 +43,12 @@ def now_tw():
     return datetime.now(TZ)
 
 def get_username(user_id):
-    profile = get_roster_profile(user_id)
-    return profile["name"] if profile else "未登記玩家"
+    try:
+        profile = get_roster_profile(user_id)
+        return profile["name"] if profile else "未登記玩家"
+    except Exception:
+        return "未知玩家"
+
 
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -529,6 +533,153 @@ def build_kpi_flex(title, period_text, ranking):
             ]
         }
     }
+def build_roster_added_flex(clan, game_name):
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "✅ 已加入名冊", "weight": "bold"},
+                {"type": "text", "text": f"🎮 角色：{game_name}"},
+                {"type": "text", "text": f"🏰 血盟：{clan}"}
+            ]
+        }
+    }
+def build_roster_confirm_update_flex(old_name, old_clan, new_name, new_clan):
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "⚠️ 名冊已存在", "weight": "bold"},
+                {"type": "text", "text": f"目前：{old_name} / {old_clan}"},
+                {"type": "text", "text": f"修改為：{new_name} / {new_clan}"},
+                {
+                    "type": "button",
+                    "action": {"type": "message", "label": "確認修改", "text": "確認修改"}
+                },
+                {
+                    "type": "button",
+                    "action": {"type": "message", "label": "取消", "text": "取消"}
+                }
+            ]
+        }
+    }
+def build_roster_self_flex(game_name, clan):
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "👤 我的名冊", "weight": "bold"},
+                {"type": "text", "text": f"🎮 {game_name}"},
+                {"type": "text", "text": f"🏰 {clan}"}
+            ]
+        }
+    }
+def build_roster_delete_confirm_flex(game_name):
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "⚠️ 確認刪除名冊", "weight": "bold"},
+                {"type": "text", "text": f"角色：{game_name}"},
+                {
+                    "type": "button",
+                    "action": {"type": "message", "label": "確認刪除", "text": "確認刪除"}
+                },
+                {
+                    "type": "button",
+                    "action": {"type": "message", "label": "取消", "text": "取消"}
+                }
+            ]
+        }
+    }
+def build_roster_deleted_flex():
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "🗑 名冊已刪除", "weight": "bold"}
+            ]
+        }
+    }
+
+def build_roster_search_flex(keyword, rows):
+    """
+    rows: [(game_name, clan_name, line_user_name)]
+    """
+
+    contents = []
+
+    if not rows:
+        contents.append({
+            "type": "text",
+            "text": "查無符合的名冊資料",
+            "size": "sm",
+            "color": "#888888"
+        })
+    else:
+        for game_name, clan_name, line_name in rows:
+            contents.append({
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "xs",
+                "margin": "md",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": f"🎮 角色：{game_name}",
+                        "size": "sm",
+                        "weight": "bold"
+                    },
+                    {
+                        "type": "text",
+                        "text": f"🏰 血盟：{clan_name}",
+                        "size": "xs",
+                        "color": "#666666"
+                    },
+                    {
+                        "type": "text",
+                        "text": f"👤 LINE 用戶：{line_name}",
+                        "size": "xs",
+                        "color": "#999999"
+                    }
+                ]
+            })
+
+    bubble = {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [{
+                "type": "text",
+                "text": f"🔍 名冊查詢：{keyword}",
+                "weight": "bold",
+                "size": "lg"
+            }]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": contents
+        }
+    }
+
+    return FlexSendMessage(
+        alt_text=f"名冊查詢：{keyword}",
+        contents=bubble
+    )
+
 
 def ensure_roster_table():
     with get_pg_conn() as conn:
@@ -544,6 +695,65 @@ def ensure_roster_table():
             );
             """)
         conn.commit()
+
+def query_roster(clan_name=None):
+    with get_pg_conn() as conn:
+        with conn.cursor() as cur:
+            if clan_name:
+                cur.execute("""
+                    SELECT game_name, clan_name
+                    FROM roster
+                    WHERE clan_name = %s
+                    ORDER BY created_at
+                """, (clan_name,))
+            else:
+                cur.execute("""
+                    SELECT game_name, clan_name
+                    FROM roster
+                    ORDER BY clan_name, created_at
+                """)
+            return cur.fetchall()
+
+def search_roster(keyword):
+    with get_pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT line_user_id, game_name, clan_name
+                FROM roster
+                WHERE game_name ILIKE %s
+                OR clan_name ILIKE %s
+                ORDER BY created_at
+            """, (f"%{keyword}%", f"%{keyword}%"))
+            return cur.fetchall()
+
+def build_boss_list_text():
+    lines = ["📜【王列表（含所有簡稱）】", ""]
+
+    for boss, aliases in alias_map.items():
+        alias_text = "、".join(aliases)
+        lines.append(f"🔹 {boss}")
+        lines.append(f"   ➜ {alias_text}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+def build_boss_cd_list_text():
+    lines = ["⏳【王重生時間一覽】", ""]
+
+    for boss, cd in cd_map.items():
+        # 小數轉成 小時 + 分鐘
+        hours = int(cd)
+        minutes = int((cd - hours) * 60)
+
+        if minutes > 0:
+            cd_text = f"{hours} 小時 {minutes} 分"
+        else:
+            cd_text = f"{hours} 小時"
+
+        lines.append(f"🔹 {boss}：{cd_text}")
+
+    return "\n".join(lines)
+
 
 # =========================
 # 王資料
@@ -566,7 +776,7 @@ alias_map = {
     "卡司特王": ["卡司特", "卡", "卡王", "25"],
     "史前巨鱷": ["巨大鱷魚", "鱷魚", "51"],
     "強盜頭目": ["強盜頭目", "強盜", "32"],
-    "樹精": ["樹精", "樹", "23", "24", "57","t","T"],
+    "樹精": ["樹精", "樹", "24","t","T"],
     "蜘蛛": ["蜘蛛", "D", "喇牙", "39"],
     "變形怪首領": ["變形怪首領", "變形怪", "變怪", "68"],
     "古代巨人": ["古代巨人", "古巨", "巨人", "78"],
@@ -575,8 +785,8 @@ alias_map = {
     "克特": ["克特", "12"],
     "賽尼斯的分身": ["賽尼斯的分身", "賽尼斯", "304"],
     "貝里斯": ["貝里斯", "大克特", "將軍", "821"],
-    "烏勒庫斯": ["烏勒庫斯", "烏", "231"],
-    "奈克偌斯": ["奈克偌斯", "奈", "571"],
+    "烏勒庫斯": ["烏勒庫斯", "烏", "23"],
+    "奈克偌斯": ["奈克偌斯", "奈", "57"],
 }
 
 cd_map = {
@@ -819,6 +1029,7 @@ def roster_insert(user_id, game_name, clan_name):
                 """,
                 (user_id, game_name, clan_name)
             )
+        conn.commit()
 
 def roster_update(user_id, game_name, clan_name):
     with get_pg_conn() as conn:
@@ -831,6 +1042,7 @@ def roster_update(user_id, game_name, clan_name):
                 """,
                 (game_name, clan_name, user_id)
             )
+        conn.commit()
 
 def roster_delete(user_id):
     with get_pg_conn() as conn:
@@ -839,6 +1051,7 @@ def roster_delete(user_id):
                 "DELETE FROM roster WHERE line_user_id = %s",
                 (user_id,)
             )
+        conn.commit()
 
 # =========================
 # FastAPI Webhook
@@ -883,45 +1096,44 @@ def handle_message(event):
                 TextSendMessage("❌ 用法：加入名冊 血盟名 遊戲名")
             )
             return
-    
+
         _, clan, game_name = parts
         exists = roster_get_by_user(user)
 
+        # === 已存在 → 詢問是否更新 ===
         if exists:
             old_game, old_clan = exists
+
             db["__ROSTER_WAIT__"][user] = {
                 "action": "update",
-                "clan": clan,          # 新血盟
-                "name": game_name      # 新角色
+                "clan": clan,
+                "name": game_name
             }
-
             save_db(db)
-        
+
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(
-                    f"⚠️ 你已加入名冊\n"
-                    f"目前角色：{old_game}\n"
-                    f"血盟：{old_clan}\n\n"
-                    f"即將修改為：\n"
-                    f"玩家：{game_name}\n"
-                    f"血盟：{clan}\n\n"
-                    f"請輸入「確認修改」或「取消」"
+                FlexSendMessage(
+                    alt_text="名冊已存在",
+                    contents=build_roster_confirm_update_flex(
+                        old_game, old_clan, game_name, clan
+                    )
                 )
             )
             return
-            
-        # 新增
+
+        # === 不存在 → 新增 ===
         roster_insert(user, game_name, clan)
-        
+
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(f"✅ 已加入名冊\n玩家：{game_name}\n血盟：{clan}")
+            FlexSendMessage(
+                alt_text="已加入名冊",
+                contents=build_roster_added_flex(clan, game_name)
+            )
         )
         return
 
-    
-    
     # === 確認修改名冊 ===
     if msg == "確認修改":
         wait = db.get("__ROSTER_WAIT__", {}).get(user)
@@ -947,65 +1159,56 @@ def handle_message(event):
         if not profile:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("❌ 你尚未加入名冊")
+                TextSendMessage("❌ 尚未加入名冊")
             )
             return
-    
+
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(
-                f"📇 我的名冊資料\n"
-                f"玩家：{profile['name']}\n"
-                f"血盟：{profile['clan']}"
+            FlexSendMessage(
+                alt_text="我的名冊資料",
+                contents=build_roster_self_flex(
+                    profile["name"], profile["clan"]
+                )
             )
         )
         return
+
         
     if msg == "刪除名冊":
-        exists = roster_get_by_user(user)
-        if not exists:
+        profile = get_roster_profile(user)
+        if not profile:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("❌ 你尚未加入名冊")
+                TextSendMessage("❌ 尚未加入名冊")
             )
             return
-    
-        game_name, clan_name = exists
-    
-        db["__ROSTER_WAIT__"][user] = {
-            "action": "delete"
-        }
-        save_db(db)
-    
+
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(
-                f"⚠️ 是否刪除名冊？\n"
-                f"玩家：{game_name}\n"
-                f"血盟：{clan_name}\n\n"
-                f"請輸入「確認刪除」或「取消」"
+            FlexSendMessage(
+                alt_text="確認刪除名冊",
+                contents=build_roster_delete_confirm_flex(profile["name"])
             )
         )
         return
+
         
     # === 刪除名冊 ===
     if msg == "確認刪除":
-        wait = db.get("__ROSTER_WAIT__", {}).get(user)
-        if not wait or wait["action"] != "delete":
-            return
-    
         roster_delete(user)
-    
-        db["__ROSTER_WAIT__"].pop(user)
-        save_db(db)
-    
+
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage("✅ 名冊已刪除")
+            FlexSendMessage(
+                alt_text="名冊已刪除",
+                contents=build_roster_deleted_flex()
+            )
         )
         return
+
     
-    # === 取消（共用）===
+    # === 取消（名冊）===
     if msg == "取消":
         if user in db.get("__ROSTER_WAIT__", {}):
             db["__ROSTER_WAIT__"].pop(user)
@@ -1016,12 +1219,79 @@ def handle_message(event):
             )
             return
 
+    # === 查名冊（模糊）===
+    if text.startswith("查名冊"):
+        parts = text.split(maxsplit=1)
+
+        if len(parts) < 2:
+            reply = TextSendMessage(text="用法：查名冊 關鍵字")
+        else:
+            keyword = parts[1]
+
+            rows = search_roster(keyword)
+
+            result = []
+            for line_user_id, game_name, clan_name in rows:
+                line_name = get_username(line_user_id)
+                result.append((game_name, clan_name, line_name))
+
+            reply = build_roster_search_flex(keyword, result)
+
+        line_bot_api.reply_message(event.reply_token, reply)
+        return
+
     if msg.lower() == "help":
         line_bot_api.reply_message(
             event.reply_token,
             build_help_flex()
         )
         return
+    
+    # =========================
+    # 王列表
+    # =========================
+    if msg == "王列表":
+        text = build_boss_list_text()
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text)
+        )
+        return
+
+    # =========================
+    # 王重生（CD 一覽）
+    # =========================
+    if msg == "王重生":
+        text = build_boss_cd_list_text()
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text)
+        )
+        return
+
+    
+    # === 名冊（Flex）===
+    if msg.startswith("名冊"):
+        parts = msg.split(maxsplit=1)
+
+        if len(parts) == 2:
+            clan = parts[1]
+            rows = query_roster(clan)
+            keyword = clan
+        else:
+            rows = query_roster()
+            keyword = "全部"
+
+        result = []
+        for game_name, clan_name in rows:
+            result.append((game_name, clan_name, ""))
+
+        reply = build_roster_search_flex(keyword, result)
+        line_bot_api.reply_message(event.reply_token, reply)
+        return
+
     # =========================
     # 開機 初始化 CD 王
     # =========================
@@ -1089,7 +1359,7 @@ def handle_message(event):
         )
         return
 
-    if msg == "取消":
+    if msg == "取消清除":
         db.get("__WAIT__", {}).pop(group_id, None)
         save_db(db)
     
@@ -1230,15 +1500,15 @@ def handle_message(event):
 
             time_items.append((priority, t, line))
 
-    # ===== 固定王 =====
-        for boss, conf in fixed_bosses.items():
-            t = get_next_fixed_time_fixed(conf)
-            if not t:
-                continue
-        
-            time_items.append(
-                (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
-            )
+    # ===== 固定王(關閉) =====
+    #    for boss, conf in fixed_bosses.items():
+    #        t = get_next_fixed_time_fixed(conf)
+    #        if not t:
+    #           continue
+    #   
+    #       time_items.append(
+    #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
+    #        )
 
     # 排序
         time_items.sort(key=lambda x: (x[0], x[1]))
@@ -1315,7 +1585,6 @@ def handle_message(event):
             flex_msg
         )
         return
-
 
 @app.get("/")
 def root():
