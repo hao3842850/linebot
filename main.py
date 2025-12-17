@@ -646,12 +646,6 @@ def build_roster_search_flex(keyword, rows):
                         "size": "xs",
                         "color": "#666666"
                     },
-                    {
-                        "type": "text",
-                        "text": f"👤 LINE 用戶：{line_name}",
-                        "size": "xs",
-                        "color": "#999999"
-                    }
                 ]
             })
 
