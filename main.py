@@ -814,179 +814,179 @@ def handle_message(event):
     db = load_db()
 
     # =========================
-# 名冊功能
-# =========================
+    # 名冊功能
+    # =========================
 
-db.setdefault("__ROSTER_WAIT__", {})
-
-# === 加入名冊 ===
-if msg.startswith("加入名冊"):
-    parts = msg.split(" ", 2)
-    if len(parts) < 3:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage("❌ 用法：加入名冊 血盟名 遊戲名")
-        )
-     return
-
-    _, clan, game_name = parts
-    roster = load_roster()
-
-    # 已存在 → 等待確認
-    if user in roster:
-        db["__ROSTER_WAIT__"][user] = {
-            "action": "update",
-            "clan": clan,
-            "name": game_name
+    db.setdefault("__ROSTER_WAIT__", {})
+    
+    # === 加入名冊 ===
+    if msg.startswith("加入名冊"):
+        parts = msg.split(" ", 2)
+        if len(parts) < 3:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("❌ 用法：加入名冊 血盟名 遊戲名")
+            )
+            return
+    
+        _, clan, game_name = parts
+        roster = load_roster()
+    
+        # 已存在 → 等待確認
+        if user in roster:
+            db["__ROSTER_WAIT__"][user] = {
+                "action": "update",
+                "clan": clan,
+                "name": game_name
+            }
+            save_db(db)
+    
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    f"⚠️ 你已加入名冊\n"
+                    f"目前角色：{roster[user]['characters'][0]['name']}\n\n"
+                    f"請輸入「確認修改」或「取消」"
+                )
+            )
+            return
+    
+        # 新加入
+        roster[user] = {
+            "characters": [
+                {
+                    "name": game_name,
+                    "clan": clan
+                }
+            ]
         }
-        save_db(db)
-
+        save_roster(roster)
+    
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(
-                f"⚠️ 你已加入名冊\n"
-                f"目前角色：{roster[user]['characters'][0]['name']}\n\n"
-                f"請輸入「確認修改」或「取消」"
+                f"✅ 已加入名冊\n玩家：{game_name}\n血盟：{clan}"
             )
         )
         return
-
-    # 新加入
-    roster[user] = {
-        "characters": [
-            {
-                "name": game_name,
-                "clan": clan
-            }
-        ]
-    }
-    save_roster(roster)
-
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(
-            f"✅ 已加入名冊\n玩家：{game_name}\n血盟：{clan}"
-        )
-    )
-    return
-
-
-# === 確認修改名冊 ===
-if msg == "確認修改":
-    wait = db.get("__ROSTER_WAIT__", {}).get(user)
-    if not wait or wait["action"] != "update":
-        return
-
-    roster = load_roster()
-    roster[user] = {
-        "characters": [
-            {
-                "name": wait["name"],
-                "clan": wait["clan"]
-            }
-        ]
-    }
-    save_roster(roster)
-
-    db["__ROSTER_WAIT__"].pop(user)
-    save_db(db)
-
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(
-            f"✅ 名冊已更新\n玩家：{wait['name']}\n血盟：{wait['clan']}"
-        )
-    )
-    return
-
-
-# === 查自己 ===
-if msg == "查自己":
-    profile = get_roster_profile(user)
-    if not profile:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage("❌ 你尚未加入名冊")
-        )
-        return
-
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(
-            f"📇 我的名冊資料\n"
-            f"玩家：{profile['name']}\n"
-            f"血盟：{profile['clan']}"
-        )
-    )
-    return
-
-
-# === 刪除名冊 ===
-if msg == "刪除名冊":
-    roster = load_roster()
-    if user not in roster:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage("❌ 你尚未加入名冊")
-        )
-        return
-
-    db["__ROSTER_WAIT__"][user] = {
-        "action": "delete"
-    }
-    save_db(db)
-
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage("⚠️ 確定刪除名冊？\n請輸入「確認刪除」或「取消」")
-    )
-    return
-
-
-# === 確認刪除名冊 ===
-if msg == "確認刪除":
-    wait = db.get("__ROSTER_WAIT__", {}).get(user)
-    if not wait or wait["action"] != "delete":
-        return
-
-    roster = load_roster()
-    roster.pop(user, None)
-    save_roster(roster)
-
-    db["__ROSTER_WAIT__"].pop(user)
-    save_db(db)
-
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage("✅ 名冊已刪除")
-    )
-    return
-
-
-# === 取消（共用）===
-if msg == "取消":
-    if user in db.get("__ROSTER_WAIT__", {}):
+    
+    
+    # === 確認修改名冊 ===
+    if msg == "確認修改":
+        wait = db.get("__ROSTER_WAIT__", {}).get(user)
+        if not wait or wait["action"] != "update":
+            return
+    
+        roster = load_roster()
+        roster[user] = {
+            "characters": [
+                {
+                    "name": wait["name"],
+                    "clan": wait["clan"]
+                }
+            ]
+        }
+        save_roster(roster)
+    
         db["__ROSTER_WAIT__"].pop(user)
         save_db(db)
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage("❎ 已取消操作")
-        )
-        return
-
     
-    if msg.lower() == "help":
         line_bot_api.reply_message(
             event.reply_token,
-            build_help_flex()
+            TextSendMessage(
+                f"✅ 名冊已更新\n玩家：{wait['name']}\n血盟：{wait['clan']}"
+            )
         )
         return
-
-    group_id = get_source_id(event)
-    db.setdefault("boss", {})
-    db["boss"].setdefault(group_id, {})
-    boss_db = db["boss"][group_id]
-   
+    
+    
+    # === 查自己 ===
+    if msg == "查自己":
+        profile = get_roster_profile(user)
+        if not profile:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("❌ 你尚未加入名冊")
+            )
+            return
+    
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(
+                f"📇 我的名冊資料\n"
+                f"玩家：{profile['name']}\n"
+                f"血盟：{profile['clan']}"
+            )
+        )
+        return
+    
+    
+    # === 刪除名冊 ===
+    if msg == "刪除名冊":
+        roster = load_roster()
+        if user not in roster:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("❌ 你尚未加入名冊")
+            )
+            return
+    
+        db["__ROSTER_WAIT__"][user] = {
+            "action": "delete"
+        }
+        save_db(db)
+    
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("⚠️ 確定刪除名冊？\n請輸入「確認刪除」或「取消」")
+        )
+        return
+    
+    
+    # === 確認刪除名冊 ===
+    if msg == "確認刪除":
+        wait = db.get("__ROSTER_WAIT__", {}).get(user)
+        if not wait or wait["action"] != "delete":
+            return
+    
+        roster = load_roster()
+        roster.pop(user, None)
+        save_roster(roster)
+    
+        db["__ROSTER_WAIT__"].pop(user)
+        save_db(db)
+    
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("✅ 名冊已刪除")
+        )
+        return
+    
+    
+    # === 取消（共用）===
+    if msg == "取消":
+        if user in db.get("__ROSTER_WAIT__", {}):
+            db["__ROSTER_WAIT__"].pop(user)
+            save_db(db)
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("❎ 已取消操作")
+            )
+            return
+    
+        
+        if msg.lower() == "help":
+            line_bot_api.reply_message(
+                event.reply_token,
+                build_help_flex()
+            )
+            return
+    
+        group_id = get_source_id(event)
+        db.setdefault("boss", {})
+        db["boss"].setdefault(group_id, {})
+        boss_db = db["boss"][group_id]
+       
     # =========================
     # 開機 初始化 CD 王
     # =========================
