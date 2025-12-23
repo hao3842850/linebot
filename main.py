@@ -1,10 +1,14 @@
 # 天堂M 吃王小幫手
-from linebot.models import MemberJoinedEvent
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import FlexSendMessage
+from linebot.models import (
+    MemberJoinedEvent,
+    MessageEvent,
+    TextMessage,
+    TextSendMessage,
+    FlexSendMessage
+)
 
 import psycopg2
 from urllib.parse import urlparse
@@ -954,9 +958,19 @@ async def boss_reminder_loop():
                 # 提前 5 分鐘提醒
                 if (respawn_time - now).total_seconds() <= 60:  # 1 分鐘內都推播
                     for uid in db.get("__SUBSCRIBE__", {}).get(group_id, {}).get(boss, []):
-                        line_bot_api.push_message(uid, TextSendMessage(
-                            f"⏰ {boss} 即將重生 ({respawn_time.strftime('%H:%M')})"
-                        ))
+                        # 建立要 @ 的文字
+                        mention_texts = []
+                        for uid in uids:
+                            mention_texts.append(f"<@{uid}>")
+                        
+                        # 合成訊息
+                        text_message = f"⏰ {boss} 即將重生 ({respawn_time.strftime('%H:%M')}) " + " ".join(mention_texts)
+                        
+                        # 推播到群組
+                        line_bot_api.push_message(
+                            group_id,
+                            TextSendMessage(text=text_message)
+                        )
         await asyncio.sleep(60)  # 每分鐘檢查一次
 
 def init_cd_boss_with_given_time(db, group_id, base_time):
@@ -1528,11 +1542,7 @@ def handle_message(event):
         if user not in db["__SUBSCRIBE__"][group_id][boss]:
             db["__SUBSCRIBE__"][group_id][boss].append(user)
             save_db(db)
-
-        # 🔹 加這行檢查
-        print("訂閱資料：", db["__SUBSCRIBE__"])
-        line_bot_api.push_message(user, TextSendMessage("✅ 訂閱成功測試訊息"))
-        
+            
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(f"✅ 已訂閱 {boss}")
