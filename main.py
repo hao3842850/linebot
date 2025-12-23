@@ -1,6 +1,4 @@
-# ============================================================
 # 天堂M 吃王小幫手
-# ============================================================
 from linebot.models import MemberJoinedEvent
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
@@ -15,23 +13,16 @@ import json
 from datetime import datetime, timedelta
 import pytz
 
-# =========================
 # 基本設定
-# =========================
 app = FastAPI()
-
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 CHANNEL_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-
 line_bot_api = LineBotApi(CHANNEL_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
-
 TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 
-# =========================
 # 工具函式
-# =========================
 def get_source_id(event):
     if event.source.type == "group":
         return event.source.group_id
@@ -39,36 +30,25 @@ def get_source_id(event):
         return event.source.room_id
     else:
         return event.source.user_id
-
 def now_tw():
     return datetime.now(TZ)
-
 def get_username(user_id):
     try:
         profile = get_roster_profile(user_id)
         return profile["name"] if profile else "未登記玩家"
     except Exception:
         return "未知玩家"
-
-
 def init_db():
     if not os.path.exists(DB_FILE):
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump({"boss": {}}, f, ensure_ascii=False, indent=2)
-
-
 def load_db():
     with open(DB_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
-
-
 def save_db(db):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
-
-
 init_db()
-
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
     contents = [
         {
@@ -119,10 +99,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
 
 def build_help_flex():
     bubbles = []
-
-    # =====================
     # 1️⃣ 登記王
-    # =====================
     bubbles.append({
         "type": "bubble",
         "body": {
@@ -155,10 +132,7 @@ def build_help_flex():
             ]
         }
     })
-
-    # =====================
     # 2️⃣ 查詢王
-    # =====================
     bubbles.append({
         "type": "bubble",
         "body": {
@@ -185,10 +159,7 @@ def build_help_flex():
             ]
         }
     })
-
-    # =====================
     # 3️⃣ 出王清單
-    # =====================
     bubbles.append({
         "type": "bubble",
         "body": {
@@ -216,10 +187,7 @@ def build_help_flex():
             ]
         }
     })
-
-    # =====================
     # 4️⃣ clear 說明
-    # =====================
     bubbles.append({
         "type": "bubble",
         "body": {
@@ -249,10 +217,7 @@ def build_help_flex():
             ]
         }
     })
-
-    # =====================
     # 5️⃣ 小技巧
-    # =====================
     bubbles.append({
         "type": "bubble",
         "body": {
@@ -274,9 +239,7 @@ def build_help_flex():
             ]
         }
     })
-    # =====================
     # 六 
-    # =====================
     bubbles.append({
         "type": "bubble",
         "body": {
@@ -817,9 +780,9 @@ def build_boss_cd_list_text():
     return "\n".join(lines)
 
 
-# =========================
+
 # 王資料
-# =========================
+
 alias_map = {
     "四色": ["四色", "76", "4", "四", "4色","c","C"],
     "小紅": ["小紅", "55", "紅", "R", "r"],
@@ -906,9 +869,9 @@ fixed_bosses = {
                   "13:00","15:00","17:00","19:00","21:00","23:00"]
     }
 }
-# =========================
+
 # 邏輯函式
-# =========================
+
 def get_roster_profile(user_id):
     row = roster_get_by_user(user_id)
     if not row:
@@ -979,6 +942,22 @@ def get_next_fixed_time_fixed(boss_conf):
                 return dt
 
     return None
+async def boss_reminder_loop():
+    while True:
+        now = now_tw()
+        for group_id, boss_db_group in db.get("boss", {}).items():
+            for boss, records in boss_db_group.items():
+                if not records:
+                    continue
+                last_rec = records[-1]
+                respawn_time = datetime.fromisoformat(last_rec["respawn"]).astimezone(TZ)
+                # 提前 5 分鐘提醒
+                if 0 <= (respawn_time - now).total_seconds() <= 300:
+                    for uid in db.get("__SUBSCRIBE__", {}).get(group_id, {}).get(boss, []):
+                        line_bot_api.push_message(uid, TextSendMessage(
+                            f"⏰ {boss} 即將重生 ({respawn_time.strftime('%H:%M')})"
+                        ))
+        await asyncio.sleep(60)  # 每分鐘檢查一次
 
 def init_cd_boss_with_given_time(db, group_id, base_time):
     db.setdefault("boss", {})
@@ -1115,12 +1094,14 @@ def roster_delete(user_id):
             )
         conn.commit()
 
-# =========================
+
 # FastAPI Webhook
-# =========================
+
 @app.on_event("startup")
 def startup():
     ensure_roster_table()
+async def start_reminder():
+    asyncio.create_task(boss_reminder_loop())
 
 @app.post("/callback")
 async def callback(request: Request, x_line_signature=Header(None)):
@@ -1155,13 +1136,13 @@ def handle_message(event):
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
+    # 初始化訂閱資料
+    db.setdefault("__SUBSCRIBE__", {})
+    db["__SUBSCRIBE__"].setdefault(group_id, {})
 
-    # =========================
-    # 名冊功能
-    # =========================
-
-    db.setdefault("__ROSTER_WAIT__", {})
     
+    # 名冊功能
+    db.setdefault("__ROSTER_WAIT__", {})
     # === 加入名冊 ===
     if msg.startswith("加入名冊"):
         parts = msg.split(" ", 2)
@@ -1322,9 +1303,9 @@ def handle_message(event):
         )
         return
     
-    # =========================
+    
     # 王列表
-    # =========================
+    
     if msg == "王列表":
         text = build_boss_list_text()
 
@@ -1334,9 +1315,9 @@ def handle_message(event):
         )
         return
 
-    # =========================
+    
     # 王重生（CD 一覽）
-    # =========================
+    
     if msg == "王重生":
         text = build_boss_cd_list_text()
 
@@ -1366,10 +1347,7 @@ def handle_message(event):
         reply = build_roster_search_flex(keyword, result)
         line_bot_api.reply_message(event.reply_token, reply)
         return
-
-    # =========================
     # 開機 初始化 CD 王
-    # =========================
     if msg.startswith("開機 "):
         parts = msg.split(" ", 1)
         time_token = parts[1].strip()
@@ -1394,11 +1372,7 @@ def handle_message(event):
             flex_msg
         )
         return
-    
-    
-    # =========================
     # clear
-    # =========================
     if msg == "clear":
         db.setdefault("__WAIT__", {})
         db["__WAIT__"][group_id] = {
@@ -1413,9 +1387,6 @@ def handle_message(event):
         )
         line_bot_api.reply_message(event.reply_token, flex)
         return
-
-
-
     if msg == "確定清除":
         wait = db.get("__WAIT__", {}).get(group_id)
 
@@ -1476,9 +1447,9 @@ def handle_message(event):
             TextSendMessage("❎ 已取消清除")
         )
         return
-    # =========================
+    
     # 查 王名
-    # =========================
+    
     if msg.startswith("查 "):
         name = msg.split(" ", 1)[1]
         boss = get_boss(name)
@@ -1506,10 +1477,7 @@ def handle_message(event):
             flex_msg
         )
         return
-
-    # =========================
     # KPI
-    # =========================
     if msg.upper() == "KPI":
         now = now_tw()
         start, end = get_kpi_range(now)
@@ -1546,10 +1514,59 @@ def handle_message(event):
             )
         )
         return
+    # 訂閱
+    if msg.startswith("訂閱 "):
+        boss_name = msg.split(" ", 1)[1]
+        boss = get_boss(boss_name)
+        if not boss:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("找不到此王"))
+            return
+    
+        db["__SUBSCRIBE__"].setdefault(group_id, {})
+        db["__SUBSCRIBE__"][group_id].setdefault(boss, [])
+        
+        if user not in db["__SUBSCRIBE__"][group_id][boss]:
+            db["__SUBSCRIBE__"][group_id][boss].append(user)
+            save_db(db)
+        
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(f"✅ 已訂閱 {boss}")
+        )
+        return
+    
+    if msg.startswith("取消訂閱 "):
+        boss_name = msg.split(" ", 1)[1]
+        boss = get_boss(boss_name)
+        if not boss:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("找不到此王"))
+            return
+        
+        if user in db.get("__SUBSCRIBE__", {}).get(group_id, {}).get(boss, []):
+            db["__SUBSCRIBE__"][group_id][boss].remove(user)
+            save_db(db)
+        
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(f"✅ 已取消訂閱 {boss}")
+        )
+        return
+    # 我的訂閱
+    if msg == "我的訂閱":
+        subs = db.get("__SUBSCRIBE__", {}).get(group_id, {}).get(user, [])
+        if subs:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("📌 你訂閱的王：" + ", ".join(subs))
+            )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("📌 你尚未訂閱任何王")
+            )
+        return
 
-    # =========================
     # 出
-    # =========================
     if msg == "出":
         now = now_tw()
         time_items = []
@@ -1634,9 +1651,9 @@ def handle_message(event):
             TextSendMessage("\n".join(output))
         )
         return
-    # =========================
+    
     # 登記王
-    # =========================
+    
     parts = msg.split(" ")
 
     if len(parts) >= 2:
