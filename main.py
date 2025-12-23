@@ -952,7 +952,7 @@ async def boss_reminder_loop():
                 last_rec = records[-1]
                 respawn_time = datetime.fromisoformat(last_rec["respawn"]).astimezone(TZ)
                 # 提前 5 分鐘提醒
-                if 0 <= (respawn_time - now).total_seconds() <= 300:
+                if (respawn_time - now).total_seconds() <= 60:  # 1 分鐘內都推播
                     for uid in db.get("__SUBSCRIBE__", {}).get(group_id, {}).get(boss, []):
                         line_bot_api.push_message(uid, TextSendMessage(
                             f"⏰ {boss} 即將重生 ({respawn_time.strftime('%H:%M')})"
@@ -1528,6 +1528,10 @@ def handle_message(event):
         if user not in db["__SUBSCRIBE__"][group_id][boss]:
             db["__SUBSCRIBE__"][group_id][boss].append(user)
             save_db(db)
+
+        # 🔹 加這行檢查
+        print("訂閱資料：", db["__SUBSCRIBE__"])
+        line_bot_api.push_message(user, TextSendMessage("✅ 訂閱成功測試訊息"))
         
         line_bot_api.reply_message(
             event.reply_token,
