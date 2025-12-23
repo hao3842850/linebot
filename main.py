@@ -826,13 +826,13 @@ alias_map = {
     "小綠": ["小綠", "54", "綠", "G", "g"],
     "守護螞蟻": ["守護螞蟻", "螞蟻", "29"],
     "巨大蜈蚣": ["巨大蜈蚣", "蜈蚣", "海4", "海蟲", "6"],
-    "861飛龍": ["左飛龍", "861", "86左飛龍", "左", "86下"],
-    "862飛龍": ["右飛龍", "862", "86右飛龍", "右", "86上"],
+    "86左飛龍": ["左飛龍", "861", "86左飛龍", "左", "86下"],
+    "86右飛龍": ["右飛龍", "862", "86右飛龍", "右", "86上"],
     "伊弗利特": ["伊弗利特", "伊弗", "EF", "ef", "伊佛", "衣服"],
     "大腳瑪幽": ["大腳瑪幽", "大腳", "69"],
     "巨大飛龍": ["巨大飛龍", "巨飛", "GF", "82"],
-    "83飛龍": ["中飛龍", "中", "中央龍", "83"],
-    "85飛龍": ["東飛龍", "東", "85飛龍", "85"],
+    "83中飛龍": ["中飛龍", "中", "中央龍", "83"],
+    "85東飛龍": ["東飛龍", "東", "85飛龍", "85"],
     "大黑長者": ["大黑長者", "大黑", "黑", "863","b","B"],
     "力卡溫": ["力卡溫", "狼人", "狼王", "22", "狼"],
     "卡司特王": ["卡司特", "卡", "卡王", "25"],
@@ -1567,19 +1567,16 @@ def handle_message(event):
             base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
             step = timedelta(hours=cd)
 
-            # 距離第一次重生已過多久（分鐘）
-            passed_minutes = int((now - base_respawn).total_seconds() // 60)
-
-            # ===== ① 計算目前應顯示的場次 =====
             if now < base_respawn:
-                # 還沒到第一次重生
                 missed = 0
                 t = base_respawn
+                passed_minutes = 0
             else:
-                # 已到重生之後
                 diff_seconds = (now - base_respawn).total_seconds()
                 missed = int(diff_seconds // step.total_seconds())
                 t = base_respawn + missed * step
+            
+                passed_minutes = int((now - t).total_seconds() // 60)
 
             # ===== ② 組輸出文字 =====
             line = f"{t.strftime('%H:%M:%S')} {boss}"
@@ -1591,14 +1588,19 @@ def handle_message(event):
             priority = 1
 
             # ===== 顯示狀態 =====
-            if now >= base_respawn:
-                if passed_minutes < 30:
+            if now >= t:
+                # ① 未打提示（保留你原本邏輯）
+                if passed_minutes <= 5:
+                    line += " <5分未打>"
+                    priority = 0
+                elif passed_minutes < 30:
                     line += f" <{passed_minutes}分未打>"
                     priority = 0
-                else:
+            
+                # ② 過幾「獨立顯示」（重點在這）
+                if missed >= 1:
                     line += f"#過{missed + 1}"
 
-            time_items.append((priority, t, line))
 
     # ===== 固定王(關閉) =====
     #    for boss, conf in fixed_bosses.items():
