@@ -1601,6 +1601,7 @@ def handle_message(event):
                 if missed >= 1:
                     line += f"#過{missed + 1}"
 
+            time_items.append((priority, t, line))
 
     # ===== 固定王(關閉) =====
     #    for boss, conf in fixed_bosses.items():
