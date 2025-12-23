@@ -1130,8 +1130,7 @@ async def callback(request: Request, x_line_signature=Header(None)):
     except InvalidSignatureError:
         return "Invalid signature"
     return "OK"
-
-@handler.add(MemberJoinedEvent)
+    
 @handler.add(MemberJoinedEvent)
 def handle_member_joined(event):
     # 只處理群組 / room
@@ -1574,10 +1573,12 @@ def handle_message(event):
             else:
                 diff_seconds = (now - base_respawn).total_seconds()
                 missed = int(diff_seconds // step.total_seconds())
+                
+                if diff_seconds % step.total_seconds() < 60:
+                    missed = max(0, missed - 1)
+
                 t = base_respawn + missed * step
             
-                passed_minutes = int((now - t).total_seconds() // 60)
-
             # ===== ② 組輸出文字 =====
             line = f"{t.strftime('%H:%M:%S')} {boss}"
 
@@ -1586,7 +1587,8 @@ def handle_message(event):
                 line += f" ({rec['note']})"
 
             priority = 1
-
+            
+            passed_minutes = max(0, int((now - t).total_seconds() // 60))
             # ===== 顯示狀態 =====
             if now >= t:
                 # ① 未打提示（保留你原本邏輯）
@@ -1599,7 +1601,7 @@ def handle_message(event):
             
                 # ② 過幾「獨立顯示」（重點在這）
                 if missed >= 1:
-                    line += f"#過{missed + 1}"
+                    line += f"#過{missed}"
 
             time_items.append((priority, t, line))
 
@@ -1673,6 +1675,9 @@ def handle_message(event):
         }
 
         boss_db.setdefault(boss, []).append(rec)
+
+        boss_db[boss] = boss_db[boss][-20:]
+        
         save_db(db)
 
     # 回覆
