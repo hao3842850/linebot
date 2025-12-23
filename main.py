@@ -1,6 +1,7 @@
 # ============================================================
 # 天堂M 吃王小幫手
 # ============================================================
+from linebot.models import MemberJoinedEvent
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -68,7 +69,7 @@ def save_db(db):
 
 init_db()
 
-def build_register_boss_flex(boss, kill_time, respawn_time, note=None):
+def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
     contents = [
         {
             "type": "text",
@@ -86,7 +87,14 @@ def build_register_boss_flex(boss, kill_time, respawn_time, note=None):
             "type": "text",
             "text": f"✨ 重生時間：{respawn_time}",
             "wrap": True
-        }
+        },
+        {
+            "type": "text",
+            "text": f"👤 登記者：{registrar}",
+            "size": "sm",
+            "color": "#555555",
+            "wrap": True
+        },
     ]
 
     if note:
@@ -304,8 +312,61 @@ def build_help_flex():
         }
     )
 
+def build_join_roster_guide_flex():
+    return FlexSendMessage(
+        alt_text="歡迎加入群組，請加入名冊",
+        contents={
+            "type": "bubble",
+            "size": "mega",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "👋 歡迎加入群組",
+                        "weight": "bold",
+                        "size": "xl"
+                    },
+                    {
+                        "type": "text",
+                        "text": "📌 為了正確統計王表與 KPI\n請務必先加入名冊",
+                        "wrap": True,
+                        "size": "sm",
+                        "color": "#555555"
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "md"
+                    },
+                    {
+                        "type": "text",
+                        "text": "✍️ 加入名冊指令",
+                        "weight": "bold"
+                    },
+                    {
+                        "type": "text",
+                        "text": "加入名冊 血盟名 遊戲角色名",
+                        "wrap": True,
+                        "size": "sm"
+                    },
+                    {
+                        "type": "text",
+                        "text": "📘 範例：\n加入名冊 酒窖 威士忌乄",
+                        "wrap": True,
+                        "size": "sm",
+                        "color": "#666666"
+                    }
+                ]
+            },
+        }
+    )
+
+
 def build_query_record_bubble(boss, rec):
     respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+    registrar = get_username(rec.get("user"))
 
     contents = [
         {
@@ -341,6 +402,13 @@ def build_query_record_bubble(boss, rec):
                     "type": "text",
                     "text": f"✨ 重生時間：{respawn.strftime('%H:%M:%S')}",
                     "size": "sm",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": f"👤 登記者：{registrar}",
+                    "size": "sm",
+                    "color": "#555555",
                     "wrap": True
                 }
             ]
@@ -405,7 +473,7 @@ def clear_confirm_flex():
                     "action": {
                         "type": "message",
                         "label": "取消",
-                        "text": "取消"
+                        "text": "取消清除"
                     }
                 },
                 {
@@ -758,27 +826,27 @@ alias_map = {
     "小綠": ["小綠", "54", "綠", "G", "g"],
     "守護螞蟻": ["守護螞蟻", "螞蟻", "29"],
     "巨大蜈蚣": ["巨大蜈蚣", "蜈蚣", "海4", "海蟲", "6"],
-    "86左飛龍": ["左飛龍", "861", "86左飛龍", "左", "86下"],
-    "86右飛龍": ["右飛龍", "862", "86右飛龍", "右", "86上"],
+    "861飛龍": ["左飛龍", "861", "86左飛龍", "左", "86下"],
+    "862飛龍": ["右飛龍", "862", "86右飛龍", "右", "86上"],
     "伊弗利特": ["伊弗利特", "伊弗", "EF", "ef", "伊佛", "衣服"],
     "大腳瑪幽": ["大腳瑪幽", "大腳", "69"],
     "巨大飛龍": ["巨大飛龍", "巨飛", "GF", "82"],
-    "83中飛龍": ["中飛龍", "中", "中央龍", "83"],
-    "85東飛龍": ["東飛龍", "東", "85飛龍", "85"],
+    "83飛龍": ["中飛龍", "中", "中央龍", "83"],
+    "85飛龍": ["東飛龍", "東", "85飛龍", "85"],
     "大黑長者": ["大黑長者", "大黑", "黑", "863","b","B"],
-    "力卡溫": ["力卡溫", "狼人", "狼王", "22"],
+    "力卡溫": ["力卡溫", "狼人", "狼王", "22", "狼"],
     "卡司特王": ["卡司特", "卡", "卡王", "25"],
     "史前巨鱷": ["巨大鱷魚", "鱷魚", "51"],
     "強盜頭目": ["強盜頭目", "強盜", "32"],
     "樹精": ["樹精", "樹", "24","t","T"],
-    "蜘蛛": ["蜘蛛", "D", "喇牙", "39"],
-    "變形怪首領": ["變形怪首領", "變形怪", "變怪", "68"],
+    "蜘蛛": ["蜘蛛", "D", "喇牙", "39", "d"],
+    "變形怪首領": ["變形怪首領", "變形怪", "變怪", "68", "變王"],
     "古代巨人": ["古代巨人", "古巨", "巨人", "78"],
     "不死鳥": ["不死鳥", "鳥", "452","g","gg","G","GG"],
     "死亡騎士": ["死亡騎士", "死騎", "05"],
     "克特": ["克特", "12"],
     "賽尼斯的分身": ["賽尼斯的分身", "賽尼斯", "304"],
-    "貝里斯": ["貝里斯", "大克特", "將軍", "821"],
+    "貝里斯": ["貝里斯", "大克特", "將軍", "82"],
     "烏勒庫斯": ["烏勒庫斯", "烏", "23"],
     "奈克偌斯": ["奈克偌斯", "奈", "57"],
 }
@@ -1063,6 +1131,20 @@ async def callback(request: Request, x_line_signature=Header(None)):
         return "Invalid signature"
     return "OK"
 
+@handler.add(MemberJoinedEvent)
+@handler.add(MemberJoinedEvent)
+def handle_member_joined(event):
+    # 只處理群組 / room
+    if event.source.type not in ["group", "room"]:
+        return
+
+    line_bot_api.reply_message(
+        event.reply_token,
+        build_join_roster_guide_flex()
+    )
+
+
+
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user = event.source.user_id
@@ -1337,21 +1419,54 @@ def handle_message(event):
 
     if msg == "確定清除":
         wait = db.get("__WAIT__", {}).get(group_id)
-        
+
         if not wait or wait["user"] != user:
             return
 
-    
+        # ===== ① 先送出 KPI =====
+        now = now_tw()
+        start, end = get_kpi_range(now)
+
+        kpi_data = calculate_kpi(boss_db, start, end)
+
+        if kpi_data:
+            ranking = sorted(
+                kpi_data.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )
+
+            display = [(get_username(uid), count) for uid, count in ranking]
+
+            kpi_bubble = build_kpi_flex(
+                "📊 本週 KPI 排行榜（清除前）",
+                f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}",
+                display
+            )
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                [
+                    FlexSendMessage(
+                        alt_text="本週 KPI 排行榜",
+                        contents=kpi_bubble
+                    ),
+                    TextSendMessage("🗑 接下來將清除本群組所有王紀錄")
+                ]
+            )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("📊 本週尚無 KPI 紀錄，將直接清除資料")
+            )
+
+        # ===== ② 再清除資料 =====
         db["boss"].pop(group_id, None)
         db["__WAIT__"].pop(group_id, None)
-
         save_db(db)
-    
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage("✅ 已清除本群組所有王紀錄")
-        )
+
         return
+
 
     if msg == "取消清除":
         db.get("__WAIT__", {}).pop(group_id, None)
@@ -1450,47 +1565,38 @@ def handle_message(event):
             rec = boss_db[boss][-1]
 
             base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
-            passed_minutes = int((now - base_respawn).total_seconds() // 60)
-
             step = timedelta(hours=cd)
 
-            # ===== 是否允許跳下一場 =====
-            allow_jump = False
+            # 距離第一次重生已過多久（分鐘）
+            passed_minutes = int((now - base_respawn).total_seconds() // 60)
 
-            # 有新登記（代表這筆就是最新場）
-            # → 這裡不用特別判斷，因為 rec 就是最後一筆
-
-            # 超過 30 分鐘 → 視為放生
-            if passed_minutes >= 30:
-                allow_jump = True
-
-            if allow_jump:
+            # ===== ① 計算目前應顯示的場次 =====
+            if now < base_respawn:
+                # 還沒到第一次重生
                 missed = 0
                 t = base_respawn
-                while t < now:
-                    t += step
-                    missed += 1
             else:
-                # ❗ 未滿 30 分鐘 → 卡在這一場
-                t = base_respawn
-                missed = 0
+                # 已到重生之後
+                diff_seconds = (now - base_respawn).total_seconds()
+                missed = int(diff_seconds // step.total_seconds())
+                t = base_respawn + missed * step
 
-            # ===== 組輸出 =====
+            # ===== ② 組輸出文字 =====
             line = f"{t.strftime('%H:%M:%S')} {boss}"
 
-            # 備註（包含 開機）
+            # 玩家備註（空 只是顯示）
             if rec.get("note"):
                 line += f" ({rec['note']})"
 
-            # 未打顯示（只在未跳場時）
-            if not allow_jump and passed_minutes > 0:
-                line += f" <{passed_minutes}分未打>"
-                priority = 0
-            else:
-                priority = 1
+            priority = 1
 
-            if missed > 0:
-                line += f"#過{missed}"
+            # ===== 顯示狀態 =====
+            if now >= base_respawn:
+                if passed_minutes < 30:
+                    line += f" <{passed_minutes}分未打>"
+                    priority = 0
+                else:
+                    line += f"#過{missed + 1}"
 
             time_items.append((priority, t, line))
 
@@ -1567,13 +1673,15 @@ def handle_message(event):
         save_db(db)
 
     # 回覆
+        registrar = get_username(user)
+
         flex_msg = build_register_boss_flex(
             boss=boss,
             kill_time=rec['kill'],
             respawn_time=respawn.strftime('%H:%M:%S'),
+            registrar=registrar,
             note=note
         )
-        
         line_bot_api.reply_message(
             event.reply_token,
             flex_msg
