@@ -1666,7 +1666,7 @@ def handle_message(event):
         # ===== 組輸出 =====
         output = ["📢【即將重生列表】", ""]
         
-        for _, _, line in time_items:
+        for _, line in time_items:
             output.append(line)
     
         if unregistered:
