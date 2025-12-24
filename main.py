@@ -1649,6 +1649,8 @@ def handle_message(event):
             if passed_minutes is not None:
                 if passed_minutes <= 30:
                     line += f" <重生{passed_minutes}分>"
+                    if missed > 0:
+                        line += f" #過{missed}"
                 else:
                     line += f" #過{missed}"
         
