@@ -9,6 +9,8 @@ from linebot.models import (
     TextSendMessage,
     FlexSendMessage
 )
+from linebot.models import Mention, Mentionee
+
 
 import psycopg2
 from urllib.parse import urlparse
@@ -58,6 +60,7 @@ def save_db(db):
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(db, f, ensure_ascii=False, indent=2)
 init_db()
+
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
     contents = [
         {
@@ -965,38 +968,6 @@ def get_next_fixed_time_fixed(boss_conf):
                 return dt
 
     return None
-async def boss_reminder_loop():
-    while True:
-        db = load_db()
-        now = now_tw()
-        for group_id, boss_db_group in db.get("boss", {}).items():
-            for boss, records in boss_db_group.items():
-                if not records:
-                    continue
-                last_rec = records[-1]
-                if last_rec.get("_notified"):
-                    continue
-                respawn_time = datetime.fromisoformat(last_rec["respawn"]).astimezone(TZ)
-                # 提前 5 分鐘提醒
-                if (respawn_time - now).total_seconds() <= 60:
-                    subs = db.get("__SUBSCRIBE__", {}).get(group_id, {}).get(boss, [])
-                    if not subs:
-                        continue
-                
-                    mention_texts = [f"<@{uid}>" for uid in subs]
-                    text_message = (
-                        f"⏰ {boss} 即將重生 ({respawn_time.strftime('%H:%M')}) "
-                        + " ".join(mention_texts)
-                    )
-                
-                    last_rec["_notified"] = True
-                    save_db(db)
-                
-                    line_bot_api.push_message(
-                        group_id,
-                        TextSendMessage(text=text_message)
-                    )
-        await asyncio.sleep(60)  # 每分鐘檢查一次
 
 def init_cd_boss_with_given_time(db, group_id, base_time):
     db.setdefault("boss", {})
@@ -1141,9 +1112,7 @@ def roster_delete(user_id):
 @app.on_event("startup")
 async def startup():
     ensure_roster_table()
-    asyncio.create_task(boss_reminder_loop())
-async def start_reminder():
-    asyncio.create_task(boss_reminder_loop())
+    # asyncio.create_task(boss_reminder_loop())
 
 @app.post("/callback")
 async def callback(request: Request, x_line_signature=Header(None)):
@@ -1178,11 +1147,7 @@ def handle_message(event):
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
-    # 初始化訂閱資料
-    db.setdefault("__SUBSCRIBE__", {})
-    db["__SUBSCRIBE__"].setdefault(group_id, {})
 
-    
     # 名冊功能
     db.setdefault("__ROSTER_WAIT__", {})
     # === 加入名冊 ===
@@ -1556,61 +1521,6 @@ def handle_message(event):
             )
         )
         return
-    # 訂閱
-    if msg.startswith("訂閱 "):
-        boss_name = msg.split(" ", 1)[1]
-        boss = get_boss(boss_name)
-        if not boss:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("找不到此王"))
-            return
-    
-        db["__SUBSCRIBE__"].setdefault(group_id, {})
-        db["__SUBSCRIBE__"][group_id].setdefault(boss, [])
-        
-        if user not in db["__SUBSCRIBE__"][group_id][boss]:
-            db["__SUBSCRIBE__"][group_id][boss].append(user)
-            save_db(db)
-            
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(f"✅ 已訂閱 {boss}")
-        )
-        return
-    
-    if msg.startswith("取消訂閱 "):
-        boss_name = msg.split(" ", 1)[1]
-        boss = get_boss(boss_name)
-        if not boss:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("找不到此王"))
-            return
-        
-        if user in db.get("__SUBSCRIBE__", {}).get(group_id, {}).get(boss, []):
-            db["__SUBSCRIBE__"][group_id][boss].remove(user)
-            save_db(db)
-        
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(f"✅ 已取消訂閱 {boss}")
-        )
-        return
-    # 我的訂閱
-    if msg == "我的訂閱":
-        subs = []
-        for boss, users in db.get("__SUBSCRIBE__", {}).get(group_id, {}).items():
-            if user in users:
-                subs.append(boss)
-        if subs:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("📌 你訂閱的王：" + ", ".join(subs))
-            )
-        else:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("📌 你尚未訂閱任何王")
-            )
-        return
-
     # 出
     if msg == "出":
         now = now_tw()
@@ -1634,17 +1544,23 @@ def handle_message(event):
                 missed = 0
             else:
                 diff = now - base_respawn
-                cycles = int(diff.total_seconds() // step.total_seconds()) + 1
 
-                current_respawn = base_respawn + cycles * step
+                # 已經經過幾個完整 CD
+                rounds_passed = int(diff.total_seconds() // step.total_seconds())
+
+                current_respawn = base_respawn + rounds_passed * step
                 passed_minutes = int((now - current_respawn).total_seconds() // 60)
-                missed = cycles
 
-                if passed_minutes > 30:
-                    # 超過30分鐘 → 排到下一場
-                    display_time = current_respawn + step
-                else:
+                if passed_minutes <= 30:
+                    # 仍在這一輪的 30 分鐘內
                     display_time = current_respawn
+                    missed = rounds_passed + 1
+                else:
+                    # 已超過 30 分鐘，視為又錯過一輪
+                    display_time = current_respawn + step
+                    missed = rounds_passed + 1
+                    passed_minutes = None
+
 
             # ===== 組顯示字串 =====
             line = f"{display_time.strftime('%H:%M:%S')} {boss}"
@@ -1654,6 +1570,7 @@ def handle_message(event):
 
             if missed > 0:
                 line += f" #過{missed}"
+
 
             # ❗ 關鍵：排序一定要用 display_time
             time_items.append((display_time, line))
