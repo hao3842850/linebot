@@ -1634,8 +1634,11 @@ def handle_message(event):
                 missed = int(diff.total_seconds() // step.total_seconds())
                 next_respawn = base_respawn + (missed + 1) * step
             
-            last_respawn = base_respawn + missed * step
-            passed_minutes = max(0, int((now - last_respawn).total_seconds() // 60))
+            # 距離「實際重生時間」過了幾分鐘
+            if now > next_respawn:
+                passed_minutes = int((now - next_respawn).total_seconds() // 60)
+            else:
+                passed_minutes = None
             
             # ===== ② 組輸出文字 =====
             line = f"{next_respawn.strftime('%H:%M:%S')} {boss}"
@@ -1646,12 +1649,10 @@ def handle_message(event):
 
             priority = 1
             # ===== 顯示狀態 =====
-            if passed_minutes <= 5:
-                line += " <5分未打>"
-                priority = 0
-            elif passed_minutes < 30:
-                line += f" <{passed_minutes}分未打>"
-                priority = 0
+            if passed_minutes is not None:
+                if passed_minutes > 0:
+                    line += f" <重生{passed_minutes}分>"
+                    priority = 0
             
             if missed > 1:
                 line += f"#過{missed-1}"
