@@ -1633,9 +1633,13 @@ def handle_message(event):
                 passed_minutes = None
             else:
                 diff = now - base_respawn
-                missed = int(diff.total_seconds() // step.total_seconds())
-                current_respawn = base_respawn + missed * step
+                cycles = int(diff.total_seconds() // step.total_seconds())
+                
+                current_respawn = base_respawn + cycles * step
                 passed_minutes = int((now - current_respawn).total_seconds() // 60)
+                
+# 真正漏吃的數量（第一輪不算）
+missed = max(0, cycles)
         
             line = f"{current_respawn.strftime('%H:%M:%S')} {boss}"
         
