@@ -1668,26 +1668,26 @@ def handle_message(event):
     #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
     #        )
 
-    # 排序（只依重生時間，最早的在最前）
-    time_items.sort(key=lambda x: x[1])
+        # 排序（只依重生時間，最早的在最前）
+        time_items.sort(key=lambda x: x[1])
 
-    # ===== 組輸出 =====
-    output = ["📢【即將重生列表】", ""]
+        # ===== 組輸出 =====
+        output = ["📢【即將重生列表】", ""]
+        
+        for _, _, line in time_items:
+            output.append(line)
     
-    for _, _, line in time_items:
-        output.append(line)
-
-    if unregistered:
-        output.append("")
-        output.append("— 未登記 —")
-        for b in unregistered:
-            output.append(b)
-
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage("\n".join(output))
-    )
-    return
+        if unregistered:
+            output.append("")
+            output.append("— 未登記 —")
+            for b in unregistered:
+                output.append(b)
+    
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("\n".join(output))
+        )
+        return
     
     # 登記王
     
