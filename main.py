@@ -16,8 +16,11 @@ import os
 import json
 from datetime import datetime, timedelta
 import pytz
+import asyncio
+from threading import Lock
 
 # 基本設定
+db_lock = Lock()
 app = FastAPI()
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 CHANNEL_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
@@ -47,11 +50,13 @@ def init_db():
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump({"boss": {}}, f, ensure_ascii=False, indent=2)
 def load_db():
-    with open(DB_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    with db_lock:
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
 def save_db(db):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(db, f, ensure_ascii=False, indent=2)
+    with db_lock:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(db, f, ensure_ascii=False, indent=2)
 init_db()
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
     contents = [
@@ -892,23 +897,37 @@ def get_boss(name):
         if name in aliases:
             return boss
     return None
-
+    
 def parse_time(token):
     now = now_tw()
-    if token == "6666":
-        return now
-    if token.isdigit() and len(token) == 4:
-        t = now.replace(hour=int(token[:2]), minute=int(token[2:]), second=0)
-        if t > now:
-            t -= timedelta(days=1)
-        return t
-    if token.isdigit() and len(token) == 6:
-        t = now.replace(hour=int(token[:2]), minute=int(token[2:4]), second=int(token[4:]))
-        if t > now:
-            t -= timedelta(days=1)
-        return t
-    return None
+    try:
+        if token == "6666":
+            return now
 
+        if token.isdigit() and len(token) == 4:
+            h = int(token[:2])
+            m = int(token[2:])
+            if h > 23 or m > 59:
+                return None
+            t = now.replace(hour=h, minute=m, second=0)
+            if t > now:
+                t -= timedelta(days=1)
+            return t
+
+        if token.isdigit() and len(token) == 6:
+            h = int(token[:2])
+            m = int(token[2:4])
+            s = int(token[4:])
+            if h > 23 or m > 59 or s > 59:
+                return None
+            t = now.replace(hour=h, minute=m, second=s)
+            if t > now:
+                t -= timedelta(days=1)
+            return t
+    except Exception:
+        return None
+
+    return None
 def get_next_fixed_time(time_list):
     now = now_tw()
     today = now.strftime("%Y-%m-%d")
@@ -948,29 +967,35 @@ def get_next_fixed_time_fixed(boss_conf):
     return None
 async def boss_reminder_loop():
     while True:
+        db = load_db()
         now = now_tw()
         for group_id, boss_db_group in db.get("boss", {}).items():
             for boss, records in boss_db_group.items():
                 if not records:
                     continue
                 last_rec = records[-1]
+                if last_rec.get("_notified"):
+                    continue
                 respawn_time = datetime.fromisoformat(last_rec["respawn"]).astimezone(TZ)
                 # 提前 5 分鐘提醒
-                if (respawn_time - now).total_seconds() <= 60:  # 1 分鐘內都推播
-                    for uid in db.get("__SUBSCRIBE__", {}).get(group_id, {}).get(boss, []):
-                        # 建立要 @ 的文字
-                        mention_texts = []
-                        for uid in uids:
-                            mention_texts.append(f"<@{uid}>")
-                        
-                        # 合成訊息
-                        text_message = f"⏰ {boss} 即將重生 ({respawn_time.strftime('%H:%M')}) " + " ".join(mention_texts)
-                        
-                        # 推播到群組
-                        line_bot_api.push_message(
-                            group_id,
-                            TextSendMessage(text=text_message)
-                        )
+                if (respawn_time - now).total_seconds() <= 60:
+                    subs = db.get("__SUBSCRIBE__", {}).get(group_id, {}).get(boss, [])
+                    if not subs:
+                        continue
+                
+                    mention_texts = [f"<@{uid}>" for uid in subs]
+                    text_message = (
+                        f"⏰ {boss} 即將重生 ({respawn_time.strftime('%H:%M')}) "
+                        + " ".join(mention_texts)
+                    )
+                
+                    last_rec["_notified"] = True
+                    save_db(db)
+                
+                    line_bot_api.push_message(
+                        group_id,
+                        TextSendMessage(text=text_message)
+                    )
         await asyncio.sleep(60)  # 每分鐘檢查一次
 
 def init_cd_boss_with_given_time(db, group_id, base_time):
@@ -1037,6 +1062,8 @@ def calculate_kpi(boss_db, start, end):
 
     return result
 def build_query_boss_flex(boss, records):
+    if not records:
+        return TextSendMessage("尚無紀錄")
     bubbles = []
     
     # ⭐ 新 → 舊（保險再 reversed 一次）
@@ -1112,8 +1139,9 @@ def roster_delete(user_id):
 # FastAPI Webhook
 
 @app.on_event("startup")
-def startup():
+async def startup():
     ensure_roster_table()
+    asyncio.create_task(boss_reminder_loop())
 async def start_reminder():
     asyncio.create_task(boss_reminder_loop())
 
@@ -1567,7 +1595,10 @@ def handle_message(event):
         return
     # 我的訂閱
     if msg == "我的訂閱":
-        subs = db.get("__SUBSCRIBE__", {}).get(group_id, {}).get(user, [])
+        subs = []
+        for boss, users in db.get("__SUBSCRIBE__", {}).get(group_id, {}).items():
+            if user in users:
+                subs.append(boss)
         if subs:
             line_bot_api.reply_message(
                 event.reply_token,
@@ -1591,50 +1622,41 @@ def handle_message(event):
             if boss not in boss_db or not boss_db[boss]:
                 unregistered.append(boss)
                 continue
-
             rec = boss_db[boss][-1]
-
             base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
             step = timedelta(hours=cd)
-
-            if now < base_respawn:
+            
+            if now <= base_respawn:
+                next_respawn = base_respawn
                 missed = 0
-                t = base_respawn
-                passed_minutes = 0
             else:
-                diff_seconds = (now - base_respawn).total_seconds()
-                missed = int(diff_seconds // step.total_seconds())
-                
-                if diff_seconds % step.total_seconds() < 60:
-                    missed = max(0, missed - 1)
-
-                t = base_respawn + missed * step
+                diff = now - base_respawn
+                missed = int(diff.total_seconds() // step.total_seconds())
+                next_respawn = base_respawn + (missed + 1) * step
+            
+            last_respawn = base_respawn + missed * step
+            passed_minutes = max(0, int((now - last_respawn).total_seconds() // 60))
             
             # ===== ② 組輸出文字 =====
-            line = f"{t.strftime('%H:%M:%S')} {boss}"
+            line = f"{next_respawn.strftime('%H:%M:%S')} {boss}"
 
             # 玩家備註（空 只是顯示）
             if rec.get("note"):
                 line += f" ({rec['note']})"
 
             priority = 1
-            
-            passed_minutes = max(0, int((now - t).total_seconds() // 60))
             # ===== 顯示狀態 =====
-            if now >= t:
-                # ① 未打提示（保留你原本邏輯）
-                if passed_minutes <= 5:
-                    line += " <5分未打>"
-                    priority = 0
-                elif passed_minutes < 30:
-                    line += f" <{passed_minutes}分未打>"
-                    priority = 0
+            if passed_minutes <= 5:
+                line += " <5分未打>"
+                priority = 0
+            elif passed_minutes < 30:
+                line += f" <{passed_minutes}分未打>"
+                priority = 0
             
-                # ② 過幾「獨立顯示」（重點在這）
-                if missed >= 1:
-                    line += f"#過{missed}"
+            if missed > 1:
+                line += f"#過{missed-1}"
 
-            time_items.append((priority, t, line))
+            time_items.append((priority, next_respawn, line))
 
     # ===== 固定王(關閉) =====
     #    for boss, conf in fixed_bosses.items():
@@ -1646,11 +1668,11 @@ def handle_message(event):
     #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
     #        )
 
-    # 排序
-        time_items.sort(key=lambda x: (x[0], x[1]))
+    # 排序（只依重生時間，最早的在最前）
+    time_items.sort(key=lambda x: x[1])
 
     # ===== 組輸出 =====
-        output = ["📢【即將重生列表】", ""]
+    output = ["📢【即將重生列表】", ""]
         for _, _, line in time_items:
             output.append(line)
 
