@@ -1628,18 +1628,22 @@ def handle_message(event):
             step = timedelta(hours=cd)
         
             if now < base_respawn:
+                # 尚未第一次重生
                 current_respawn = base_respawn
-                missed = 0
                 passed_minutes = None
+                missed = 0
             else:
                 diff = now - base_respawn
                 cycles = int(diff.total_seconds() // step.total_seconds())
-                
+            
+                # 目前所在的重生時間點
                 current_respawn = base_respawn + cycles * step
+            
                 passed_minutes = int((now - current_respawn).total_seconds() // 60)
-                
-                # 真正漏吃的數量（第一輪不算）
-                missed = max(0, cycles)
+            
+                # 漏吃次數 = 已經錯過的重生次數
+                # cycles >= 1 才代表有漏
+                missed = cycles
         
             line = f"{current_respawn.strftime('%H:%M:%S')} {boss}"
         
