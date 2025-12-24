@@ -1673,20 +1673,21 @@ def handle_message(event):
 
     # ===== 組輸出 =====
     output = ["📢【即將重生列表】", ""]
-        for _, _, line in time_items:
-            output.append(line)
+    
+    for _, _, line in time_items:
+        output.append(line)
 
-        if unregistered:
-            output.append("")
-            output.append("— 未登記 —")
-            for b in unregistered:
-                output.append(b)
+    if unregistered:
+        output.append("")
+        output.append("— 未登記 —")
+        for b in unregistered:
+            output.append(b)
 
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage("\n".join(output))
-        )
-        return
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage("\n".join(output))
+    )
+    return
     
     # 登記王
     
