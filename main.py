@@ -1634,7 +1634,7 @@ def handle_message(event):
                 missed = 0
             else:
                 diff = now - base_respawn
-                cycles = int(diff.total_seconds() // step.total_seconds())
+                cycles = int(diff.total_seconds() // step.total_seconds()) + 1
 
                 current_respawn = base_respawn + cycles * step
                 passed_minutes = int((now - current_respawn).total_seconds() // 60)
@@ -1650,7 +1650,7 @@ def handle_message(event):
             line = f"{display_time.strftime('%H:%M:%S')} {boss}"
 
             if passed_minutes is not None and passed_minutes <= 30:
-                line += f" {passed_minutes}分未打"
+                line += f" <{passed_minutes}分未打>"
 
             if missed > 0:
                 line += f" #過{missed}"
