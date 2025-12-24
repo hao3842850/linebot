@@ -769,7 +769,7 @@ def build_boss_list_text():
 def build_boss_cd_list_text():
     lines = ["⏳【王重生時間一覽】", ""]
 
-    for boss, cd in cd_map.items():
+    for boss, cd in sorted(cd_map.items(), key=lambda x: x[1]):
         # 小數轉成 小時 + 分鐘
         hours = int(cd)
         minutes = int((cd - hours) * 60)
