@@ -1622,42 +1622,33 @@ def handle_message(event):
             if boss not in boss_db or not boss_db[boss]:
                 unregistered.append(boss)
                 continue
+        
             rec = boss_db[boss][-1]
             base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
             step = timedelta(hours=cd)
-            
-            if now <= base_respawn:
-                next_respawn = base_respawn
+        
+            if now < base_respawn:
+                current_respawn = base_respawn
                 missed = 0
+                passed_minutes = None
             else:
                 diff = now - base_respawn
                 missed = int(diff.total_seconds() // step.total_seconds())
-                next_respawn = base_respawn + (missed + 1) * step
-            
-            # 距離「實際重生時間」過了幾分鐘
-            if now > next_respawn:
-                passed_minutes = int((now - next_respawn).total_seconds() // 60)
-            else:
-                passed_minutes = None
-            
-            # ===== ② 組輸出文字 =====
-            line = f"{next_respawn.strftime('%H:%M:%S')} {boss}"
-
-            # 玩家備註（空 只是顯示）
+                current_respawn = base_respawn + missed * step
+                passed_minutes = int((now - current_respawn).total_seconds() // 60)
+        
+            line = f"{current_respawn.strftime('%H:%M:%S')} {boss}"
+        
             if rec.get("note"):
                 line += f" ({rec['note']})"
-
-            priority = 1
-            # ===== 顯示狀態 =====
+        
             if passed_minutes is not None:
-                if passed_minutes > 0:
+                if passed_minutes <= 30:
                     line += f" <重生{passed_minutes}分>"
-                    priority = 0
-            
-            if missed > 1:
-                line += f"#過{missed-1}"
-
-            time_items.append((priority, next_respawn, line))
+                else:
+                    line += f" #過{missed}"
+        
+            time_items.append((current_respawn, line))
 
     # ===== 固定王(關閉) =====
     #    for boss, conf in fixed_bosses.items():
@@ -1670,7 +1661,7 @@ def handle_message(event):
     #        )
 
         # 排序（只依重生時間，最早的在最前）
-        time_items.sort(key=lambda x: x[1])
+        time_items.sort(key=lambda x: x[0])
 
         # ===== 組輸出 =====
         output = ["📢【即將重生列表】", ""]
