@@ -9,8 +9,6 @@ from linebot.models import (
     TextSendMessage,
     FlexSendMessage
 )
-from linebot.models import Mention, Mentionee
-
 
 import psycopg2
 from urllib.parse import urlparse
