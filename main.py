@@ -1622,43 +1622,63 @@ def handle_message(event):
             if boss not in boss_db or not boss_db[boss]:
                 unregistered.append(boss)
                 continue
-        
+
             rec = boss_db[boss][-1]
             base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
             step = timedelta(hours=cd)
-        
+
             if now < base_respawn:
                 # 尚未第一次重生
-                current_respawn = base_respawn
+                display_time = base_respawn
                 passed_minutes = None
                 missed = 0
             else:
                 diff = now - base_respawn
                 cycles = int(diff.total_seconds() // step.total_seconds())
-            
-                # 目前所在的重生時間點
+
                 current_respawn = base_respawn + cycles * step
-            
                 passed_minutes = int((now - current_respawn).total_seconds() // 60)
-            
-                # 漏吃次數 = 已經錯過的重生次數
-                # cycles >= 1 才代表有漏
                 missed = cycles
-        
-            line = f"{current_respawn.strftime('%H:%M:%S')} {boss}"
-        
-            if rec.get("note"):
-                line += f" ({rec['note']})"
-        
-            if passed_minutes is not None:
-                if passed_minutes <= 30:
-                    line += f" <重生{passed_minutes}分>"
-                    if missed > 0:
-                        line += f" #過{missed}"
+
+                if passed_minutes > 30:
+                    # 超過30分鐘 → 排到下一場
+                    display_time = current_respawn + step
                 else:
-                    line += f" #過{missed}"
-        
-            time_items.append((current_respawn, line))
+                    display_time = current_respawn
+
+            # ===== 組顯示字串 =====
+            line = f"{display_time.strftime('%H:%M:%S')} {boss}"
+
+            if passed_minutes is not None and passed_minutes <= 30:
+                line += f" {passed_minutes}分未打"
+
+            if missed > 0:
+                line += f" #過{missed}"
+
+            # ❗ 關鍵：排序一定要用 display_time
+            time_items.append((display_time, line))
+
+        # ===== 排序 =====
+        time_items.sort(key=lambda x: x[0])
+
+        # ===== 輸出 =====
+        output = ["📢【即將重生列表】", ""]
+
+        for _, line in time_items:
+            output.append(line)
+
+        if unregistered:
+            output.append("")
+            output.append("— 未登記 —")
+            for b in unregistered:
+                output.append(b)
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("\n".join(output))
+        )
+        return
+
 
     # ===== 固定王(關閉) =====
     #    for boss, conf in fixed_bosses.items():
@@ -1670,27 +1690,6 @@ def handle_message(event):
     #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
     #        )
 
-        # 排序（只依重生時間，最早的在最前）
-        time_items.sort(key=lambda x: x[0])
-
-        # ===== 組輸出 =====
-        output = ["📢【即將重生列表】", ""]
-        
-        for _, line in time_items:
-            output.append(line)
-    
-        if unregistered:
-            output.append("")
-            output.append("— 未登記 —")
-            for b in unregistered:
-                output.append(b)
-    
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage("\n".join(output))
-        )
-        return
-    
     # 登記王
     
     parts = msg.split(" ")
