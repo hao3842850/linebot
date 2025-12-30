@@ -797,7 +797,7 @@ alias_map = {
     "四色": ["四色", "76", "4", "四", "4色","c","C"],
     "小紅": ["小紅", "55", "紅", "R", "r"],
     "小綠": ["小綠", "54", "綠", "G", "g"],
-    "守護螞蟻": ["守護螞蟻", "螞蟻", "29"],
+    "守護螞蟻": ["守護螞蟻", "螞蟻", "29", "ant"],
     "巨大蜈蚣": ["巨大蜈蚣", "蜈蚣", "海4", "海蟲", "6"],
     "86左飛龍": ["左飛龍", "861", "86左飛龍", "左", "86下"],
     "86右飛龍": ["右飛龍", "862", "86右飛龍", "右", "86上"],
@@ -815,7 +815,7 @@ alias_map = {
     "蜘蛛": ["蜘蛛", "D", "喇牙", "39", "d"],
     "變形怪首領": ["變形怪首領", "變形怪", "變怪", "68", "變王"],
     "古代巨人": ["古代巨人", "古巨", "巨人", "78"],
-    "不死鳥": ["不死鳥", "鳥", "452","g","gg","G","GG"],
+    "不死鳥": ["不死鳥", "鳥", "452", "gg", "GG"],
     "死亡騎士": ["死亡騎士", "死騎", "05"],
     "克特": ["克特", "12"],
     "賽尼斯的分身": ["賽尼斯的分身", "賽尼斯", "304"],
@@ -1542,26 +1542,30 @@ def handle_message(event):
                 missed = 0
             else:
                 diff = now - base_respawn
-
-                # 已經經過幾個完整 CD
                 rounds_passed = int(diff.total_seconds() // step.total_seconds())
 
                 current_respawn = base_respawn + rounds_passed * step
                 passed_minutes = int((now - current_respawn).total_seconds() // 60)
 
                 if passed_minutes <= 30:
-                    # 仍在這一輪的 30 分鐘內
+                    # 還在這一輪 30 分鐘內 → 未打
                     display_time = current_respawn
-                    missed = rounds_passed + 1
+                    missed = rounds_passed          
                 else:
-                    # 已超過 30 分鐘，視為又錯過一輪
+                    # 已超過 30 分鐘 → 真的錯過一輪
                     display_time = current_respawn + step
                     missed = rounds_passed + 1
                     passed_minutes = None
 
 
+
             # ===== 組顯示字串 =====
+            note = rec.get("note", "").strip()
+
             line = f"{display_time.strftime('%H:%M:%S')} {boss}"
+
+            if note:
+                line += f"（{note}）"
 
             if passed_minutes is not None and passed_minutes <= 30:
                 line += f" <{passed_minutes}分未打>"
