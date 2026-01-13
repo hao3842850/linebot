@@ -9,6 +9,7 @@ from linebot.models import (
     TextSendMessage,
     FlexSendMessage
 )
+from datetime import datetime, timedelta, timezone
 
 import psycopg2
 from urllib.parse import urlparse
@@ -30,6 +31,23 @@ TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 
 # 工具函式
+def is_peak_time():
+    h = now_tw().hour
+    return h >= 22 or h <= 1
+def safe_reply(event, text_msg, flex_msg=None):
+    try:
+        if is_peak_time() or flex_msg is None:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text_msg)
+            )
+        else:
+            line_bot_api.reply_message(
+                event.reply_token,
+                flex_msg
+            )
+    except Exception as e:
+        print("Reply failed:", e)
 def get_source_id(event):
     if event.source.type == "group":
         return event.source.group_id
@@ -58,8 +76,10 @@ def save_db(db):
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(db, f, ensure_ascii=False, indent=2)
 init_db()
-
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
+    map_list = BOSS_MAP.get(boss, [])
+    map_text = "、".join(map_list) if map_list else "未知"
+
     contents = [
         {
             "type": "text",
@@ -67,6 +87,13 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             "weight": "bold",
             "size": "lg",
             "wrap": True
+        },
+        {
+            "type": "text",
+            "text": f"🗺️ 地圖：{map_text}",
+            "wrap": True,
+            "size": "sm",
+            "color": "#666666"
         },
         {
             "type": "text",
@@ -106,6 +133,22 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             }
         }
     )
+
+
+def build_register_boss_text(boss, kill_time, respawn_time, registrar, note):
+    map_list = BOSS_MAP.get(boss, [])
+    map_text = "、".join(map_list) if map_list else "未知"
+
+    msg = (
+        f"🔥 已登記 {boss}\n"
+        f"🗺️ 地圖：{map_text}\n"
+        f"🕒 死亡時間：{kill_time}\n"
+        f"✨ 重生時間：{respawn_time}\n"
+        f"👤 登記者：{registrar}"
+    )
+    if note:
+        msg += f"\n📌 備註：{note}"
+    return msg
 
 def build_help_flex():
     bubbles = []
@@ -284,7 +327,6 @@ def build_help_flex():
             "contents": bubbles
         }
     )
-
 def build_join_roster_guide_flex():
     return FlexSendMessage(
         alt_text="歡迎加入群組，請加入名冊",
@@ -335,8 +377,6 @@ def build_join_roster_guide_flex():
             },
         }
     )
-
-
 def build_query_record_bubble(boss, rec):
     respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
     registrar = get_username(rec.get("user"))
@@ -384,6 +424,7 @@ def build_query_record_bubble(boss, rec):
                     "color": "#555555",
                     "wrap": True
                 }
+                
             ]
         }
     ]
@@ -405,7 +446,6 @@ def build_query_record_bubble(boss, rec):
             "contents": contents
         }
     }
-
 def clear_confirm_flex():
     return {
         "type": "bubble",
@@ -816,10 +856,10 @@ alias_map = {
     "變形怪首領": ["變形怪首領", "變形怪", "變怪", "68", "變王"],
     "古代巨人": ["古代巨人", "古巨", "巨人", "78"],
     "不死鳥": ["不死鳥", "鳥", "452", "gg", "GG"],
-    "死亡騎士": ["死亡騎士", "死騎", "05"],
+    "死亡騎士": ["死亡騎士", "死騎", "05", "5"],
     "克特": ["克特", "12"],
     "賽尼斯的分身": ["賽尼斯的分身", "賽尼斯", "304"],
-    "貝里斯": ["貝里斯", "大克特", "將軍", "82"],
+    "貝里斯": ["貝里斯", "大克特", "將軍", "81"],
     "烏勒庫斯": ["烏勒庫斯", "烏", "23"],
     "奈克偌斯": ["奈克偌斯", "奈", "57"],
 }
@@ -834,6 +874,38 @@ cd_map = {
     "賽尼斯的分身": 3, "貝里斯": 6, "烏勒庫斯": 6,
     "奈克偌斯": 4,
 }
+
+BOSS_MAP = {
+    "四色": ["76"],
+    "小紅": ["55"],
+    "小綠": ["54"],
+    "守護螞蟻": ["29"],
+    "巨大蜈蚣": ["06"],
+    "86左飛龍": ["86"],
+    "86右飛龍": ["86"],
+    "伊弗利特": ["45"],
+    "大腳瑪幽": ["69"],
+    "巨大飛龍": ["82、86"],
+    "83中飛龍": ["83"],
+    "85東飛龍": ["85"],
+    "大黑長者": ["86"],
+    "力卡溫": ["22"],
+    "卡司特王": ["25"],
+    "史前巨鱷": ["51"],
+    "強盜頭目": ["32"],
+    "樹精": ["24、23、57"],
+    "蜘蛛": ["39,65"],
+    "變形怪首領": ["68"],
+    "古代巨人": ["78"],
+    "不死鳥": ["45"],
+    "死亡騎士": ["05"],
+    "克特": ["12"],
+    "賽尼斯的分身": ["81"],
+    "貝里斯": ["81"],
+    "烏勒庫斯": ["23"],
+    "奈克偌斯": ["57"],
+}
+
 
 fixed_bosses = {
      "奇岩一樓王": {
@@ -881,7 +953,6 @@ fixed_bosses = {
 }
 
 # 邏輯函式
-
 def get_roster_profile(user_id):
     row = roster_get_by_user(user_id)
     if not row:
@@ -892,13 +963,11 @@ def get_roster_profile(user_id):
         "name": game_name,
         "clan": clan_name
     }
-
 def get_boss(name):
     for boss, aliases in alias_map.items():
         if name in aliases:
             return boss
     return None
-    
 def parse_time(token):
     now = now_tw()
     try:
@@ -1139,12 +1208,79 @@ def handle_message(event):
     user = event.source.user_id
     text = event.message.text.strip()
     msg = text
+    raw_text = event.message.text.strip()
+    lines = raw_text.splitlines()
+
     db = load_db()
 
     group_id = get_source_id(event)
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
+
+    if msg == "備份":
+        if not boss_db:
+            reply = "目前沒有任何王的死亡紀錄"
+        else:
+            now = now_tw()
+            lines = ["📦【王表備份（可直接重登）】", ""]
+
+            for boss, records in boss_db.items():
+                if not records:
+                    continue
+
+                last = records[-1]
+
+                kill_time = last.get("kill")          # HH:MM:SS
+                respawn_str = last.get("respawn")     # ISO
+                note = last.get("note", "").strip()
+
+                if not kill_time or not respawn_str:
+                    continue
+
+                # ===== 時間處理 =====
+                hhmm = kill_time.replace(":", "")[:4]
+                base_respawn = datetime.fromisoformat(respawn_str).astimezone(TZ)
+                cd = cd_map.get(boss)
+
+                missed = 0
+
+                if cd:
+                    step = timedelta(hours=cd)
+
+                    if now < base_respawn:
+                        missed = 0
+                    else:
+                        diff = now - base_respawn
+                        rounds_passed = int(diff.total_seconds() // step.total_seconds())
+
+                        current_respawn = base_respawn + rounds_passed * step
+                        passed_minutes = int((now - current_respawn).total_seconds() // 60)
+
+                        if passed_minutes <= 30:
+                            missed = rounds_passed
+                        else:
+                            missed = rounds_passed + 1
+
+
+                # ===== 組輸出 =====
+                line = f"{hhmm} {boss}"
+
+                if note:
+                    line += f" {note}"
+
+                if missed > 0:
+                    line += f" #過{missed}"
+
+                lines.append(line)
+
+            reply = "\n".join(lines)
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=reply)
+        )
+        return
 
     # 名冊功能
     db.setdefault("__ROSTER_WAIT__", {})
@@ -1654,8 +1790,16 @@ def handle_message(event):
         
         save_db(db)
 
-    # 回覆
+        # 回覆
         registrar = get_username(user)
+
+        text_msg = build_register_boss_text(
+            boss=boss,
+            kill_time=rec['kill'],
+            respawn_time=respawn.strftime('%H:%M:%S'),
+            registrar=registrar,
+            note=note
+        )
 
         flex_msg = build_register_boss_flex(
             boss=boss,
@@ -1664,12 +1808,9 @@ def handle_message(event):
             registrar=registrar,
             note=note
         )
-        line_bot_api.reply_message(
-            event.reply_token,
-            flex_msg
-        )
-        return
 
+        safe_reply(event, text_msg, flex_msg)
+        return
 @app.get("/")
 def root():
     return {"status": "OK"}
