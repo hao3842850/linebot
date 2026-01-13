@@ -91,9 +91,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
         {
             "type": "text",
             "text": f"🗺️ 地圖：{map_text}",
-            "wrap": True,
-            "size": "sm",
-            "color": "#666666"
+            "wrap": True
         },
         {
             "type": "text",
