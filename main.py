@@ -1745,34 +1745,35 @@ def handle_message(event):
     #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
     #        )
 
-    # 登記王
-    
-    parts = msg.split(" ")
+    # ===== 登記王（支援多行 / 備份貼上）=====
+    for line in lines:
+        line = sanitize_register_line(line)
+        if not line:
+            continue
 
-    if len(parts) >= 2:
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+
         time_token = parts[0]
         boss_name = parts[1]
         note = " ".join(parts[2:]) if len(parts) > 2 else ""
 
-    # === 解析時間 ===
+        # === 解析時間 ===
         if time_token == "6666" or time_token.upper() == "K":
-            t = now_tw()   # 現在時間
+            t = now_tw()
         else:
-            t = parse_time(time_token)  # 0930 / 123045
+            t = parse_time(time_token)
             if not t:
-                return
+                continue
 
         boss = get_boss(boss_name)
         if not boss:
-            return
+            continue
 
         cd = cd_map.get(boss)
         if cd is None:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("此王為固定時間或未設定 CD")
-            )
-            return
+            continue
 
         respawn = t + timedelta(hours=cd)
 
@@ -1785,12 +1786,10 @@ def handle_message(event):
         }
 
         boss_db.setdefault(boss, []).append(rec)
-
         boss_db[boss] = boss_db[boss][-20:]
-        
+
         save_db(db)
 
-        # 回覆
         registrar = get_username(user)
 
         text_msg = build_register_boss_text(
@@ -1810,7 +1809,9 @@ def handle_message(event):
         )
 
         safe_reply(event, text_msg, flex_msg)
-        return
+
+    return
+
 @app.get("/")
 def root():
     return {"status": "OK"}
