@@ -1201,6 +1201,32 @@ def handle_member_joined(event):
         build_join_roster_guide_flex()
     )
 
+import re
+
+def sanitize_register_line(line: str) -> str:
+    """
+    清理備份 / 多行貼上的單行內容
+    回傳可解析的登記行，或空字串（代表跳過）
+    """
+    if not line:
+        return ""
+
+    line = line.strip()
+
+    # 空行
+    if not line:
+        return ""
+
+    # 備份標題
+    if line.startswith("📦") or "王表備份" in line:
+        return ""
+
+    # 分隔線或裝飾
+    if line.startswith("—"):
+        return ""
+    
+    return line.strip()
+
 
 
 @handler.add(MessageEvent, message=TextMessage)
