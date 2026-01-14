@@ -1849,13 +1849,7 @@ def handle_message(event):
             if failed_lines:
                 msg += f"\n⚠️ 失敗 {len(failed_lines)} 行（格式錯誤或未知王）"
             safe_reply(event, msg)
-        else:
-            safe_reply(event, "⚠️ 未成功登記任何王，請檢查格式")
     return
-        
-
-  
-
 
 @app.get("/")
 def root():
