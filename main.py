@@ -33,7 +33,7 @@ DB_FILE = "database.json"
 # 工具函式
 def is_peak_time():
     h = now_tw().hour
-    return h >= 20 or h <= 1
+    return h >= 19 or h <= 23
 def safe_reply(event, text_msg, flex_msg=None):
     try:
         if is_peak_time() or flex_msg is None:
@@ -138,14 +138,12 @@ def build_register_boss_text(boss, kill_time, respawn_time, registrar, note):
     map_text = "、".join(map_list) if map_list else "未知"
 
     msg = (
-        f"🔥 已登記 {boss}\n"
-        f"🗺️ 地圖：{map_text}\n"
-        f"🕒 死亡時間：{kill_time}\n"
-        f"✨ 重生時間：{respawn_time}\n"
-        f"👤 登記者：{registrar}"
+        f"已登記 {boss}\n"
+        f"地圖：{map_text}\n"
+        f"死亡時間：{kill_time}\n"
     )
     if note:
-        msg += f"\n📌 備註：{note}"
+        msg += f"\n備註：{note}"
     return msg
 
 def build_help_flex():
@@ -1180,14 +1178,18 @@ async def startup():
     # asyncio.create_task(boss_reminder_loop())
 
 @app.post("/callback")
-async def callback(request: Request, x_line_signature=Header(None)):
+async def callback(request: Request, x_line_signature: str = Header(None)):
     body = await request.body()
-    try:
-        handler.handle(body.decode("utf-8"), x_line_signature)
-    except InvalidSignatureError:
-        return "Invalid signature"
+    asyncio.create_task(process_line_event(body, x_line_signature))
     return "OK"
-    
+
+async def process_line_event(body: bytes, signature: str):
+    try:
+        handler.handle(body.decode("utf-8"), signature)
+    except Exception as e:
+        print("LINE 背景處理錯誤:", e)
+
+
 @handler.add(MemberJoinedEvent)
 def handle_member_joined(event):
     # 只處理群組 / room
@@ -1223,6 +1225,9 @@ def sanitize_register_line(line: str) -> str:
     if line.startswith("—"):
         return ""
     
+    # 🔥 過幾 / #過3 / #過 10 / 過5 全部省略
+    if re.search(r"#?\s*過\s*\d*|過幾", line):
+        return ""
     return line.strip()
 
 
@@ -1248,6 +1253,14 @@ def handle_message(event):
     
 
     if msg == "備份":
+        if is_multi_register:
+            try:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage("📥 已收到登記，處理中…")
+                )
+            except:
+                pass
         if not boss_db:
             reply = "目前沒有任何王的死亡紀錄"
         else:
@@ -1744,6 +1757,10 @@ def handle_message(event):
 
         # ===== 排序 =====
         time_items.sort(key=lambda x: x[0])
+
+        #熱門時段只顯示 10 筆
+        if is_peak_time():
+            time_items = time_items[:10]
 
         # ===== 輸出 =====
         output = ["📢【即將重生列表】", ""]
