@@ -33,7 +33,7 @@ DB_FILE = "database.json"
 # 工具函式
 def is_peak_time():
     h = now_tw().hour
-    return h >= 22 or h <= 1
+    return h >= 20 or h <= 1
 def safe_reply(event, text_msg, flex_msg=None):
     try:
         if is_peak_time() or flex_msg is None:
