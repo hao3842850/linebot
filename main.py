@@ -1225,9 +1225,12 @@ def sanitize_register_line(line: str) -> str:
     if line.startswith("—"):
         return ""
     
-    # 🔥 過幾 / #過3 / #過 10 / 過5 全部省略
-    if re.search(r"#?\s*過\s*\d*|過幾", line):
-        return ""
+    # 🔥 移除「#過N」或「#過 N」
+    line = re.sub(r"\s*#\s*過\s*\d+", "", line)
+
+    # 再清一次多餘空白
+    line = re.sub(r"\s{2,}", " ", line).strip()
+
     return line.strip()
 
 
@@ -1755,13 +1758,14 @@ def handle_message(event):
             # ❗ 關鍵：排序一定要用 display_time
             time_items.append((display_time, line))
 
-        # ===== 排序 =====
+        # ===== 排序（一定先完整排序）=====
         time_items.sort(key=lambda x: x[0])
 
-        #熱門時段只顯示 10 筆
+        # ===== 根據時段決定顯示數 =====
         if is_peak_time():
-            time_items = time_items[:10]
-
+            display_items = time_items[:10]
+        else:
+            display_items = time_items  # 非熱門 → 全部
         # ===== 輸出 =====
         output = ["📢【即將重生列表】", ""]
 
