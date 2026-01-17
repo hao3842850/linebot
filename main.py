@@ -25,6 +25,7 @@ line_bot_api = LineBotApi(CHANNEL_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 TZ = pytz.timezone("Asia/Taipei")
 pending_roster_update = {}
+last_join_command = {}
 
 # 工具函式
 def is_peak_time():  #熱門時段定義
@@ -54,6 +55,7 @@ def get_username(user_id):  #顯示未登記玩家
     except Exception:
         return "未知玩家"
 def insert_boss_record(group_id, boss, kill_dt, respawn_dt, note, user_id):
+    user_name = get_username(user_id) or "未知玩家"
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -1215,7 +1217,7 @@ def handle_message(event):
         if exists:
             old_game, old_clan = exists
 
-            pending_roster_update[user] = (game_name, clan)
+            last_join_command[user] = (game_name, clan)
 
     
             line_bot_api.reply_message(
@@ -1253,7 +1255,7 @@ def handle_message(event):
             return
 
         # ⚠️ 關鍵：你必須記住「使用者剛剛想改成什麼」
-        pending = pending_roster_update.get(user)
+        pending = last_join_command.get(user)
         if not pending:
             line_bot_api.reply_message(
                 event.reply_token,
@@ -1262,6 +1264,11 @@ def handle_message(event):
             return
 
         new_game, new_clan = pending
+
+        roster_update(user, new_game, new_clan)
+
+        # 清掉暫存
+        del last_join_command[user]
 
         roster_update(user, new_game, new_clan)
 
