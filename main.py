@@ -1378,6 +1378,88 @@ def handle_message(event):
         )
         return
     
+    # 3️⃣ 🔥 登記王（你貼的整段放在這）
+
+    lines = msg.splitlines()
+    is_multi_register = len(lines) > 1
+
+    success_count = 0
+    failed_lines = []
+
+    # ===== 登記王（支援多行 / 備份貼上）=====
+    for line in lines:
+        raw_line = line
+        line = sanitize_register_line(line)
+        if not line:
+            continue
+
+        parts = line.split()
+        if len(parts) < 2:
+            failed_lines.append(raw_line)
+            continue
+
+        time_token = parts[0]
+        boss_name = parts[1]
+        note = " ".join(parts[2:]) if len(parts) > 2 else ""
+
+        # === 解析時間 ===
+        if time_token == "6666" or time_token.upper() == "K":
+            t = now_tw()
+        else:
+            t = parse_time(time_token)
+            if not t:
+                failed_lines.append(raw_line)
+                continue
+
+        boss = get_boss(boss_name)
+        if not boss:
+            failed_lines.append(raw_line)
+            continue
+
+        cd = cd_map.get(boss)
+        if cd is None:
+            failed_lines.append(raw_line)
+            continue
+
+        respawn = t + timedelta(hours=cd)
+
+        insert_boss_record(
+            group_id=group_id,
+            boss=boss,
+            kill_dt=t,
+            respawn_dt=respawn,
+            note=note,
+            user_id=user
+        )
+
+        success_count += 1
+
+        if not is_multi_register:
+            registrar = get_username(user)
+            text_msg = build_register_boss_text(
+                boss=boss,
+                kill_time=t.strftime("%H:%M:%S"),
+                respawn_time=respawn.strftime("%H:%M:%S"),
+                registrar=registrar,
+                note=note
+            )
+            flex_msg = build_register_boss_flex(
+                boss=boss,
+                kill_time=t.strftime("%H:%M:%S"),
+                respawn_time=respawn.strftime("%H:%M:%S"),
+                registrar=registrar,
+                note=note
+            )
+            safe_reply(event, text_msg, flex_msg)
+
+    if success_count > 0:
+        if is_multi_register:
+            msg = f"📦 備份登記完成：成功登記 {success_count} 隻王"
+            if failed_lines:
+                msg += f"\n⚠️ 失敗 {len(failed_lines)} 行（格式錯誤或未知王）"
+            safe_reply(event, msg)
+        return   # ⬅⬅⬅ 超級重要
+    
     
     # 王列表
     
@@ -1632,86 +1714,6 @@ def handle_message(event):
             TextSendMessage("\n".join(output))
         )
         return
-
-    # ===== 登記王（支援多行 / 備份貼上）=====
-    for line in lines:
-        raw_line = line
-        line = sanitize_register_line(line)
-        if not line:
-            continue
-
-        parts = line.split()
-        if len(parts) < 2:
-            failed_lines.append(raw_line)
-            continue
-
-        time_token = parts[0]
-        boss_name = parts[1]
-        note = " ".join(parts[2:]) if len(parts) > 2 else ""
-
-        # === 解析時間 ===
-        if time_token == "6666" or time_token.upper() == "K":
-            t = now_tw()
-        else:
-            t = parse_time(time_token)
-            if not t:
-                failed_lines.append(raw_line)
-                continue
-
-        boss = get_boss(boss_name)
-        if not boss:
-            failed_lines.append(raw_line)
-            continue
-
-        cd = cd_map.get(boss)
-        if cd is None:
-            failed_lines.append(raw_line)
-            continue
-
-        respawn = t + timedelta(hours=cd)
-
-        rec = {
-            "date": now_tw().strftime("%Y-%m-%d"),
-            "kill": t.strftime("%H:%M:%S"),
-            "respawn": respawn.isoformat(),
-            "note": note,
-            "user": user
-        }
-        insert_boss_record(
-            group_id=group_id,
-            boss=boss,
-            kill_dt=t,
-            respawn_dt=respawn,
-            note=note,
-            user_id=user
-        )
-        success_count += 1
-
-        # 🔕 多行登記時，不即時回覆
-        if not is_multi_register:
-            registrar = get_username(user)
-            text_msg = build_register_boss_text(
-                boss=boss,
-                kill_time=rec['kill'],
-                respawn_time=respawn.strftime('%H:%M:%S'),
-                registrar=registrar,
-                note=note
-            )
-            flex_msg = build_register_boss_flex(
-                boss=boss,
-                kill_time=rec['kill'],
-                respawn_time=respawn.strftime('%H:%M:%S'),
-                registrar=registrar,
-                note=note
-            )
-            safe_reply(event, text_msg, flex_msg)
-    if is_multi_register:
-        if success_count > 0:
-            msg = f"📦 備份登記完成：成功登記 {success_count} 隻王"
-            if failed_lines:
-                msg += f"\n⚠️ 失敗 {len(failed_lines)} 行（格式錯誤或未知王）"
-            safe_reply(event, msg)
-    return
 
 @app.get("/")
 def root():
