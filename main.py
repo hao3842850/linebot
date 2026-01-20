@@ -1186,14 +1186,6 @@ def handle_message(event):
     
 
     if msg == "備份":
-        if is_multi_register:
-            try:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage("📥 已收到登記，處理中…")
-                )
-            except:
-                pass
         if not boss_db:
             reply = "目前沒有任何王的死亡紀錄"
         else:
@@ -1215,12 +1207,20 @@ def handle_message(event):
 
                 # ===== 時間處理 =====
                 parts = kill_time.split(":")
-                if len(parts) == 3:
-                    hhmmss = parts[0] + parts[1] + parts[2]
-                elif len(parts) == 2:
-                    hhmmss = parts[0] + parts[1] + "00"
-                else:
+                if len(parts) not in (2, 3):
                     continue
+
+                try:
+                    h = int(parts[0])
+                    m = int(parts[1])
+                    s = int(parts[2]) if len(parts) == 3 else 0
+                except ValueError:
+                    continue
+
+                if not (0 <= h < 24 and 0 <= m < 60 and 0 <= s < 60):
+                    continue
+
+                hhmmss = f"{h:02d}{m:02d}{s:02d}"
 
                 base_respawn = datetime.fromisoformat(respawn_str).astimezone(TZ)
                 cd = cd_map.get(boss)
