@@ -1291,24 +1291,7 @@ def handle_message(event):
                     hhmmss = parts[0] + parts[1] + "00"
                 else:
                     continue
-                if cd:
-                    step = timedelta(hours=cd)
-
-                    if now < base_respawn:
-                        missed = 0
-                    else:
-                        diff = now - base_respawn
-                        rounds_passed = int(diff.total_seconds() // step.total_seconds())
-
-                        current_respawn = base_respawn + rounds_passed * step
-                        passed_minutes = int((now - current_respawn).total_seconds() // 60)
-
-                        if passed_minutes <= 30:
-                            missed = rounds_passed
-                        else:
-                            missed = rounds_passed + 1
-
-
+            
                 # ===== 組輸出 =====
                 line = f"{hhmmss} {boss}"
 
