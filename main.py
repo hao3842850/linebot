@@ -1284,12 +1284,13 @@ def handle_message(event):
                     continue
 
                 # ===== 時間處理 =====
-                hhmm = kill_time.replace(":", "")[:4]
-                base_respawn = datetime.fromisoformat(respawn_str).astimezone(TZ)
-                cd = cd_map.get(boss)
-
-                missed = 0
-
+                parts = kill_time.split(":")
+                if len(parts) == 3:
+                    hhmmss = parts[0] + parts[1] + parts[2]
+                elif len(parts) == 2:
+                    hhmmss = parts[0] + parts[1] + "00"
+                else:
+                    continue
                 if cd:
                     step = timedelta(hours=cd)
 
@@ -1309,7 +1310,7 @@ def handle_message(event):
 
 
                 # ===== 組輸出 =====
-                line = f"{hhmm} {boss}"
+                line = f"{hhmmss} {boss}"
 
                 if note:
                     line += f" {note}"
