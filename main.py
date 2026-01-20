@@ -34,16 +34,9 @@ DB_FILE = "database.json"
 def is_peak_time():
     h = now_tw().hour
     return 19 <= h <= 23
-def is_peak_effective(db, group_id):
-    mode = db.get("__PEAK_MODE__", {}).get(group_id, "auto")
-    if mode == "on":
-        return True
-    if mode == "off":
-        return False
-    return is_peak_time()
-def safe_reply(event, db, group_id, text_msg, flex_msg=None):
+def safe_reply(event, text_msg, flex_msg=None):
     try:
-        if is_peak_effective(db, group_id) or flex_msg is None:
+        if is_peak_time() or flex_msg is None:
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text_msg)
@@ -1291,7 +1284,7 @@ def handle_message(event):
                     continue
 
                 # ===== 時間處理 =====
-                hhmmss = kill_time.replace(":", "")[:6]
+                hhmm = kill_time.replace(":", "")[:4]
                 base_respawn = datetime.fromisoformat(respawn_str).astimezone(TZ)
                 cd = cd_map.get(boss)
 
@@ -1316,7 +1309,7 @@ def handle_message(event):
 
 
                 # ===== 組輸出 =====
-                line = f"{hhmmss} {boss}"
+                line = f"{hhmm} {boss}"
 
                 if note:
                     line += f" {note}"
@@ -1489,47 +1482,6 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, reply)
         return
 
-    # === 熱門時段手動開關 ===
-    if msg.startswith("熱門"):
-        db.setdefault("__PEAK_MODE__", {})
-
-        parts = msg.split()
-
-        if len(parts) == 1 or parts[1] == "狀態":
-            mode = db["__PEAK_MODE__"].get(group_id, "auto")
-            text = {
-                "on": "🔥 手動熱門（強制）",
-                "off": "❄️ 手動非熱門（強制）",
-                "auto": "🕒 自動判斷"
-            }.get(mode, "🕒 自動判斷")
-
-            reply = f"📢 目前熱門時段狀態：{text}"
-
-        elif parts[1] == "開":
-            db["__PEAK_MODE__"][group_id] = "on"
-            reply = "🔥 已手動【開啟】熱門時段"
-
-        elif parts[1] == "關":
-            db["__PEAK_MODE__"][group_id] = "off"
-            reply = "❄️ 已手動【關閉】熱門時段"
-
-        elif parts[1] == "自動":
-            db["__PEAK_MODE__"][group_id] = "auto"
-            reply = "🕒 已切回【自動判斷熱門時段】"
-
-        else:
-            reply = "用法：熱門 開｜熱門 關｜熱門 自動｜熱門 狀態"
-
-        save_db(db)
-
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(reply)
-        )
-        return
-
-    
-    
     if msg.lower() == "help":
         line_bot_api.reply_message(
             event.reply_token,
@@ -1810,14 +1762,14 @@ def handle_message(event):
         time_items.sort(key=lambda x: x[0])
 
         # ===== 根據時段決定顯示數 =====
-        if is_peak_effective(db, group_id):
+        if is_peak_time():
             display_items = time_items[:10]
         else:
             display_items = time_items  # 非熱門 → 全部
         # ===== 輸出 =====
         output = ["📢【即將重生列表】", ""]
 
-        for _, line in display_items:   
+        for _, line in time_items:
             output.append(line)
 
         if unregistered:
