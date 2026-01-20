@@ -897,29 +897,35 @@ def get_boss(name):
 def parse_time(token):
     now = now_tw()
     try:
-        if token in ("6666", "K", "k"):
+        token = token.strip()
+
+        # 現在時間
+        if token in ("K", "k", "6666"):
             return now
 
+        # HHMM
         if token.isdigit() and len(token) == 4:
             h = int(token[:2])
             m = int(token[2:])
-            if h > 23 or m > 59:
+            if not (0 <= h < 24 and 0 <= m < 60):
                 return None
             t = now.replace(hour=h, minute=m, second=0)
             if t > now:
                 t -= timedelta(days=1)
             return t
 
+        # HHMMSS
         if token.isdigit() and len(token) == 6:
             h = int(token[:2])
             m = int(token[2:4])
             s = int(token[4:])
-            if h > 23 or m > 59 or s > 59:
+            if not (0 <= h < 24 and 0 <= m < 60 and 0 <= s < 60):
                 return None
             t = now.replace(hour=h, minute=m, second=s)
             if t > now:
                 t -= timedelta(days=1)
             return t
+
     except Exception:
         return None
 
