@@ -31,10 +31,10 @@ TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 
 # 工具函式
-def is_peak_time():  #熱門時段定義
+def is_peak_time():
     h = now_tw().hour
     return 19 <= h <= 23
-def safe_reply(event, text_msg, flex_msg=None):  #安全回覆LINE訊息 
+def safe_reply(event, text_msg, flex_msg=None):
     try:
         if is_peak_time() or flex_msg is None:
             line_bot_api.reply_message(
@@ -48,38 +48,38 @@ def safe_reply(event, text_msg, flex_msg=None):  #安全回覆LINE訊息
             )
     except Exception as e:
         print("Reply failed:", e)
-def get_source_id(event):  #群組分離
+def get_source_id(event):
     if event.source.type == "group":
         return event.source.group_id
     elif event.source.type == "room":
         return event.source.room_id
     else:
         return event.source.user_id
-def now_tw():  #台灣時區
+def now_tw():
     return datetime.now(TZ)
-def get_username(user_id):  #顯示未登記玩家
+def get_username(user_id):
     try:
         profile = get_roster_profile(user_id)
         return profile["name"] if profile else "未登記玩家"
     except Exception:
         return "未知玩家"
-def init_db():  #初始化JSON資料庫
+def init_db():
     if not os.path.exists(DB_FILE):
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump({"boss": {}}, f, ensure_ascii=False, indent=2)
-def load_db():  #讀取JSON資料庫
+def load_db():
     with db_lock:
         with open(DB_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-def save_db(db):  #寫入JSON資料庫
+def save_db(db):
     with db_lock:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(db, f, ensure_ascii=False, indent=2)
 init_db()
-#--------------flex卡片式輸出格式--------------
-def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):  #登記成功卡片
+def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
     map_list = BOSS_MAP.get(boss, [])
     map_text = "、".join(map_list) if map_list else "未知"
+
     contents = [
         {
             "type": "text",
@@ -111,12 +111,14 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             "wrap": True
         },
     ]
+
     if note:
         contents.append({
             "type": "text",
             "text": f"📌 備註：{note}",
             "wrap": True
         })
+
     return FlexSendMessage(
         alt_text=f"已登記 {boss}",
         contents={
@@ -129,7 +131,9 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             }
         }
     )
-def build_register_boss_text(boss, kill_time, respawn_time, registrar, note):  #登記成功文字
+
+
+def build_register_boss_text(boss, kill_time, respawn_time, registrar, note):
     map_list = BOSS_MAP.get(boss, [])
     map_text = "、".join(map_list) if map_list else "未知"
 
@@ -141,7 +145,8 @@ def build_register_boss_text(boss, kill_time, respawn_time, registrar, note):  #
     if note:
         msg += f"\n備註：{note}"
     return msg
-def build_help_flex():  #help卡片
+
+def build_help_flex():
     bubbles = []
     # 1️⃣ 登記王
     bubbles.append({
@@ -310,14 +315,15 @@ def build_help_flex():  #help卡片
             ]
         }
     })
+
     return FlexSendMessage(
-        alt_text="使用說明",
+        alt_text="伊娃小幫手 使用說明",
         contents={
             "type": "carousel",
             "contents": bubbles
         }
     )
-def build_join_roster_guide_flex():  #入群名冊卡片
+def build_join_roster_guide_flex():
     return FlexSendMessage(
         alt_text="歡迎加入群組，請加入名冊",
         contents={
@@ -367,9 +373,10 @@ def build_join_roster_guide_flex():  #入群名冊卡片
             },
         }
     )
-def build_query_record_bubble(boss, rec):  #歷史登記卡片
+def build_query_record_bubble(boss, rec):
     respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
     registrar = get_username(rec.get("user"))
+
     contents = [
         {
             "type": "text",
@@ -417,6 +424,7 @@ def build_query_record_bubble(boss, rec):  #歷史登記卡片
             ]
         }
     ]
+
     if rec.get("note"):
         contents.append({
             "type": "text",
@@ -425,6 +433,7 @@ def build_query_record_bubble(boss, rec):  #歷史登記卡片
             "margin": "md",
             "wrap": True
         })
+
     return {
         "type": "bubble",
         "body": {
@@ -433,7 +442,7 @@ def build_query_record_bubble(boss, rec):  #歷史登記卡片
             "contents": contents
         }
     }
-def clear_confirm_flex():  #clear卡片
+def clear_confirm_flex():
     return {
         "type": "bubble",
         "hero": {
@@ -489,7 +498,8 @@ def clear_confirm_flex():  #clear卡片
             ]
         }
     }
-def build_boot_init_flex(base_time_str):  #開機登記卡片
+
+def build_boot_init_flex(base_time_str):
     return FlexSendMessage(
         alt_text="已紀錄開機時間",
         contents={
@@ -533,11 +543,15 @@ def build_boot_init_flex(base_time_str):  #開機登記卡片
             }
         }
     )
-def build_kpi_flex(title, period_text, ranking):  #KPI排名卡片
+
+def build_kpi_flex(title, period_text, ranking):
     rows = []
+
     medals = ["🥇", "🥈", "🥉"]
+
     for idx, (name, count) in enumerate(ranking):
         icon = medals[idx] if idx < 3 else f"{idx+1}"
+
         rows.append({
             "type": "box",
             "layout": "horizontal",
@@ -563,6 +577,7 @@ def build_kpi_flex(title, period_text, ranking):  #KPI排名卡片
                 }
             ]
         })
+
     return {
         "type": "bubble",
         "size": "kilo",
@@ -595,7 +610,7 @@ def build_kpi_flex(title, period_text, ranking):  #KPI排名卡片
             ]
         }
     }
-def build_roster_added_flex(clan, game_name):  #加入名冊卡片
+def build_roster_added_flex(clan, game_name):
     return {
         "type": "bubble",
         "body": {
@@ -608,7 +623,7 @@ def build_roster_added_flex(clan, game_name):  #加入名冊卡片
             ]
         }
     }
-def build_roster_confirm_update_flex(old_name, old_clan, new_name, new_clan):  #重複名冊卡片
+def build_roster_confirm_update_flex(old_name, old_clan, new_name, new_clan):
     return {
         "type": "bubble",
         "body": {
@@ -629,7 +644,7 @@ def build_roster_confirm_update_flex(old_name, old_clan, new_name, new_clan):  #
             ]
         }
     }
-def build_roster_self_flex(game_name, clan):  #我的名冊卡片
+def build_roster_self_flex(game_name, clan):
     return {
         "type": "bubble",
         "body": {
@@ -642,7 +657,7 @@ def build_roster_self_flex(game_name, clan):  #我的名冊卡片
             ]
         }
     }
-def build_roster_delete_confirm_flex(game_name):  #刪除名冊卡片
+def build_roster_delete_confirm_flex(game_name):
     return {
         "type": "bubble",
         "body": {
@@ -662,7 +677,7 @@ def build_roster_delete_confirm_flex(game_name):  #刪除名冊卡片
             ]
         }
     }
-def build_roster_deleted_flex():  #成功刪除名冊卡片
+def build_roster_deleted_flex():
     return {
         "type": "bubble",
         "body": {
@@ -673,10 +688,12 @@ def build_roster_deleted_flex():  #成功刪除名冊卡片
             ]
         }
     }
-def build_roster_search_flex(keyword, rows):  #查名冊卡片
+
+def build_roster_search_flex(keyword, rows):
     """
     rows: [(game_name, clan_name, line_user_name)]
     """
+
     contents = []
 
     if not rows:
@@ -708,6 +725,7 @@ def build_roster_search_flex(keyword, rows):  #查名冊卡片
                     },
                 ]
             })
+
     bubble = {
         "type": "bubble",
         "size": "mega",
@@ -727,11 +745,14 @@ def build_roster_search_flex(keyword, rows):  #查名冊卡片
             "contents": contents
         }
     }
+
     return FlexSendMessage(
         alt_text=f"名冊查詢：{keyword}",
         contents=bubble
     )
-def ensure_roster_table():  #外接資料庫連線
+
+
+def ensure_roster_table():
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -745,7 +766,8 @@ def ensure_roster_table():  #外接資料庫連線
             );
             """)
         conn.commit()
-def query_roster(clan_name=None):  #查詢成員名冊
+
+def query_roster(clan_name=None):
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
             if clan_name:
@@ -762,7 +784,8 @@ def query_roster(clan_name=None):  #查詢成員名冊
                     ORDER BY clan_name, created_at
                 """)
             return cur.fetchall()
-def search_roster(keyword):  #關鍵字名冊查詢
+
+def search_roster(keyword):
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -773,42 +796,39 @@ def search_roster(keyword):  #關鍵字名冊查詢
                 ORDER BY created_at
             """, (f"%{keyword}%", f"%{keyword}%"))
             return cur.fetchall()
-def build_boss_list_text():  #王列表格式
+
+def build_boss_list_text():
     lines = ["📜【王列表（含所有簡稱）】", ""]
+
     for boss, aliases in alias_map.items():
         alias_text = "、".join(aliases)
         lines.append(f"🔹 {boss}")
         lines.append(f"   ➜ {alias_text}")
         lines.append("")
+
     return "\n".join(lines)
-def build_boss_cd_list_text():  #王重生格式
+
+def build_boss_cd_list_text():
     lines = ["⏳【王重生時間一覽】", ""]
+
     for boss, cd in sorted(cd_map.items(), key=lambda x: x[1]):
         # 小數轉成 小時 + 分鐘
         hours = int(cd)
         minutes = int((cd - hours) * 60)
+
         if minutes > 0:
             cd_text = f"{hours} 小時 {minutes} 分"
         else:
             cd_text = f"{hours} 小時"
+
         lines.append(f"🔹 {boss}：{cd_text}")
+
     return "\n".join(lines)
-def safe_send(event, msg_obj):
-    """
-    安全發送 LINE 訊息
-    msg_obj: TextSendMessage 或 FlexSendMessage
-    """
-    try:
-        line_bot_api.reply_message(event.reply_token, msg_obj)
-        print(f"[LINE] 成功發送訊息給 {get_source_id(event)}")
-    except Exception as e:
-        print(f"[LINE ERROR] 發送訊息失敗: {e}")
-        # 顯示失敗的訊息內容（可選）
-        if isinstance(msg_obj, TextSendMessage):
-            print(f"[LINE ERROR] 內容: {msg_obj.text}")
-        else:
-            print(f"[LINE ERROR] FlexSendMessage 內容: {msg_obj}")
+
+
+
 # 王資料
+
 alias_map = {
     "四色": ["四色", "76", "4", "四", "4色","c","C"],
     "小紅": ["小紅", "55", "紅", "R", "r"],
@@ -839,6 +859,7 @@ alias_map = {
     "烏勒庫斯": ["烏勒庫斯", "烏", "23"],
     "奈克偌斯": ["奈克偌斯", "奈", "57"],
 }
+
 cd_map = {
     "四色": 2, "小紅": 2, "小綠": 2, "守護螞蟻": 3.5, "巨大蜈蚣": 2,
     "86左飛龍": 2, "86右飛龍": 2, "伊弗利特": 2, "大腳瑪幽": 3,
@@ -849,6 +870,7 @@ cd_map = {
     "賽尼斯的分身": 3, "貝里斯": 6, "烏勒庫斯": 6,
     "奈克偌斯": 4,
 }
+
 BOSS_MAP = {
     "四色": ["76"],
     "小紅": ["55"],
@@ -867,7 +889,7 @@ BOSS_MAP = {
     "卡司特王": ["25"],
     "史前巨鱷": ["51"],
     "強盜頭目": ["32"],
-    "樹精": ["23、24、57"],
+    "樹精": ["24、23、57"],
     "蜘蛛": ["39,65"],
     "變形怪首領": ["68"],
     "古代巨人": ["78"],
@@ -879,11 +901,59 @@ BOSS_MAP = {
     "烏勒庫斯": ["23"],
     "奈克偌斯": ["57"],
 }
+
+
+fixed_bosses = {
+     "奇岩一樓王": {
+        "times": ["00:00", "06:00", "12:00", "18:00"],
+        "weekdays": [0, 1, 2, 3, 4]  # 週一～週五
+    },
+    "奇岩二樓王": {
+        "times": ["07:00", "14:00", "21:00"],
+        "weekdays": [0, 1, 2, 3, 4]
+    },
+    "奇岩三樓王": {
+        "times": ["20:15"],
+        "weekdays": [0, 1, 2, 3, 4]
+    },
+    "奇岩四樓王": {
+        "times": ["21:15"],
+        "weekdays": [0, 1, 2, 3, 4]
+    },
+
+    "黑暗四樓王": {
+        "times": ["00:00", "18:00"]
+    },
+    "三王": {
+        "times": ["19:15"]
+    },
+    "惡魔": {
+        "times": ["22:00"]
+    },
+    "巴風特": {
+        "times": ["14:00", "20:00"]
+    },
+    "異界炎魔": {
+        "times": ["23:00"]
+    },
+    "烈焰大死騎": {
+        "times": ["23:30"]
+    },
+    "涅默西斯高輪": {
+        "times": ["22:30"]
+    },
+    "魔法師": {
+        "times": ["01:00","03:00","05:00","07:00","09:00","11:00",
+                  "13:00","15:00","17:00","19:00","21:00","23:00"]
+    }
+}
+
 # 邏輯函式
 def get_roster_profile(user_id):
     row = roster_get_by_user(user_id)
     if not row:
         return None
+
     game_name, clan_name = row
     return {
         "name": game_name,
@@ -897,35 +967,29 @@ def get_boss(name):
 def parse_time(token):
     now = now_tw()
     try:
-        token = token.strip()
-
-        # 現在時間
-        if token in ("K", "k", "6666"):
+        if token == "6666":
             return now
 
-        # HHMM
         if token.isdigit() and len(token) == 4:
             h = int(token[:2])
             m = int(token[2:])
-            if not (0 <= h < 24 and 0 <= m < 60):
+            if h > 23 or m > 59:
                 return None
             t = now.replace(hour=h, minute=m, second=0)
             if t > now:
                 t -= timedelta(days=1)
             return t
 
-        # HHMMSS
         if token.isdigit() and len(token) == 6:
             h = int(token[:2])
             m = int(token[2:4])
             s = int(token[4:])
-            if not (0 <= h < 24 and 0 <= m < 60 and 0 <= s < 60):
+            if h > 23 or m > 59 or s > 59:
                 return None
             t = now.replace(hour=h, minute=m, second=s)
             if t > now:
                 t -= timedelta(days=1)
             return t
-
     except Exception:
         return None
 
@@ -1192,6 +1256,14 @@ def handle_message(event):
     
 
     if msg == "備份":
+        if is_multi_register:
+            try:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage("📥 已收到登記，處理中…")
+                )
+            except:
+                pass
         if not boss_db:
             reply = "目前沒有任何王的死亡紀錄"
         else:
@@ -1212,22 +1284,7 @@ def handle_message(event):
                     continue
 
                 # ===== 時間處理 =====
-                parts = kill_time.split(":")
-                if len(parts) not in (2, 3):
-                    continue
-
-                try:
-                    h = int(parts[0])
-                    m = int(parts[1])
-                    s = int(parts[2]) if len(parts) == 3 else 0
-                except ValueError:
-                    continue
-
-                if not (0 <= h < 24 and 0 <= m < 60 and 0 <= s < 60):
-                    continue
-
-                hhmmss = f"{h:02d}{m:02d}{s:02d}"
-
+                hhmm = kill_time.replace(":", "")[:4]
                 base_respawn = datetime.fromisoformat(respawn_str).astimezone(TZ)
                 cd = cd_map.get(boss)
 
@@ -1252,7 +1309,7 @@ def handle_message(event):
 
 
                 # ===== 組輸出 =====
-                line = f"{hhmmss} {boss}"
+                line = f"{hhmm} {boss}"
 
                 if note:
                     line += f" {note}"
@@ -1336,6 +1393,8 @@ def handle_message(event):
         )
         return
 
+    
+    
     # === 查自己 ===
     if msg == "查自己":
         profile = get_roster_profile(user)
@@ -1430,90 +1489,6 @@ def handle_message(event):
         )
         return
     
-
-    # 出
-    if msg == "出":
-        now = now_tw()
-        time_items = []
-        unregistered = []
-
-        # ===== CD 王 =====
-        for boss, cd in cd_map.items():
-            if boss not in boss_db or not boss_db[boss]:
-                unregistered.append(boss)
-                continue
-
-            rec = boss_db[boss][-1]
-            base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
-            step = timedelta(hours=cd)
-
-            if now < base_respawn:
-                # 尚未第一次重生
-                display_time = base_respawn
-                passed_minutes = None
-                missed = 0
-            else:
-                diff = now - base_respawn
-                rounds_passed = int(diff.total_seconds() // step.total_seconds())
-
-                current_respawn = base_respawn + rounds_passed * step
-                passed_minutes = int((now - current_respawn).total_seconds() // 60)
-
-                if passed_minutes <= 30:
-                    # 還在這一輪 30 分鐘內 → 未打
-                    display_time = current_respawn
-                    missed = rounds_passed          
-                else:
-                    # 已超過 30 分鐘 → 真的錯過一輪
-                    display_time = current_respawn + step
-                    missed = rounds_passed + 1
-                    passed_minutes = None
-
-
-
-            # ===== 組顯示字串 =====
-            note = rec.get("note", "").strip()
-
-            line = f"{display_time.strftime('%H:%M:%S')} {boss}"
-
-            if note:
-                line += f"（{note}）"
-
-            if passed_minutes is not None and passed_minutes <= 30:
-                line += f" <{passed_minutes}分未打>"
-
-            if missed > 0:
-                line += f" #過{missed}"
-
-
-            # ❗ 關鍵：排序一定要用 display_time
-            time_items.append((display_time, line))
-
-        # ===== 排序（一定先完整排序）=====
-        time_items.sort(key=lambda x: x[0])
-
-        # ===== 根據時段決定顯示數 =====
-        if is_peak_time():
-            display_items = time_items[:10]
-        else:
-            display_items = time_items  # 非熱門 → 全部
-        # ===== 輸出 =====
-        output = ["📢【即將重生列表】", ""]
-
-        for _, line in time_items:
-            output.append(line)
-
-        if unregistered:
-            output.append("")
-            output.append("— 未登記 —")
-            for b in unregistered:
-                output.append(b)
-
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage("\n".join(output))
-        )
-        return
     
     # 王列表
     
@@ -1725,7 +1700,178 @@ def handle_message(event):
             )
         )
         return
-    
+    # 出
+    if msg == "出":
+        now = now_tw()
+        time_items = []
+        unregistered = []
+
+        # ===== CD 王 =====
+        for boss, cd in cd_map.items():
+            if boss not in boss_db or not boss_db[boss]:
+                unregistered.append(boss)
+                continue
+
+            rec = boss_db[boss][-1]
+            base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+            step = timedelta(hours=cd)
+
+            if now < base_respawn:
+                # 尚未第一次重生
+                display_time = base_respawn
+                passed_minutes = None
+                missed = 0
+            else:
+                diff = now - base_respawn
+                rounds_passed = int(diff.total_seconds() // step.total_seconds())
+
+                current_respawn = base_respawn + rounds_passed * step
+                passed_minutes = int((now - current_respawn).total_seconds() // 60)
+
+                if passed_minutes <= 30:
+                    # 還在這一輪 30 分鐘內 → 未打
+                    display_time = current_respawn
+                    missed = rounds_passed          
+                else:
+                    # 已超過 30 分鐘 → 真的錯過一輪
+                    display_time = current_respawn + step
+                    missed = rounds_passed + 1
+                    passed_minutes = None
+
+
+
+            # ===== 組顯示字串 =====
+            note = rec.get("note", "").strip()
+
+            line = f"{display_time.strftime('%H:%M:%S')} {boss}"
+
+            if note:
+                line += f"（{note}）"
+
+            if passed_minutes is not None and passed_minutes <= 30:
+                line += f" <{passed_minutes}分未打>"
+
+            if missed > 0:
+                line += f" #過{missed}"
+
+
+            # ❗ 關鍵：排序一定要用 display_time
+            time_items.append((display_time, line))
+
+        # ===== 排序（一定先完整排序）=====
+        time_items.sort(key=lambda x: x[0])
+
+        # ===== 根據時段決定顯示數 =====
+        if is_peak_time():
+            display_items = time_items[:10]
+        else:
+            display_items = time_items  # 非熱門 → 全部
+        # ===== 輸出 =====
+        output = ["📢【即將重生列表】", ""]
+
+        for _, line in time_items:
+            output.append(line)
+
+        if unregistered:
+            output.append("")
+            output.append("— 未登記 —")
+            for b in unregistered:
+                output.append(b)
+
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage("\n".join(output))
+        )
+        return
+
+
+    # ===== 固定王(關閉) =====
+    #    for boss, conf in fixed_bosses.items():
+    #        t = get_next_fixed_time_fixed(conf)
+    #        if not t:
+    #           continue
+    #   
+    #       time_items.append(
+    #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
+    #        )
+
+    # ===== 登記王（支援多行 / 備份貼上）=====
+    for line in lines:
+        raw_line = line
+        line = sanitize_register_line(line)
+        if not line:
+            continue
+
+        parts = line.split()
+        if len(parts) < 2:
+            failed_lines.append(raw_line)
+            continue
+
+        time_token = parts[0]
+        boss_name = parts[1]
+        note = " ".join(parts[2:]) if len(parts) > 2 else ""
+
+        # === 解析時間 ===
+        if time_token == "6666" or time_token.upper() == "K":
+            t = now_tw()
+        else:
+            t = parse_time(time_token)
+            if not t:
+                failed_lines.append(raw_line)
+                continue
+
+        boss = get_boss(boss_name)
+        if not boss:
+            failed_lines.append(raw_line)
+            continue
+
+        cd = cd_map.get(boss)
+        if cd is None:
+            failed_lines.append(raw_line)
+            continue
+
+        respawn = t + timedelta(hours=cd)
+
+        rec = {
+            "date": now_tw().strftime("%Y-%m-%d"),
+            "kill": t.strftime("%H:%M:%S"),
+            "respawn": respawn.isoformat(),
+            "note": note,
+            "user": user
+        }
+
+        boss_db.setdefault(boss, []).append(rec)
+        boss_db[boss] = boss_db[boss][-20:]
+        save_db(db)
+
+        success_count += 1
+
+        # 🔕 多行登記時，不即時回覆
+        if not is_multi_register:
+            registrar = get_username(user)
+            text_msg = build_register_boss_text(
+                boss=boss,
+                kill_time=rec['kill'],
+                respawn_time=respawn.strftime('%H:%M:%S'),
+                registrar=registrar,
+                note=note
+            )
+            flex_msg = build_register_boss_flex(
+                boss=boss,
+                kill_time=rec['kill'],
+                respawn_time=respawn.strftime('%H:%M:%S'),
+                registrar=registrar,
+                note=note
+            )
+            safe_reply(event, text_msg, flex_msg)
+    if is_multi_register:
+        if success_count > 0:
+            msg = f"📦 備份登記完成：成功登記 {success_count} 隻王"
+            if failed_lines:
+                msg += f"\n⚠️ 失敗 {len(failed_lines)} 行（格式錯誤或未知王）"
+            safe_reply(event, msg)
+    return
+
 @app.get("/")
 def root():
     return {"status": "OK"}
