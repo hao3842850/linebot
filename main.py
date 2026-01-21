@@ -688,9 +688,10 @@ def build_roster_search_flex(keyword, rows):
                     {
                         "type": "text",
                         "text": f"🏰 血盟：{clan_name}",
-                        "size": "xs",
-                        "color": "#666666"
-                    },{
+                        "size": "sm",
+                        "weight": "bold"
+                    },
+                    {
                         "type": "text",
                         "text": f"📱 LINE名稱：{line_name}",
                         "size": "sm",
@@ -1317,10 +1318,10 @@ def handle_message(event):
             reply = TextSendMessage(text="用法：查名冊 關鍵字")
         else:
             keyword = parts[1]
-            rows = search_roster(keyword)
+            rows = search_roster(keyword)  # 從資料庫抓出 (game_name, clan_name, line_user_id)
             result = []
-            for line_user_id, game_name, clan_name in rows:
-                line_name = get_username(line_user_id)
+            for game_name, clan_name, line_user_id in rows:
+                line_name = get_username(line_user_id) or "未設定"  # LINE 名稱
                 result.append((game_name, clan_name, line_name))
             reply = build_roster_search_flex(keyword, result)
         line_bot_api.reply_message(event.reply_token, reply)
