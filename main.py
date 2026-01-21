@@ -432,13 +432,6 @@ def build_query_record_bubble(boss, rec):
 def clear_confirm_flex():
     return {
         "type": "bubble",
-        "hero": {
-            "type": "image",
-            "url": "https://i.imgur.com/9M0ZK4N.png",  # 可換
-            "size": "full",
-            "aspectRatio": "20:13",
-            "aspectMode": "cover"
-        },
         "body": {
             "type": "box",
             "layout": "vertical",
@@ -870,7 +863,7 @@ fixed_bosses = {
         "weekdays": [0, 1, 2, 3, 4]
     },"黑暗四樓王": {
         "times": ["00:00", "18:00"]
-    },"三王": {
+    },"幹你娘": {
         "times": ["19:15"]
     },"惡魔": {
         "times": ["22:00"]
@@ -887,7 +880,6 @@ fixed_bosses = {
                   "13:00","15:00","17:00","19:00","21:00","23:00"]
     }
 }
-
 # 邏輯函式
 def get_roster_profile(user_id):
     row = roster_get_by_user(user_id)
