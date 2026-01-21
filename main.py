@@ -690,6 +690,11 @@ def build_roster_search_flex(keyword, rows):
                         "text": f"🏰 血盟：{clan_name}",
                         "size": "xs",
                         "color": "#666666"
+                    },{
+                        "type": "text",
+                        "text": f"📱 LINE名稱：{line_name}",
+                        "size": "sm",
+                        "weight": "bold"
                     },
                 ]
             })
