@@ -723,6 +723,7 @@ def ensure_roster_table():
             CREATE TABLE IF NOT EXISTS roster (
                 id SERIAL PRIMARY KEY,
                 line_user_id TEXT NOT NULL,
+                line_name TEXT,
                 game_name TEXT NOT NULL,
                 clan_name TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT NOW(),
@@ -730,6 +731,12 @@ def ensure_roster_table():
             );
             """)
         conn.commit()
+def get_line_display_name(user_id):
+    try:
+        profile = line_bot_api.get_profile(user_id)
+        return profile.display_name
+    except Exception:
+        return None
 def query_roster(clan_name=None):
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
@@ -885,10 +892,11 @@ def get_roster_profile(user_id):
     row = roster_get_by_user(user_id)
     if not row:
         return None
-    game_name, clan_name = row
+    game_name, clan_name, line_name = row
     return {
         "name": game_name,
-        "clan": clan_name
+        "clan": clan_name,
+        "line_name": line_name
     }
 def get_boss(name):
     for boss, aliases in alias_map.items():
@@ -983,8 +991,12 @@ def calculate_kpi(boss_db, start, end):
     """
     boss_db = db["boss"][group_id]
     回傳 dict: {user_id: count}
+    排除：
+    - 開機補登記
+    - 備份 / 多行重複登記
     """
     result = {}
+    seen = set()  # 用來排除重複 KPI
     for boss, records in boss_db.items():
         for rec in records:
             # 排除開機補登記
@@ -996,9 +1008,14 @@ def calculate_kpi(boss_db, start, end):
                     "%Y-%m-%d %H:%M:%S"
                 )
             )
-            if start <= kill_dt < end:
-                uid = rec["user"]
-                result[uid] = result.get(uid, 0) + 1
+            if not (start <= kill_dt < end):
+                continue
+            uid = rec["user"]
+            key = (uid, boss, kill_dt)# ⭐ KPI 去重 key# 同一人 + 同一王 + 同一死亡時間 → 只算一次
+            if key in seen:
+                continue
+            seen.add(key)
+            result[uid] = result.get(uid, 0) + 1
     return result
 def build_query_boss_flex(boss, records):
     if not records:
@@ -1030,31 +1047,39 @@ def roster_get_by_user(user_id):
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT game_name, clan_name FROM roster WHERE line_user_id = %s",
+                """
+                SELECT game_name, clan_name, line_name
+                FROM roster
+                WHERE line_user_id = %s
+                """,
                 (user_id,)
             )
             return cur.fetchone()
-def roster_insert(user_id, game_name, clan_name):
+def roster_insert(user_id, game_name, clan_name, line_name):
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO roster (line_user_id, game_name, clan_name)
-                VALUES (%s, %s, %s)
+                INSERT INTO roster (line_user_id, line_name, game_name, clan_name)
+                VALUES (%s, %s, %s, %s)
                 """,
-                (user_id, game_name, clan_name)
+                (user_id, line_name, game_name, clan_name)
             )
         conn.commit()
 def roster_update(user_id, game_name, clan_name):
+    line_name = get_line_display_name(user_id)
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE roster
-                SET game_name = %s, clan_name = %s
+                SET game_name = %s,
+                    clan_name = %s,
+                    line_name = %s,
+                    updated_at = NOW()
                 WHERE line_user_id = %s
                 """,
-                (game_name, clan_name, user_id)
+                (game_name, clan_name, line_name, user_id)
             )
         conn.commit()
 def roster_delete(user_id):
@@ -1201,7 +1226,8 @@ def handle_message(event):
             )
             return
         # === 不存在 → 新增 ===
-        roster_insert(user, game_name, clan)
+        line_name = get_line_display_name(user)
+        roster_insert(user, game_name, clan, line_name)
         line_bot_api.reply_message(
             event.reply_token,
             FlexSendMessage(
