@@ -752,14 +752,14 @@ def query_roster(clan_name=None):
         with conn.cursor() as cur:
             if clan_name:
                 cur.execute("""
-                    SELECT game_name, clan_name, line_name
+                    SELECT game_name, clan_name, COALESCE(line_name, '') as line_name
                     FROM roster
                     WHERE clan_name = %s
                     ORDER BY created_at
                 """, (clan_name,))
             else:
                 cur.execute("""
-                    SELECT game_name, clan_name, line_name
+                    SELECT game_name, clan_name, COALESCE(line_name, '') as line_name
                     FROM roster
                     ORDER BY clan_name, created_at
                 """)
@@ -768,7 +768,7 @@ def search_roster(keyword):
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT game_name, clan_name, line_name
+                SELECT game_name, clan_name, COALESCE(line_name, '') as line_name
                 FROM roster
                 WHERE game_name ILIKE %s
                    OR clan_name ILIKE %s
