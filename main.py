@@ -1222,7 +1222,7 @@ def handle_message(event):
         exists = roster_get_by_user(user)
         # === 已存在 → 詢問是否更新 ===
         if exists:
-            old_game, old_clan = exists
+            old_game, old_clan, _ = exists
             db["__ROSTER_WAIT__"][user] = {
                 "action": "update",
                 "clan": clan,
