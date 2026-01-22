@@ -752,14 +752,14 @@ def query_roster(clan_name=None):
         with conn.cursor() as cur:
             if clan_name:
                 cur.execute("""
-                    SELECT game_name, clan_name
+                    SELECT game_name, clan_name, line_name
                     FROM roster
                     WHERE clan_name = %s
                     ORDER BY created_at
                 """, (clan_name,))
             else:
                 cur.execute("""
-                    SELECT game_name, clan_name
+                    SELECT game_name, clan_name, line_name
                     FROM roster
                     ORDER BY clan_name, created_at
                 """)
