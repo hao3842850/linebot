@@ -1219,8 +1219,8 @@ def handle_message(event):
             )
             return
         _, clan, game_name = parts
-        game, clan, _ = roster_get_by_user(user)
         # === 已存在 → 詢問是否更新 ===
+        exists = roster_get_by_user(user)  # 先拿到資料
         if exists:
             old_game, old_clan, _ = exists
             db["__ROSTER_WAIT__"][user] = {
@@ -1250,6 +1250,7 @@ def handle_message(event):
             )
         )
         return
+
     # === 確認修改名冊 ===
     if msg == "確認修改":
         wait = db.get("__ROSTER_WAIT__", {}).get(user)
