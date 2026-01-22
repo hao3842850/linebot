@@ -1330,17 +1330,14 @@ def handle_message(event):
             result = []
             for game_name, clan_name, line_name in rows:
                 result.append((game_name, clan_name, line_name or "未設定"))
+
+            # 迴圈外才呼叫 build_roster_search_flex
             reply = build_roster_search_flex(keyword, result)
-                result.append((game_name, clan_name, line_name))
-            reply = build_roster_search_flex(keyword, result)
+
         line_bot_api.reply_message(event.reply_token, reply)
         return
-    if msg.lower() == "help":
-        line_bot_api.reply_message(
-            event.reply_token,
-            build_help_flex()
-        )
-        return
+
+
     # 王列表
     if msg == "王列表":
         text = build_boss_list_text()
