@@ -1327,7 +1327,7 @@ def handle_message(event):
         else:
             keyword = parts[1]
             rows = search_roster(keyword)
-            result = 
+            result = []
             for game_name, clan_name, line_name in rows:
                 result.append((game_name, clan_name, line_name or "未設定"))
             reply = build_roster_search_flex(keyword, result)
