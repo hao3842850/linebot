@@ -917,7 +917,7 @@ def get_boss(name):
 def parse_time(token):
     now = now_tw()
     try:
-        if token == "6666":
+        if token in ("6", "6666", "K", "k"):
             return now
         if token.isdigit() and len(token) == 4:
             h = int(token[:2])
