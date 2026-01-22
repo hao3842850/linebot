@@ -727,13 +727,17 @@ def ensure_roster_table():
         with conn.cursor() as cur:
             cur.execute("""
             CREATE TABLE IF NOT EXISTS roster (
-                id SERIAL PRIMARY KEY,
+                id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
                 line_user_id TEXT NOT NULL,
-                line_name TEXT,
                 game_name TEXT NOT NULL,
                 clan_name TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW()
+                line_name TEXT,
+
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+                UNIQUE (line_user_id, game_name)
             );
             """)
         conn.commit()
@@ -764,12 +768,13 @@ def search_roster(keyword):
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT line_user_id, game_name, clan_name
+                SELECT game_name, clan_name, line_name
                 FROM roster
                 WHERE game_name ILIKE %s
-                OR clan_name ILIKE %s
-                ORDER BY created_at
-            """, (f"%{keyword}%", f"%{keyword}%"))
+                   OR clan_name ILIKE %s
+                   OR line_name ILIKE %s
+                ORDER BY clan_name, game_name;
+            """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"))
             return cur.fetchall()
 def build_boss_list_text():
     lines = ["📜【王列表（含所有簡稱）】", ""]
@@ -1057,6 +1062,9 @@ def roster_get_by_user(user_id):
                 SELECT game_name, clan_name, line_name
                 FROM roster
                 WHERE line_user_id = %s
+                ORDER BY updated_at DESC
+                LIMIT 1
+
                 """,
                 (user_id,)
             )
@@ -1103,7 +1111,7 @@ async def startup():
 @app.post("/callback")
 async def callback(request: Request, x_line_signature: str = Header(None)):
     body = await request.body()
-    asyncio.create_task(process_line_event(body, x_line_signature))
+    await process_line_event(body, x_line_signature)
     return "OK"
 async def process_line_event(body: bytes, signature: str):
     try:
@@ -1318,10 +1326,11 @@ def handle_message(event):
             reply = TextSendMessage(text="用法：查名冊 關鍵字")
         else:
             keyword = parts[1]
-            rows = search_roster(keyword)  # 從資料庫抓出 (game_name, clan_name, line_user_id)
-            result = []
-            for game_name, clan_name, line_user_id in rows:
-                line_name = get_username(line_user_id) or "未設定"  # LINE 名稱
+            rows = search_roster(keyword)
+            result = 
+            for game_name, clan_name, line_name in rows:
+                result.append((game_name, clan_name, line_name or "未設定"))
+            reply = build_roster_search_flex(keyword, result)
                 result.append((game_name, clan_name, line_name))
             reply = build_roster_search_flex(keyword, result)
         line_bot_api.reply_message(event.reply_token, reply)
@@ -1550,7 +1559,7 @@ def handle_message(event):
             display_items = time_items  # 非熱門 → 全部
         # ===== 輸出 =====
         output = ["📢【即將重生列表】", ""]
-        for _, line in time_items:
+        for _, line in display_items:
             output.append(line)
         if unregistered:
             output.append("")
