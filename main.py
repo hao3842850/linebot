@@ -1219,7 +1219,7 @@ def handle_message(event):
             )
             return
         _, clan, game_name = parts
-        exists = roster_get_by_user(user)
+        game, clan, _ = roster_get_by_user(user)
         # === 已存在 → 詢問是否更新 ===
         if exists:
             old_game, old_clan, _ = exists
