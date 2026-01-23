@@ -1606,9 +1606,10 @@ def handle_message(event):
             if restored_kpi:
                 db.setdefault("kpi_backup", {})[now_tw().strftime("%Y-%m-%d")] = restored_kpi
                 save_db(db)
+            restored_kpi = {}  # ⭐ 清空，避免污染後續
             continue
         if skip_kpi:
-            parts = raw_line.split()
+            parts = line.split()
             if len(parts) == 3:
                 _, user_id, count = parts
                 if count.isdigit():
@@ -1647,7 +1648,7 @@ def handle_message(event):
             "kill": t.strftime("%H:%M:%S"),
             "respawn": respawn.isoformat(),
             "note": note,
-            "user": "__BACKUP__" if is_multi_register else user
+            "user": user
         }
         boss_db.setdefault(boss, []).append(rec)
         boss_db[boss] = boss_db[boss][-20:]
