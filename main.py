@@ -1621,12 +1621,25 @@ def handle_message(event):
             continue
 
         if skip_kpi:
-            parts = raw_line.split()
+            parts = line.split()
             if len(parts) == 3:
                 _, user_id, count = parts
                 if count.isdigit():
-                    restored_kpi[user_id] = int(count)
+                    for boss, n in restored_kpi.items():
+                        for _ in range(n):
+                            rec = {
+                                "date": now_tw().strftime("%Y-%m-%d"),       # 今天日期
+                                "kill": now_tw().strftime("%H:%M:%S"),       # 當下時間
+                                "respawn": now_tw().isoformat(),             # 當下時間即可
+                                "note": "KPI 還原",
+                                "user": user_id,
+                                "source": "kpi_restore"
+                            }
+                            boss_db.setdefault(boss, []).append(rec)
+                            boss_db[boss] = boss_db[boss][-20:]  # 保留最後 20 筆
+                    save_db(db)
             continue
+
 
         # ===== 普通登記行 =====
         line = sanitize_register_line(raw_line)
