@@ -1601,7 +1601,7 @@ def handle_message(event):
     #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
     #        )
     # ===== 登記王（支援多行 / 備份貼上 + KPI）=====
-    restored_kpi = {}
+    restored_kpi = {}  # 放在迴圈前面
     skip_kpi = False
     for line in lines:
         raw_line = line.strip()
@@ -1612,11 +1612,13 @@ def handle_message(event):
         if raw_line == "__KPI_START__":
             skip_kpi = True
             continue
-        if raw_line == "__KPI_END__":
+        if raw_line.strip() == "__KPI_END__":
             skip_kpi = False
             if restored_kpi:
                 db.setdefault("kpi_backup", {})[now_tw().strftime("%Y-%m-%d")] = restored_kpi
                 save_db(db)
+            restored_kpi = {}
+            continue
             # 不立即清空 restored_kpi，回覆時還能顯示筆數
             continue
 
