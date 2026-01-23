@@ -1147,7 +1147,10 @@ def sanitize_register_line(line: str) -> str:
     # 空行
     if not line:
         return ""
-    # 備份標題
+    # KPI 區塊 marker 一定要保留
+    if line in ("__KPI_START__", "__KPI_END__"):
+        return line
+    # 王表備份標題可忽略
     if line.startswith("📦") or "王表備份" in line:
         return ""
     # 分隔線或裝飾
