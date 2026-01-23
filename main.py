@@ -1003,26 +1003,34 @@ def calculate_kpi(boss_db, start, end):
     boss_db = db["boss"][group_id]
     回傳 dict: {user_id: count}
     排除：
-    - 開機補登記
-    - 備份 / 多行重複登記
+    - 開機補登記 (__SYSTEM__)
+    - 備份 / 多行貼上登記 (source=backup)
     """
     result = {}
-    seen = set()  # 用來排除重複 KPI
+    seen = set()  # KPI 去重
+
     for boss, records in boss_db.items():
         for rec in records:
-            # 排除開機補登記/備份登記
+            # 1️⃣ 排除開機補登
+            if rec.get("user") == "__SYSTEM__":
+                continue
+
+            # 2️⃣ 排除備份 / 多行貼上登記
             if rec.get("source") == "backup":
                 continue
+
             kill_dt = TZ.localize(
                 datetime.strptime(
                     f"{rec['date']} {rec['kill']}",
                     "%Y-%m-%d %H:%M:%S"
                 )
             )
+
             if not (start <= kill_dt < end):
                 continue
+
             uid = rec["user"]
-            key = (uid, boss, kill_dt)# ⭐ KPI 去重 key# 同一人 + 同一王 + 同一死亡時間 → 只算一次
+            key = (uid, boss, kill_dt)
             if key in seen:
                 continue
             seen.add(key)
@@ -1648,7 +1656,7 @@ def handle_message(event):
             "kill": t.strftime("%H:%M:%S"),
             "respawn": respawn.isoformat(),
             "note": note,
-            "user": user
+            "user": user,
             "source": "backup" if is_multi_register else "manual"
         }
         boss_db.setdefault(boss, []).append(rec)
