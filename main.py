@@ -1011,7 +1011,7 @@ def calculate_kpi(boss_db, start, end):
     for boss, records in boss_db.items():
         for rec in records:
             # 排除開機補登記/備份登記
-            if rec.get("user") in ("__SYSTEM__", "__BACKUP__"):
+            if rec.get("source") == "backup":
                 continue
             kill_dt = TZ.localize(
                 datetime.strptime(
@@ -1598,15 +1598,15 @@ def handle_message(event):
         if not line:
             continue
         # === KPI 區塊開始 / 結束 ===
-        if line == "__KPI_START__":
+        if raw_line.strip() == "__KPI_START__":
             skip_kpi = True
             continue
-        if line == "__KPI_END__":
+        if raw_line.strip() == "__KPI_END__":
             skip_kpi = False
             if restored_kpi:
                 db.setdefault("kpi_backup", {})[now_tw().strftime("%Y-%m-%d")] = restored_kpi
                 save_db(db)
-            restored_kpi = {}  # ⭐ 清空，避免污染後續
+            restored_kpi = {}
             continue
         if skip_kpi:
             parts = line.split()
@@ -1649,6 +1649,7 @@ def handle_message(event):
             "respawn": respawn.isoformat(),
             "note": note,
             "user": user
+            "source": "backup" if is_multi_register else "manual"
         }
         boss_db.setdefault(boss, []).append(rec)
         boss_db[boss] = boss_db[boss][-20:]
