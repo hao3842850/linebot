@@ -1010,8 +1010,8 @@ def calculate_kpi(boss_db, start, end):
     seen = set()  # 用來排除重複 KPI
     for boss, records in boss_db.items():
         for rec in records:
-            # 排除開機補登記
-            if rec.get("user") == "__SYSTEM__":
+            # 排除開機補登記/備份登記
+            if rec.get("user") in ("__SYSTEM__", "__BACKUP__"):
                 continue
             kill_dt = TZ.localize(
                 datetime.strptime(
@@ -1150,6 +1150,13 @@ def sanitize_register_line(line: str) -> str:
     # 再清一次多餘空白
     line = re.sub(r"\s{2,}", " ", line).strip()
     return line.strip()
+def build_kpi_backup_text(kpi_db):
+    lines = ["__KPI_START__"]
+    for user_id, count in kpi_db.items():
+        name = get_username(user_id)
+        lines.append(f"{name} {user_id} {count}")
+    lines.append("__KPI_END__")
+    return "\n".join(lines)
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user = event.source.user_id
@@ -1165,43 +1172,49 @@ def handle_message(event):
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
+    restored_kpi = {}
+    skip_kpi = False
     if msg == "備份":
-        if is_multi_register:
-            try:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage("📥 已收到登記，處理中…")
-                )
-            except:
-                pass
-        if not boss_db:
-            reply = "目前沒有任何王的死亡紀錄"
-        else:
-            now = now_tw()
-            lines = ["📦【王表備份（請全部複製貼上）】", ""]
-            for boss, records in boss_db.items():
-                if not records:
-                    continue
-                last = records[-1]
-                kill_time = last.get("kill")          # HH:MM:SS
-                respawn_str = last.get("respawn")     # ISO
-                note = last.get("note", "").strip()
-                if not kill_time or not respawn_str:
-                    continue
-                # ===== 時間處理 =====
-                parts = kill_time.split(":")
-                if len(parts) == 3:
-                    hhmmss = parts[0] + parts[1] + parts[2]
-                elif len(parts) == 2:
-                    hhmmss = parts[0] + parts[1] + "00"
-                else:
-                    continue
-                # ===== 組輸出 =====
-                line = f"{hhmmss} {boss}"
-                if note:
-                    line += f" {note}"
-                lines.append(line)
-            reply = "\n".join(lines)
+        # 先算 KPI（用你現有邏輯）
+        now = now_tw()
+        start, end = get_kpi_range(now)
+        kpi_db = calculate_kpi(boss_db, start, end)
+
+        output = []
+
+        # ✅ KPI 備份區塊（這就是第一步第三點）
+        output.append(build_kpi_backup_text(kpi_db))
+        output.append("")  # 空行
+
+        # ✅ 原本的王表備份
+        output.append("📦【王表備份】")
+        output.append("")
+
+        for boss, records in boss_db.items():
+            if not records:
+                continue
+            last = records[-1]
+            kill_time = last.get("kill")
+            respawn_str = last.get("respawn")
+            note = last.get("note", "").strip()
+            if not kill_time or not respawn_str:
+                continue
+
+            parts = kill_time.split(":")
+            if len(parts) == 3:
+                hhmmss = parts[0] + parts[1] + parts[2]
+            elif len(parts) == 2:
+                hhmmss = parts[0] + parts[1] + "00"
+            else:
+                continue
+
+            line = f"{hhmmss} {boss}"
+            if note:
+                line += f" {note}"
+            output.append(line)
+
+        reply = "\n".join(output)
+
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=reply)
@@ -1578,9 +1591,30 @@ def handle_message(event):
     #       time_items.append(
     #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
     #        )
-    # ===== 登記王（支援多行 / 備份貼上）=====
+    # ===== 登記王（支援多行 / 備份貼上 + KPI）=====
     for line in lines:
         raw_line = line
+        line = sanitize_register_line(line)
+        if not line:
+            continue
+        # === KPI 區塊開始 / 結束 ===
+        if line == "__KPI_START__":
+            skip_kpi = True
+            continue
+        if line == "__KPI_END__":
+            skip_kpi = False
+            if restored_kpi:
+                db.setdefault("kpi_backup", {})[now_tw().strftime("%Y-%m-%d")] = restored_kpi
+                save_db(db)
+            continue
+        if skip_kpi:
+            parts = raw_line.split()
+            if len(parts) == 3:
+                _, user_id, count = parts
+                if count.isdigit():
+                    restored_kpi[user_id] = int(count)
+            continue
+        # ===== 登記王原本邏輯 =====
         line = sanitize_register_line(line)
         if not line:
             continue
@@ -1613,7 +1647,7 @@ def handle_message(event):
             "kill": t.strftime("%H:%M:%S"),
             "respawn": respawn.isoformat(),
             "note": note,
-            "user": user
+            "user": "__BACKUP__" if is_multi_register else user
         }
         boss_db.setdefault(boss, []).append(rec)
         boss_db[boss] = boss_db[boss][-20:]
@@ -1637,12 +1671,14 @@ def handle_message(event):
                 note=note
             )
             safe_reply(event, text_msg, flex_msg)
+    # === 多行貼上完成回覆 ===
     if is_multi_register:
-        if success_count > 0:
-            msg = f"📦 備份登記完成：成功登記 {success_count} 隻王"
-            if failed_lines:
-                msg += f"\n⚠️ 失敗 {len(failed_lines)} 行（格式錯誤或未知王）"
-            safe_reply(event, msg)
+        msg = f"📦 備份登記完成：成功登記 {success_count} 隻王"
+        if failed_lines:
+            msg += f"\n⚠️ 失敗 {len(failed_lines)} 行（格式錯誤或未知王）"
+        if restored_kpi:
+            msg += f"\n✅ KPI 成功還原 {len(restored_kpi)} 筆"
+        safe_reply(event, msg)
     return
 @app.get("/")
 def root():
