@@ -1144,12 +1144,8 @@ def sanitize_register_line(line: str) -> str:
     if not line:
         return ""
     line = line.strip()
-    # 空行
     if not line:
         return ""
-    # KPI 區塊 marker 一定要保留
-    if line in ("__KPI_START__", "__KPI_END__"):
-        return line
     # 王表備份標題可忽略
     if line.startswith("📦") or "王表備份" in line:
         return ""
@@ -1158,9 +1154,12 @@ def sanitize_register_line(line: str) -> str:
         return ""
     # 🔥 移除「#過N」或「#過 N」
     line = re.sub(r"\s*#\s*過\s*\d+", "", line)
-    # 再清一次多餘空白
+    # 壓縮多餘空白
     line = re.sub(r"\s{2,}", " ", line).strip()
-    return line.strip()
+    # 忽略多行輸入
+    if "\n" in line:
+        return ""
+    return line
 def build_kpi_backup_text(kpi_db):
     lines = ["__KPI_START__"]
     for user_id, count in kpi_db.items():
@@ -1184,20 +1183,15 @@ def handle_message(event):
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
     if msg == "備份":
-        # 先算 KPI（用你現有邏輯）
+        # 現在時間
         now = now_tw()
         start, end = get_kpi_range(now)
-        kpi_db = calculate_kpi(boss_db, start, end)
 
         output = []
 
-        # ✅ KPI 備份區塊（這就是第一步第三點）
-        output.append(build_kpi_backup_text(kpi_db))
-        output.append("")  # 空行
-
-        # ✅ 原本的王表備份
+        # ✅ 只保留王表備份
         output.append("📦【王表備份】")
-        output.append("")
+        output.append("")  # 空行
 
         for boss, records in boss_db.items():
             if not records:
@@ -1229,6 +1223,7 @@ def handle_message(event):
             TextSendMessage(text=reply)
         )
         return
+
     # 名冊功能
     db.setdefault("__ROSTER_WAIT__", {})
     # === 加入名冊 ===
