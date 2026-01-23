@@ -1182,7 +1182,8 @@ def handle_message(event):
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
-    if msg == "備份":
+    clean_msg = msg.strip()
+    if clean_msg == "備份" and "\n" not in msg:
         # 現在時間
         now = now_tw()
         start, end = get_kpi_range(now)
