@@ -1187,19 +1187,18 @@ def handle_message(event):
     boss_db = db["boss"][group_id]
     clean_msg = msg.strip()
     if clean_msg == "備份" and "\n" not in msg:
-        # 現在時間
         now = now_tw()
-        start, end = get_kpi_range(now)
-
         output = []
 
-        # ✅ 只保留王表備份
         output.append("📦【王表備份】")
-        output.append("")  # 空行
+        output.append("")
 
         for boss, records in boss_db.items():
             if not records:
                 continue
+            if boss not in cd_map:
+                continue
+
             last = records[-1]
             kill_time = last.get("kill")
             respawn_str = last.get("respawn")
@@ -1207,6 +1206,25 @@ def handle_message(event):
             if not kill_time or not respawn_str:
                 continue
 
+            # ===== 計算過幾 =====
+            cd_hours = cd_map[boss]
+            base_respawn = datetime.fromisoformat(respawn_str).astimezone(TZ)
+            step = timedelta(hours=cd_hours)
+
+            if now < base_respawn:
+                missed = 0
+            else:
+                diff = now - base_respawn
+                rounds_passed = int(diff.total_seconds() // step.total_seconds())
+                current_respawn = base_respawn + rounds_passed * step
+                passed_minutes = int((now - current_respawn).total_seconds() // 60)
+
+                if passed_minutes <= 30:
+                    missed = rounds_passed
+                else:
+                    missed = rounds_passed + 1
+
+            # ===== 時間格式 hhmmss =====
             parts = kill_time.split(":")
             if len(parts) == 3:
                 hhmmss = parts[0] + parts[1] + parts[2]
@@ -1215,9 +1233,12 @@ def handle_message(event):
             else:
                 continue
 
+            # ===== 組輸出 =====
             line = f"{hhmmss} {boss}"
             if note:
                 line += f" {note}"
+            line += f" #過{missed}"
+
             output.append(line)
 
         reply = "\n".join(output)
@@ -1227,7 +1248,6 @@ def handle_message(event):
             TextSendMessage(text=reply)
         )
         return
-
     # 名冊功能
     db.setdefault("__ROSTER_WAIT__", {})
     # === 加入名冊 ===
@@ -1528,7 +1548,8 @@ def handle_message(event):
         )
         return
     # 出
-    if msg == "出":
+    is_force_full = (msg == "出出")
+    if msg in ("出", "出出"):
         now = now_tw()
         time_items = []
         unregistered = []
@@ -1571,20 +1592,35 @@ def handle_message(event):
             time_items.append((display_time, line))
         # ===== 排序（一定先完整排序）=====
         time_items.sort(key=lambda x: x[0])
-        # ===== 根據時段決定顯示數 =====
-        if is_peak_time():
-            display_items = time_items[:14]
+        # ===== 根據時段 / 指令 決定顯示數 =====
+        if is_force_full:
+            display_items = time_items  # 出出 → 強制全部
+        elif is_peak_time():
+            display_items = time_items[:14]  # 熱門 → 限制
         else:
             display_items = time_items  # 非熱門 → 全部
         # ===== 輸出 =====
-        output = ["📢【即將重生列表】", ""]
+        if is_force_full:
+            output = ["📢【即將重生列表｜完整】", ""]
+        elif is_peak_time():
+            output = ["📢【即將重生列表｜熱門】", ""]
+        else:
+            output = ["📢【即將重生列表】", ""]
+
         for _, line in display_items:
             output.append(line)
+
+        # 熱門時段但被限制時，給提示
+        if is_peak_time() and not is_force_full:
+            output.append("")
+            output.append("👉 輸入「出出」可查看完整列表")
+
         if unregistered:
             output.append("")
             output.append("— 未登記 —")
             for b in unregistered:
                 output.append(b)
+
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage("\n".join(output))
