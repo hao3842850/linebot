@@ -852,19 +852,20 @@ def build_roster_flex(rows):
                     "text": clan_name if clan_name else "-",
                     "flex": 1,
                     "size": "sm",
-                    "align": "center",
+                    "align": "end",
                     "wrap": True,
-                    "color": "#666666"
+                    "color": "#1E90FF"
                 },
                 {
                     "type": "text",
                     "text": line_name if line_name else "-",
                     "flex": 1,
                     "size": "sm",
-                    "align": "end",
+                    "align": "center",
                     "wrap": True,
-                    "color": "#1E90FF"
+                    "color": "#666666"
                 }
+                
             ]
         })
 
