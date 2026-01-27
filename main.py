@@ -797,15 +797,49 @@ def build_boss_cd_list_text():
         lines.append(f"🔹 {boss}：{cd_text}")
     return "\n".join(lines)
 def build_roster_flex(rows):
-    items = []
+    body_contents = []
+
+    # === 欄位名稱列 ===
+    body_contents.append({
+        "type": "box",
+        "layout": "horizontal",
+        "backgroundColor": "#F2F2F2",
+        "paddingAll": "8px",
+        "contents": [
+            {
+                "type": "text",
+                "text": "遊戲角色",
+                "flex": 2,
+                "size": "sm",
+                "weight": "bold"
+            },
+            {
+                "type": "text",
+                "text": "血盟",
+                "flex": 1,
+                "size": "sm",
+                "weight": "bold",
+                "align": "center"
+            },
+            {
+                "type": "text",
+                "text": "LINE",
+                "flex": 1,
+                "size": "sm",
+                "weight": "bold",
+                "align": "end"
+            }
+        ]
+    })
+
+    # === 資料列 ===
     for game_name, clan_name, line_name in rows:
-        items.append({
+        body_contents.append({
             "type": "box",
             "layout": "horizontal",
             "paddingAll": "8px",
             "spacing": "sm",
             "contents": [
-                # 左：遊戲名
                 {
                     "type": "text",
                     "text": game_name,
@@ -813,7 +847,6 @@ def build_roster_flex(rows):
                     "size": "md",
                     "wrap": True
                 },
-                # 中：血盟
                 {
                     "type": "text",
                     "text": clan_name if clan_name else "-",
@@ -821,9 +854,8 @@ def build_roster_flex(rows):
                     "size": "sm",
                     "align": "center",
                     "wrap": True,
-                    "color": "#888888"
+                    "color": "#666666"
                 },
-                # 右：LINE 名稱
                 {
                     "type": "text",
                     "text": line_name if line_name else "-",
@@ -831,7 +863,7 @@ def build_roster_flex(rows):
                     "size": "sm",
                     "align": "end",
                     "wrap": True,
-                    "color": "#4A90E2"
+                    "color": "#1E90FF"
                 }
             ]
         })
@@ -841,10 +873,11 @@ def build_roster_flex(rows):
         "header": {
             "type": "box",
             "layout": "vertical",
+            "paddingAll": "12px",
             "contents": [
                 {
                     "type": "text",
-                    "text": "名冊查詢結果",
+                    "text": "📋 名冊查詢結果",
                     "weight": "bold",
                     "size": "lg"
                 }
@@ -853,7 +886,8 @@ def build_roster_flex(rows):
         "body": {
             "type": "box",
             "layout": "vertical",
-            "contents": items
+            "spacing": "none",
+            "contents": body_contents
         }
     }
 
