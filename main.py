@@ -798,13 +798,14 @@ def build_boss_cd_list_text():
     return "\n".join(lines)
 def build_roster_flex(rows):
     items = []
-
-    for game_name, clan_name in rows:
+    for game_name, clan_name, line_name in rows:
         items.append({
             "type": "box",
             "layout": "horizontal",
             "paddingAll": "8px",
+            "spacing": "sm",
             "contents": [
+                # 左：遊戲名
                 {
                     "type": "text",
                     "text": game_name,
@@ -812,12 +813,24 @@ def build_roster_flex(rows):
                     "size": "md",
                     "wrap": True
                 },
+                # 中：血盟
                 {
                     "type": "text",
-                    "text": clan_name,
+                    "text": clan_name if clan_name else "-",
                     "flex": 1,
-                    "size": "md",
+                    "size": "sm",
+                    "align": "center",
+                    "wrap": True,
+                    "color": "#888888"
+                },
+                # 右：LINE 名稱
+                {
+                    "type": "text",
+                    "text": line_name if line_name else "-",
+                    "flex": 1,
+                    "size": "sm",
                     "align": "end",
+                    "wrap": True,
                     "color": "#4A90E2"
                 }
             ]
@@ -843,6 +856,7 @@ def build_roster_flex(rows):
             "contents": items
         }
     }
+
 # 王資料
 alias_map = {
     "四色": ["四色", "76", "4", "四", "4色","c","C"],
@@ -1418,7 +1432,7 @@ def handle_message(event):
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(
-                    text="用法：查名冊 關鍵字\n例如：查名冊 熊貓"
+                    text="用法：查名冊 關鍵字\n例如：查名冊 威士忌"
                 )
             )
             return
@@ -1429,7 +1443,7 @@ def handle_message(event):
             conn = psycopg2.connect(DATABASE_URL)
             cur = conn.cursor()
             cur.execute("""
-                SELECT game_name, clan_name
+                SELECT game_name, line_name, clan_name
                 FROM roster
                 WHERE game_name ILIKE %s
                 ORDER BY game_name
