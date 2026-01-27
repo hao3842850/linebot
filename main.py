@@ -852,7 +852,7 @@ def build_roster_flex(rows):
                     "text": clan_name if clan_name else "-",
                     "flex": 1,
                     "size": "sm",
-                    "align": "end",
+                    "align": "center",
                     "wrap": True,
                     "color": "#1E90FF"
                 },
@@ -861,14 +861,29 @@ def build_roster_flex(rows):
                     "text": line_name if line_name else "-",
                     "flex": 1,
                     "size": "sm",
-                    "align": "center",
+                    "align": "end",
                     "wrap": True,
                     "color": "#666666"
                 }
-                
             ]
         })
-
+    # === 底部提醒 ===
+    body_contents.append({
+        "type": "box",
+        "layout": "vertical",
+        "margin": "md",
+        "paddingTop": "6px",
+        "contents": [
+            {
+                "type": "text",
+                "text": "資料有誤請 @H.",
+                "size": "xs",
+                "color": "#AAAAAA",
+                "align": "center",
+                "wrap": True
+            }
+        ]
+    })
     return {
         "type": "bubble",
         "header": {
