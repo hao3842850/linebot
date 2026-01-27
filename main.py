@@ -27,6 +27,7 @@ line_bot_api = LineBotApi(CHANNEL_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
+DATABASE_URL = os.getenv("DATABASE_URL")
 # 工具函式
 def is_peak_time():
     h = now_tw().hour
@@ -795,6 +796,53 @@ def build_boss_cd_list_text():
             cd_text = f"{hours} 小時"
         lines.append(f"🔹 {boss}：{cd_text}")
     return "\n".join(lines)
+def build_roster_flex(rows):
+    items = []
+
+    for game_name, clan_name in rows:
+        items.append({
+            "type": "box",
+            "layout": "horizontal",
+            "paddingAll": "8px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": game_name,
+                    "flex": 2,
+                    "size": "md",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": clan_name,
+                    "flex": 1,
+                    "size": "md",
+                    "align": "end",
+                    "color": "#4A90E2"
+                }
+            ]
+        })
+
+    return {
+        "type": "bubble",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "名冊查詢結果",
+                    "weight": "bold",
+                    "size": "lg"
+                }
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": items
+        }
+    }
 # 王資料
 alias_map = {
     "四色": ["四色", "76", "4", "四", "4色","c","C"],
@@ -1361,25 +1409,45 @@ def handle_message(event):
                 TextSendMessage("❎ 已取消操作")
             )
             return
-    # === 查名冊（模糊）===
+    #-----查名冊
     if text.startswith("查名冊"):
         parts = text.split(maxsplit=1)
-        if len(parts) < 2:
-            reply = TextSendMessage(text="用法：查名冊 關鍵字")
-        else:
-            keyword = parts[1]
-            rows = search_roster(keyword)
-            result = []
-            for game_name, clan_name, line_name in rows:
-                result.append((game_name, clan_name, line_name or "未設定"))
 
-            # 迴圈外才呼叫 build_roster_search_flex
-            reply = build_roster_search_flex(keyword, result)
+        # 只有輸入「查名冊」
+        if len(parts) == 1:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(
+                    text="用法：查名冊 關鍵字\n例如：查名冊 熊貓"
+                )
+            )
+            return
+
+        keyword = parts[1].strip()
+
+        with db_lock:
+            conn = psycopg2.connect(DATABASE_URL)
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT game_name, clan_name
+                FROM roster
+                WHERE game_name ILIKE %s
+                ORDER BY game_name
+                LIMIT 10
+            """, (f"%{keyword}%",))
+            rows = cur.fetchall()
+            conn.close()
+
+        if not rows:
+            reply = TextSendMessage(text="❌ 查無符合的名冊資料")
+        else:
+            reply = FlexSendMessage(
+                alt_text="名冊查詢結果",
+                contents=build_roster_flex(rows)
+            )
 
         line_bot_api.reply_message(event.reply_token, reply)
         return
-
-
     # 王列表
     if msg == "王列表":
         text = build_boss_list_text()
@@ -1729,3 +1797,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 8000))
     )
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL 未設定")
