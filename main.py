@@ -833,7 +833,7 @@ def build_roster_flex(rows):
     })
 
     # === 資料列 ===
-    for game_name, clan_name, line_name in rows:
+    for game_name, line_name, clan_name in rows:
         body_contents.append({
             "type": "box",
             "layout": "horizontal",
