@@ -854,7 +854,7 @@ def build_roster_flex(rows):
                     "size": "sm",
                     "align": "center",
                     "wrap": True,
-                    "color": "#1E90FF"
+                    "color": "#666666"
                 },
                 {
                     "type": "text",
@@ -863,7 +863,7 @@ def build_roster_flex(rows):
                     "size": "sm",
                     "align": "end",
                     "wrap": True,
-                    "color": "#666666"
+                    "color": "#1E90FF"
                 }
             ]
         })
