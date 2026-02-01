@@ -80,18 +80,29 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
     map_text = "、".join(map_list) if map_list else "未知"
 
     contents = [
-        # ===== 標題 =====
-        {
-            "type": "text",
-            "text": f"🔥 已登記 {boss}",
-            "weight": "bold",
-            "size": "lg",
-            "wrap": True
-        },
-        {
-            "type": "separator",
-            "margin": "md"
-        },
+            # ===== 標題 (僅 BOSS 名稱變色) =====
+            {
+                "type": "text",
+                "text": "🔥 已登記 ", # 這行現在當作外殼
+                "weight": "bold",
+                "size": "lg",
+                "contents": [
+                    {
+                        "type": "span",
+                        "text": "🔥 已登記 "
+                    },
+                    {
+                        "type": "span",
+                        "text": boss,
+                        "color": "#FF6D18", # 只有 BOSS 名稱會變紅色
+                        "weight": "bold"
+                    }
+                ]
+            },
+            {
+                "type": "separator",
+                "margin": "md"
+            },
 
         # ===== 資訊列 =====
         {
@@ -119,7 +130,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             "contents": [
                 {
                     "type": "text",
-                    "text": "🕒 死亡時間：",
+                    "text": "🕒 死亡：",
                     "size": "sm",
                     "color": "#888888",
                     "flex": 2
@@ -138,7 +149,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             "contents": [
                 {
                     "type": "text",
-                    "text": "✨ 重生時間：",
+                    "text": "✨ 重生：",
                     "size": "sm",
                     "color": "#888888",
                     "flex": 2
@@ -161,7 +172,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             "contents": [
                 {
                     "type": "text",
-                    "text": "📌 備註",
+                    "text": "📌 備註：",
                     "size": "sm",
                     "color": "#888888",
                     "flex": 2
