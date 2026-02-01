@@ -79,6 +79,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
     map_text = "、".join(map_list) if map_list else "未知"
 
     contents = [
+        # ===== 標題 =====
         {
             "type": "text",
             "text": f"🔥 已登記 {boss}",
@@ -87,34 +88,107 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             "wrap": True
         },
         {
-            "type": "text",
-            "text": f"🗺️ 地圖：{map_text}",
-            "wrap": True
+            "type": "separator",
+            "margin": "md"
+        },
+
+        # ===== 資訊列 =====
+        {
+            "type": "box",
+            "layout": "baseline",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🗺️ 地圖",
+                    "size": "sm",
+                    "color": "#888888",
+                    "flex": 2
+                },
+                {
+                    "type": "text",
+                    "text": map_text,
+                    "wrap": True,
+                    "flex": 6
+                }
+            ]
         },
         {
-            "type": "text",
-            "text": f"🕒 死亡時間：{kill_time}",
-            "wrap": True
+            "type": "box",
+            "layout": "baseline",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🕒 死亡",
+                    "size": "sm",
+                    "color": "#888888",
+                    "flex": 2
+                },
+                {
+                    "type": "text",
+                    "text": kill_time,
+                    "wrap": True,
+                    "flex": 6
+                }
+            ]
         },
         {
-            "type": "text",
-            "text": f"✨ 重生時間：{respawn_time}",
-            "wrap": True
+            "type": "box",
+            "layout": "baseline",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "✨ 重生",
+                    "size": "sm",
+                    "color": "#888888",
+                    "flex": 2
+                },
+                {
+                    "type": "text",
+                    "text": respawn_time,
+                    "wrap": True,
+                    "flex": 6
+                }
+            ]
+        },
+    ]
+
+    # ===== 備註（同層級，不凸顯）=====
+    if note:
+        contents.append({
+            "type": "box",
+            "layout": "baseline",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "📌 備註",
+                    "size": "sm",
+                    "color": "#888888",
+                    "flex": 2
+                },
+                {
+                    "type": "text",
+                    "text": note,
+                    "wrap": True,
+                    "flex": 6
+                }
+            ]
+        })
+
+    # ===== 登記者 =====
+    contents.extend([
+        {
+            "type": "separator",
+            "margin": "lg"
         },
         {
             "type": "text",
             "text": f"👤 登記者：{registrar}",
-            "size": "sm",
-            "color": "#555555",
+            "size": "xs",
+            "color": "#999999",
             "wrap": True
-        },
-    ]
-    if note:
-        contents.append({
-            "type": "text",
-            "text": f"📌 備註：{note}",
-            "wrap": True
-        })
+        }
+    ])
+
     return FlexSendMessage(
         alt_text=f"已登記 {boss}",
         contents={
@@ -127,6 +201,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             }
         }
     )
+
 def build_register_boss_text(boss, kill_time, respawn_time, registrar, note):
     map_list = BOSS_MAP.get(boss, [])
     map_text = "、".join(map_list) if map_list else "未知"
@@ -137,7 +212,7 @@ def build_register_boss_text(boss, kill_time, respawn_time, registrar, note):
         f"死亡時間：{kill_time}\n"
     )
     if note:
-        msg += f"\n備註：{note}"
+        msg += f"備註：{note}"
     return msg
 def build_help_flex():
     bubbles = []
@@ -326,236 +401,366 @@ def build_join_roster_guide_flex():
                 "layout": "vertical",
                 "spacing": "md",
                 "contents": [
+                    # ===== 標題 =====
                     {
                         "type": "text",
                         "text": "👋 歡迎加入群組",
                         "weight": "bold",
-                        "size": "xl"
+                        "size": "xl",
+                        "wrap": True
                     },
                     {
                         "type": "text",
-                        "text": "📌 為了正確統計王表與 KPI\n請務必先加入名冊",
-                        "wrap": True,
-                        "size": "sm",
-                        "color": "#555555"
-                    },
-                    {
-                        "type": "separator",
-                        "margin": "md"
-                    },
-                    {
-                        "type": "text",
-                        "text": "✍️ 加入名冊指令",
-                        "weight": "bold"
-                    },
-                    {
-                        "type": "text",
-                        "text": "加入名冊 血盟名 遊戲角色名",
-                        "wrap": True,
-                        "size": "sm"
-                    },
-                    {
-                        "type": "text",
-                        "text": "📘 範例：\n加入名冊 酒窖 威士忌乄",
+                        "text": "為了正確統計王表與 KPI\n請先完成名冊登記",
                         "wrap": True,
                         "size": "sm",
                         "color": "#666666"
-                    }
-                ]
-            },
-        }
-    )
-def build_query_record_bubble(boss, rec):
-    respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
-    registrar = get_username(rec.get("user"))
-    contents = [
-        {
-            "type": "text",
-            "text": f"🔥歷史登記 {boss}",
-            "weight": "bold",
-            "size": "lg",
-            "wrap": True
-        },
-        {
-            "type": "separator",
-            "margin": "md"
-        },
-        {
-            "type": "box",
-            "layout": "vertical",
-            "margin": "md",
-            "spacing": "sm",
-            "contents": [
-                {
-                    "type": "text",
-                    "text": f"📅 登記日期：{rec['date']}",
-                    "size": "sm",
-                    "wrap": True
-                },
-                {
-                    "type": "text",
-                    "text": f"🕒 死亡時間：{rec['kill']}",
-                    "size": "sm",
-                    "wrap": True
-                },
-                {
-                    "type": "text",
-                    "text": f"✨ 重生時間：{respawn.strftime('%H:%M:%S')}",
-                    "size": "sm",
-                    "wrap": True
-                },
-                {
-                    "type": "text",
-                    "text": f"👤 登記者：{registrar}",
-                    "size": "sm",
-                    "color": "#555555",
-                    "wrap": True
-                }
-            ]
-        }
-    ]
-    if rec.get("note"):
-        contents.append({
-            "type": "text",
-            "text": f"📌 備註：{rec['note']}",
-            "size": "sm",
-            "margin": "md",
-            "wrap": True
-        })
-    return {
-        "type": "bubble",
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "contents": contents
-        }
-    }
-def clear_confirm_flex():
-    return {
-        "type": "bubble",
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "contents": [
-                {
-                    "type": "text",
-                    "text": "⚠️ 危險操作",
-                    "weight": "bold",
-                    "size": "xl",
-                    "color": "#D32F2F"
-                },
-                {
-                    "type": "text",
-                    "text": "此操作將清除所有王的紀錄\n此動作無法復原",
-                    "wrap": True,
-                    "margin": "md"
-                }
-            ]
-        },
-        "footer": {
-            "type": "box",
-            "layout": "horizontal",
-            "spacing": "md",
-            "contents": [
-                {
-                    "type": "button",
-                    "style": "secondary",
-                    "action": {
-                        "type": "message",
-                        "label": "取消",
-                        "text": "取消清除"
-                    }
-                },
-                {
-                    "type": "button",
-                    "style": "primary",
-                    "color": "#D32F2F",
-                    "action": {
-                        "type": "message",
-                        "label": "確認清除",
-                        "text": "確定清除"
-                    }
-                }
-            ]
-        }
-    }
-def build_boot_init_flex(base_time_str):
-    return FlexSendMessage(
-        alt_text="已紀錄開機時間",
-        contents={
-            "type": "bubble",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "spacing": "md",
-                "contents": [
-                    {
-                        "type": "text",
-                        "text": "🔌 開機時間已紀錄",
-                        "weight": "bold",
-                        "size": "lg"
                     },
+
                     {
                         "type": "separator",
-                        "margin": "md"
+                        "margin": "lg"
                     },
+
+                    # ===== 指令區 =====
+                    {
+                        "type": "text",
+                        "text": "✍️ 加入名冊方式",
+                        "weight": "bold",
+                        "size": "md"
+                    },
+
                     {
                         "type": "box",
                         "layout": "vertical",
-                        "spacing": "sm",
-                        "margin": "md",
+                        "spacing": "xs",
+                        "backgroundColor": "#F7F7F7",
+                        "paddingAll": "md",
+                        "cornerRadius": "md",
                         "contents": [
                             {
                                 "type": "text",
-                                "text": f"🕒 開機時間：{base_time_str}",
+                                "text": "加入名冊 血盟名 遊戲角色名",
+                                "size": "sm",
+                                "weight": "bold",
                                 "wrap": True
                             },
                             {
                                 "type": "text",
-                                "text": "📌 僅補齊尚未登記的 CD 王",
+                                "text": "📘 範例：加入名冊 酒窖 威士忌乄",
                                 "size": "sm",
-                                "color": "#666666",
+                                "color": "#777777",
                                 "wrap": True
                             }
                         ]
+                    },
+
+                    {
+                        "type": "separator",
+                        "margin": "lg"
+                    },
+
+                    # ===== 補充說明 =====
+                    {
+                        "type": "text",
+                        "text": "📌 完成後即可使用王表、吃王登記等功能",
+                        "size": "xs",
+                        "color": "#999999",
+                        "wrap": True
                     }
                 ]
             }
         }
     )
-def build_kpi_flex(title, period_text, ranking):
-    rows = []
-    medals = ["🥇", "🥈", "🥉"]
-    for idx, (name, count) in enumerate(ranking):
-        icon = medals[idx] if idx < 3 else f"{idx+1}"
-        rows.append({
+def build_query_record_bubble(boss, rec):
+    respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+    registrar = get_username(rec.get("user"))
+    
+    # 標題與基礎樣式
+    contents = [
+        {
+            "type": "text",
+            "text": f"📋 歷史紀錄｜{boss}",
+            "weight": "bold",
+            "size": "lg",
+            "color": "#111111"
+        },
+        {
+            "type": "separator",
+            "margin": "md",
+            "color": "#EEEEEE"
+        }
+    ]
+
+    # 定義內部資料行模板
+    def create_info_row(label, value, value_color="#333333", is_bold=False):
+        return {
             "type": "box",
             "layout": "horizontal",
             "contents": [
+                {"type": "text", "text": label, "size": "sm", "color": "#888888", "flex": 3},
+                {"type": "text", "text": value, "size": "sm", "color": value_color, "flex": 7, "weight": "bold" if is_bold else "regular", "align": "end"}
+            ]
+        }
+
+    # 資料區塊
+    info_box = {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "lg",
+        "spacing": "sm",
+        "contents": [
+            create_info_row("📅 登記日期", rec['date']),
+            create_info_row("🕒 死亡時間", rec['kill']),
+            # 重生時間用藍色加粗，方便一眼識別
+            create_info_row("✨ 重生時間", respawn.strftime('%H:%M:%S'), value_color="#1756B7", is_bold=True),
+            create_info_row("👤 登記者", registrar)
+        ]
+    }
+    
+    contents.append(info_box)
+
+    # 備註區塊
+    if rec.get("note"):
+        contents.append({
+            "type": "box",
+            "layout": "vertical",
+            "margin": "md",
+            "paddingAll": "sm",
+            "backgroundColor": "#FDFDFD",
+            "contents": [
                 {
                     "type": "text",
-                    "text": icon,
+                    "text": f"📌 {rec['note']}",
+                    "size": "xs",
+                    "color": "#999999",
+                    "wrap": True,
+                    "style": "italic"
+                }
+            ]
+        })
+
+    return {
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": contents,
+            "paddingAll": "lg"
+        }
+    }
+def clear_confirm_flex():
+    return {
+      "type": "bubble",
+      "size": "md",
+      "header": {
+        "type": "box",
+        "layout": "vertical",
+        "backgroundColor": "#D32F2F",
+        "contents": [
+          {
+            "type": "text",
+            "text": "⚠️ 危險操作確認",
+            "color": "#FFFFFF",
+            "weight": "bold",
+            "size": "md",
+            "align": "center"
+          }
+        ]
+      },
+      "body": {
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "md",
+        "contents": [
+          {
+            "type": "text",
+            "text": "清除所有王表紀錄？",
+            "weight": "bold",
+            "size": "md",
+            "wrap": True,
+            "align": "center"
+          },
+          {
+            "type": "text",
+            "text": "此動作將會抹除資料庫中所有現存紀錄，且「無法復原」。請再次確認您的操作。",
+            "wrap": True,
+            "size": "xs",
+            "color": "#888888",
+            "align": "center"
+          }
+        ]
+      },
+      "footer": {
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "sm",
+        "contents": [
+          {
+            "type": "button",
+            "style": "primary",
+            "color": "#D32F2F",
+            "height": "sm",
+            "action": {
+              "type": "message",
+              "label": "確定清除",
+              "text": "確定清除"
+            }
+          },
+          {
+            "type": "button",
+            "style": "link",
+            "color": "#444444",
+            "height": "sm",
+            "action": {
+              "type": "message",
+              "label": "取消",
+              "text": "取消清除"
+            }
+          }
+        ]
+      },
+      "styles": {
+        "footer": {
+          "separator": True
+        }
+      }
+    }
+def build_boot_init_flex(base_time_str):
+    return {
+        "type": "bubble",
+        "size": "md",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "lg",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🔌 開機時間已紀錄",
+                    "weight": "bold",
+                    "size": "lg",
+                    "color": "#2E7D32"
+                },
+                {
+                    "type": "separator",
+                    "margin": "md",
+                    "color": "#EEEEEE"
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "lg",
+                    "backgroundColor": "#F1F8E9",
+                    "paddingAll": "md",
+                    "cornerRadius": "md",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "🕒 開機時間",
+                            "size": "xs",
+                            "color": "#689F38",
+                            "weight": "bold"
+                        },
+                        {
+                            "type": "text",
+                            "text": base_time_str,
+                            "size": "md",
+                            "weight": "bold",
+                            "color": "#333333",
+                            "margin": "xs"
+                        }
+                    ]
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "margin": "md",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "ℹ️ 系統已自動補齊尚未登記的 CD 王",
+                            "size": "xs",
+                            "color": "#999999",
+                            "wrap": True,
+                            "flex": 1
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+def build_kpi_flex(title, period_text, ranking):
+    rows = []
+    # 定義前三名的特殊顏色與圖標
+    top_styles = {
+        0: {"color": "#FFD700", "weight": "bold", "icon": "🥇"},  # 金
+        1: {"color": "#C0C0C0", "weight": "bold", "icon": "🥈"},  # 銀
+        2: {"color": "#CD7F32", "weight": "bold", "icon": "🥉"}   # 銅
+    }
+
+    for idx, (name, count) in enumerate(ranking):
+        style = top_styles.get(idx, {"color": "#666666", "weight": "regular", "icon": f"{idx+1}"})
+        
+        # 每一行的內容
+        row_content = {
+            "type": "box",
+            "layout": "horizontal",
+            "paddingAll": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": style["icon"],
                     "size": "sm",
-                    "flex": 1
+                    "flex": 1,
+                    "align": "center",
+                    "weight": style.get("weight")
                 },
                 {
                     "type": "text",
                     "text": name,
                     "size": "sm",
-                    "flex": 4
+                    "flex": 4,
+                    "weight": style.get("weight"),
+                    "color": "#333333" if idx < 3 else "#666666"
                 },
                 {
                     "type": "text",
                     "text": f"{count} 次",
                     "size": "sm",
                     "align": "end",
-                    "flex": 2
+                    "flex": 2,
+                    "weight": "bold",
+                    "color": style["color"] if idx < 3 else "#333333"
                 }
             ]
-        })
+        }
+        
+        # 前三名加入淡色背景強調
+        if idx < 3:
+            row_content["backgroundColor"] = "#F8F9FA"
+            row_content["cornerRadius"] = "md"
+            row_content["margin"] = "xs"
+
+        rows.append(row_content)
+
     return {
         "type": "bubble",
         "size": "kilo",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#1A237E",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": f"🏆 {title}",
+                    "color": "#FFFFFF",
+                    "weight": "bold",
+                    "size": "md"
+                }
+            ]
+        },
         "body": {
             "type": "box",
             "layout": "vertical",
@@ -563,23 +768,15 @@ def build_kpi_flex(title, period_text, ranking):
             "contents": [
                 {
                     "type": "text",
-                    "text": title,
-                    "weight": "bold",
-                    "size": "lg"
-                },
-                {
-                    "type": "text",
-                    "text": period_text,
+                    "text": f"📅 統計區間：{period_text}",
                     "size": "xs",
-                    "color": "#888888"
-                },
-                {
-                    "type": "separator"
+                    "color": "#888888",
+                    "style": "italic"
                 },
                 {
                     "type": "box",
                     "layout": "vertical",
-                    "spacing": "sm",
+                    "spacing": "xs",
                     "contents": rows
                 }
             ]
@@ -588,14 +785,81 @@ def build_kpi_flex(title, period_text, ranking):
 def build_roster_added_flex(clan, game_name):
     return {
         "type": "bubble",
+        "size": "sm",  # 成功訊息不需要太大，輕量化更精緻
         "body": {
             "type": "box",
             "layout": "vertical",
+            "backgroundColor": "#FFFFFF",
+            "paddingAll": "lg",
             "contents": [
-                {"type": "text", "text": "✅ 已加入名冊", "weight": "bold"},
-                {"type": "text", "text": f"🎮 角色：{game_name}"},
-                {"type": "text", "text": f"🏰 血盟：{clan}"}
+                # 頂部成功圖示與文字
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "✅",
+                            "size": "lg",
+                            "flex": 0
+                        },
+                        {
+                            "type": "text",
+                            "text": "登記成功",
+                            "weight": "bold",
+                            "size": "md",
+                            "color": "#2E7D32",
+                            "margin": "md",
+                            "flex": 1
+                        }
+                    ]
+                },
+                # 分割線
+                {
+                    "type": "separator",
+                    "margin": "lg",
+                    "color": "#EEEEEE"
+                },
+                # 資料卡片區塊
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "lg",
+                    "spacing": "sm",
+                    "contents": [
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {"type": "text", "text": "遊戲角色", "size": "xs", "color": "#888888", "flex": 3},
+                                {"type": "text", "text": game_name, "size": "sm", "color": "#333333", "weight": "bold", "flex": 7, "align": "end"}
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {"type": "text", "text": "所屬血盟", "size": "xs", "color": "#888888", "flex": 3},
+                                {"type": "text", "text": clan, "size": "sm", "color": "#333333", "weight": "bold", "flex": 7, "align": "end"}
+                            ]
+                        }
+                    ]
+                },
+                # 底部小字提醒
+                {
+                    "type": "text",
+                    "text": "您現在可以正常使用王表功能了",
+                    "size": "xxs",
+                    "color": "#AAAAAA",
+                    "margin": "xl",
+                    "align": "center"
+                }
             ]
+        },
+        "styles": {
+            "body": {
+                "cornerRadius": "md"
+            }
         }
     }
 def build_roster_confirm_update_flex(old_name, old_clan, new_name, new_clan):
@@ -799,103 +1063,92 @@ def build_boss_cd_list_text():
 def build_roster_flex(rows):
     body_contents = []
 
-    # === 欄位名稱列 ===
+    # === 標題欄位列 ===
     body_contents.append({
         "type": "box",
         "layout": "horizontal",
-        "backgroundColor": "#F2F2F2",
         "paddingAll": "8px",
+        "backgroundColor": "#333333",  # 深色背景讓標題更醒目
         "contents": [
-            {
-                "type": "text",
-                "text": "遊戲角色",
-                "flex": 2,
-                "size": "sm",
-                "weight": "bold"
-            },
-            {
-                "type": "text",
-                "text": "血盟",
-                "flex": 1,
-                "size": "sm",
-                "weight": "bold",
-                "align": "center"
-            },
-            {
-                "type": "text",
-                "text": "LINE",
-                "flex": 1,
-                "size": "sm",
-                "weight": "bold",
-                "align": "end"
-            }
+            {"type": "text", "text": "角色", "flex": 3, "size": "xs", "color": "#FFFFFF", "weight": "bold"},
+            {"type": "text", "text": "血盟", "flex": 2, "size": "xs", "color": "#FFFFFF", "weight": "bold", "align": "center"},
+            {"type": "text", "text": "LINE", "flex": 2, "size": "xs", "color": "#FFFFFF", "weight": "bold", "align": "end"}
         ]
     })
 
-    # === 資料列 ===
-    for game_name, line_name, clan_name in rows:
+    # === 資料列 (帶斑馬紋邏輯) ===
+    for i, (game_name, line_name, clan_name) in enumerate(rows):
+        # 奇數行使用淺灰色背景
+        bg_color = "#F9F9F9" if i % 2 == 1 else "#FFFFFF"
+        
         body_contents.append({
             "type": "box",
             "layout": "horizontal",
-            "paddingAll": "8px",
-            "spacing": "sm",
+            "paddingAll": "10px",
+            "backgroundColor": bg_color,
             "contents": [
                 {
                     "type": "text",
                     "text": game_name,
-                    "flex": 2,
-                    "size": "md",
-                    "wrap": True
+                    "flex": 3,
+                    "size": "sm",
+                    "weight": "bold",
+                    "wrap": True,
+                    "color": "#111111"
                 },
                 {
                     "type": "text",
                     "text": clan_name if clan_name else "-",
-                    "flex": 1,
-                    "size": "sm",
+                    "flex": 2,
+                    "size": "xs",
                     "align": "center",
-                    "wrap": True,
-                    "color": "#666666"
+                    "color": "#666666",
+                    "margin": "sm"
                 },
                 {
                     "type": "text",
                     "text": line_name if line_name else "-",
-                    "flex": 1,
-                    "size": "sm",
+                    "flex": 2,
+                    "size": "xs",
                     "align": "end",
-                    "wrap": True,
-                    "color": "#1E90FF"
+                    "color": "#1E90FF"  # 維持你原本的藍色區分
                 }
             ]
         })
+
     # === 底部提醒 ===
     body_contents.append({
         "type": "box",
         "layout": "vertical",
         "margin": "md",
-        "paddingTop": "6px",
         "contents": [
+            {"type": "separator", "color": "#EEEEEE"},
             {
                 "type": "text",
-                "text": "資料有誤請 @H.",
-                "size": "xs",
+                "text": "💡 資料有誤請連繫 @H. 進行修正",
+                "size": "xxs",
                 "color": "#AAAAAA",
                 "align": "center",
-                "wrap": True
+                "margin": "md"
             }
         ]
     })
+
     return {
         "type": "bubble",
+        "size": "mega",
         "header": {
             "type": "box",
             "layout": "vertical",
+            "backgroundColor": "#F4F4F4",
             "paddingAll": "12px",
             "contents": [
                 {
                     "type": "text",
-                    "text": "📋 名冊查詢結果",
+                    "text": "📖 名冊資料",
                     "weight": "bold",
-                    "size": "lg"
+                    "size": "md",
+                    "color": "#444444"
                 }
             ]
         },
@@ -903,6 +1156,7 @@ def build_roster_flex(rows):
             "type": "box",
             "layout": "vertical",
             "spacing": "none",
+            "paddingAll": "0px",  # 滿版表格感
             "contents": body_contents
         }
     }
