@@ -99,7 +99,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             "contents": [
                 {
                     "type": "text",
-                    "text": "🗺️ 地圖",
+                    "text": "🗺️ 地圖：",
                     "size": "sm",
                     "color": "#888888",
                     "flex": 2
@@ -118,7 +118,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             "contents": [
                 {
                     "type": "text",
-                    "text": "🕒 死亡",
+                    "text": "🕒 死亡時間：",
                     "size": "sm",
                     "color": "#888888",
                     "flex": 2
@@ -137,7 +137,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
             "contents": [
                 {
                     "type": "text",
-                    "text": "✨ 重生",
+                    "text": "✨ 重生時間：",
                     "size": "sm",
                     "color": "#888888",
                     "flex": 2
@@ -535,7 +535,6 @@ def build_query_record_bubble(boss, rec):
                     "size": "xs",
                     "color": "#999999",
                     "wrap": True,
-                    "style": "italic"
                 }
             ]
         })
@@ -552,7 +551,7 @@ def build_query_record_bubble(boss, rec):
 def clear_confirm_flex():
     return {
       "type": "bubble",
-      "size": "md",
+      "size": "mega",
       "header": {
         "type": "box",
         "layout": "vertical",
@@ -629,7 +628,7 @@ def clear_confirm_flex():
 def build_boot_init_flex(base_time_str):
     return {
         "type": "bubble",
-        "size": "md",
+        "size": "mega",
         "body": {
             "type": "box",
             "layout": "vertical",
@@ -771,7 +770,6 @@ def build_kpi_flex(title, period_text, ranking):
                     "text": f"📅 統計區間：{period_text}",
                     "size": "xs",
                     "color": "#888888",
-                    "style": "italic"
                 },
                 {
                     "type": "box",
@@ -785,7 +783,7 @@ def build_kpi_flex(title, period_text, ranking):
 def build_roster_added_flex(clan, game_name):
     return {
         "type": "bubble",
-        "size": "sm",  # 成功訊息不需要太大，輕量化更精緻
+        "size": "mega",  # 成功訊息不需要太大，輕量化更精緻
         "body": {
             "type": "box",
             "layout": "vertical",
