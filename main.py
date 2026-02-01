@@ -10,6 +10,7 @@ from linebot.models import (
     FlexSendMessage
 )
 from datetime import datetime, timedelta, timezone
+from linebot.models import TextSendMessage, FlexSendMessage, BubbleContainer
 import psycopg2
 from urllib.parse import urlparse
 import os
@@ -1801,20 +1802,27 @@ def handle_message(event):
         parts = msg.split(" ", 1)
         time_token = parts[1].strip()
         base_time = parse_time(time_token)
+        
         if not base_time:
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage("❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
             )
             return
+            
         init_cd_boss_with_given_time(db, group_id, base_time)
         save_db(db)
-        flex_msg = build_boot_init_flex(
-            base_time.strftime('%H:%M')
-        )
+        
+        # 1. 取得 Flex 字典內容
+        flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
+        
+        # 2. 修改此處：將字典轉換為物件並包裝送出
         line_bot_api.reply_message(
             event.reply_token,
-            flex_msg
+            FlexSendMessage(
+                alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
+                contents=BubbleContainer.new_from_json_dict(flex_contents) # 這裡最重要！
+            )
         )
         return
     # clear
