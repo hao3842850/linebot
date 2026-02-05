@@ -328,40 +328,39 @@ def notify_boss_team(group_id, boss_name):
         cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
         rows = cur.fetchall()
         
-        # 1. 預先定義基礎文字
         base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
         
-        # 2. 初始化變數，預設為純文字提醒
-        full_text = f"⏰ 提醒：{base_msg}"
-        mention_payload = None 
-
-        # 3. 如果有成員，手動建構標記字典 (不使用 Mention 類別)
         if rows:
             user_ids = [r[0] for r in rows]
+            # 📢 文字後面緊跟著一個空格
             text_prefix = "📢 打王組集合！ "
             
             mentionees = []
+            # 每個 ID 分配一個空格，確保索引位置絕對精確
             for i, uid in enumerate(user_ids[:50]):
                 mentionees.append({
-                    "index": len(text_prefix) + i,
+                    "index": len(text_prefix) + i, # 從前綴長度開始，每一位加1
                     "length": 1,
-                    "userId": uid  # 注意：API 字典格式是 userId
+                    "userId": str(uid)
                 })
             
-            # 組合文字：前綴 + 空格預留位 + 訊息內容
-            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
-            # 這是手動建構的標記物件字典
-            mention_payload = {"mentionees": mentionees}
+            # 生成對應數量的空格
+            spaces = " " * len(mentionees)
+            # 最終結構：前綴 + 標記點(空格) + 換行 + 內容
+            full_text = f"{text_prefix}{spaces}\n{base_msg}"
+            
+            # 封裝成 LINE API 字典
+            mention_data = {"mentionees": mentionees}
 
-        # 4. 統一發送訊息
-        # 我們直接傳入字典作為 mention 參數，這樣 SDK 就不會報錯
-        line_bot_api.push_message(
-            group_id, 
-            TextSendMessage(text=full_text, mention=mention_payload)
-        )
+            line_bot_api.push_message(
+                group_id, 
+                TextSendMessage(text=full_text, mention=mention_data)
+            )
+        else:
+            line_bot_api.push_message(group_id, TextSendMessage(text=f"⏰ {base_msg}"))
             
     except Exception as e:
-        print(f"通知打王組失敗: {e}")
+        print(f"通知失敗: {e}")
     finally:
         cur.close()
         conn.close()
@@ -2394,6 +2393,23 @@ def handle_message(event):
             )
         )
         return
+    if text == "測試標記":
+        # 模擬一個標記測試
+        test_uid = user_id # 發話者自己的 ID
+        prefix = "測試標記中 "
+        
+        m_data = {
+            "mentionees": [{
+                "index": len(prefix),
+                "length": 1,
+                "userId": test_uid
+            }]
+        }
+        
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"{prefix} @", mention=m_data)
+        )
     # clear
     if msg == "clear":
         db.setdefault("__WAIT__", {})
