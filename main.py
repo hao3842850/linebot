@@ -62,6 +62,172 @@ def get_username(user_id):
         return profile["name"] if profile else "未登記玩家"
     except Exception:
         return "未知玩家"
+
+    
+def get_pg_conn():
+    try:
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+        return conn
+    except Exception as e:
+        print(f"Database connection failed: {e}")
+        return None
+    
+def save_boss_to_pg(group_id, boss_name, kill_time, respawn_time, user_id, note, source="manual"):
+    """將單筆登記紀錄寫入資料庫"""
+    conn = get_pg_conn()
+    if not conn: return
+    try:
+        cur = conn.cursor()
+        query = """
+            INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """
+        cur.execute(query, (group_id, boss_name, kill_time, respawn_time, user_id, note, source))
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        print(f"Error saving boss record: {e}")
+    finally:
+        conn.close()
+
+def get_latest_boss_records(group_id):
+    """從資料庫抓取各隻王最後一筆紀錄 (用於 '出' 指令)"""
+    conn = get_pg_conn()
+    if not conn: return {}
+    try:
+        cur = conn.cursor()
+        # 使用 DISTINCT ON 抓取每隻王最新的一筆資料
+        query = """
+            SELECT DISTINCT ON (boss_name) 
+                   boss_name, kill_time, respawn_time, note, user_id
+            FROM boss_time
+            WHERE group_id = %s
+            ORDER BY boss_name, kill_time DESC
+        """
+        cur.execute(query, (group_id,))
+        rows = cur.fetchall()
+        cur.close()
+        
+        # 轉換回原本程式碼習慣的格式，方便相容
+        result = {}
+        for row in rows:
+            boss_name = row[0]
+            result[boss_name] = [{
+                "kill": row[1].strftime("%H:%M:%S"),
+                "respawn": row[2].isoformat(),
+                "note": row[3],
+                "user": row[4]
+            }]
+        return result
+    except Exception as e:
+        print(f"Error fetching boss records: {e}")
+        return {}
+    finally:
+        conn.close()
+
+def delete_all_boss_records(group_id):
+    """刪除該群組在資料庫中的所有登記紀錄"""
+    conn = get_pg_conn()
+    if not conn: return False
+    try:
+        cur = conn.cursor()
+        # 根據 group_id 刪除所有紀錄
+        query = "DELETE FROM boss_time WHERE group_id = %s"
+        cur.execute(query, (group_id,))
+        conn.commit()
+        cur.close()
+        return True
+    except Exception as e:
+        print(f"Error deleting boss records: {e}")
+        return False
+    finally:
+        conn.close()
+
+def init_cd_boss_with_given_time(group_id, base_time, user_id):
+    """
+    開機初始化：只針對『目前沒紀錄』的王補上開機時間。
+    """
+    conn = get_pg_conn()
+    if not conn: return
+    
+    try:
+        cur = conn.cursor()
+        
+        # 1. 先抓出目前該群組資料庫中所有王最新的紀錄清單
+        # 使用 DISTINCT ON 確保每隻王只會出現一筆最新的
+        cur.execute("""
+            SELECT boss_name 
+            FROM boss_time 
+            WHERE group_id = %s
+        """, (group_id,))
+        
+        # 取得所有已經有紀錄的王名集合
+        recorded_bosses = {row[0] for row in cur.fetchall()}
+        
+        # 2. 遍歷定義好的 cd_map，只處理不在 recorded_bosses 裡的王
+        for boss, cd in cd_map.items():
+            if boss in recorded_bosses:
+                # 只要有紀錄（不論時間點），就跳過，不覆蓋既有的狀態
+                continue
+            
+            # 沒紀錄的，才補上開機時間
+            respawn = base_time + timedelta(hours=cd)
+            insert_query = """
+                INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """
+            cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "伺服器開機補推", "boot"))
+            
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        print(f"Error during selective boot init: {e}")
+    finally:
+        conn.close()
+
+def get_kpi_ranking(group_id):
+    conn = get_pg_conn()
+    if not conn: return "資料庫連線失敗", []
+    
+    try:
+        cur = conn.cursor()
+        now = now_tw()
+        start_time, end_time = get_kpi_range(now)
+        
+        # 格式化顯示用的日期字串 (例如 02/04 ~ 02/11)
+        period_text = f"{start_time.strftime('%m/%d')} ~ {end_time.strftime('%m/%d')}"
+        
+        query = """
+            SELECT user_id, COUNT(*) as count
+            FROM boss_time
+            WHERE group_id = %s 
+              AND kill_time >= %s 
+              AND kill_time < %s
+              AND source != 'boot'  -- 排除開機自動補推的紀錄
+            GROUP BY user_id
+            ORDER BY count DESC
+        """
+        cur.execute(query, (group_id, start_time, end_time))
+        rows = cur.fetchall()
+        
+        # 轉換 user_id 為遊戲名稱
+        ranking = []
+        for user_id, count in rows:
+            name = get_username(user_id) # 呼叫你名冊中的遊戲名
+            ranking.append((name, count))
+            
+        return period_text, ranking
+    except Exception as e:
+        print(f"KPI Error: {e}")
+        return "統計出錯", []
+    finally:
+        conn.close()
+
+
+
+
+        
+
 def init_db():
     if not os.path.exists(DB_FILE):
         with open(DB_FILE, "w", encoding="utf-8") as f:
@@ -1364,15 +1530,25 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
         })
 def get_kpi_range(now):
     """
-    KPI 統計區間：
-    星期三 05:00 ～ 下星期三 05:00
+    計算以『週三 05:00』為起點的 KPI 區間
+    區間：本週三 05:00:00 ~ 下週三 05:00:00 (不含)
     """
+    # 計算距離最近一個週三差幾天 (Mon=0, Tue=1, Wed=2...)
     days_since_wed = (now.weekday() - 2) % 7
+    
+    # 取得本週三的日期
     start = now - timedelta(days=days_since_wed)
+    # 強制設定時間為 05:00:00
     start = start.replace(hour=5, minute=0, second=0, microsecond=0)
+    
+    # 【關鍵判斷】：如果「現在時間」還沒到「本週三 05:00」
+    # 代表統計起點應該是「上週三 05:00」
     if now < start:
         start -= timedelta(days=7)
+    
+    # 結束點為起點往後推 7 天
     end = start + timedelta(days=7)
+    
     return start, end
 def calculate_kpi(boss_db, start, end):
     """
@@ -1562,6 +1738,7 @@ def handle_message(event):
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
     clean_msg = msg.strip()
+    # 備份
     if clean_msg == "備份" and "\n" not in msg:
         now = now_tw()
         output = []
@@ -1569,16 +1746,22 @@ def handle_message(event):
         output.append("📦【王表備份】")
         output.append("")
 
-        for boss, records in boss_db.items():
+        # 關鍵修改：從資料庫抓取該群組所有王最新的一筆紀錄
+        group_id = getattr(event.source, 'group_id', 'default_group')
+        boss_db_from_pg = get_latest_boss_records(group_id)
+
+        # 遍歷資料庫抓回來的資料
+        for boss, records in boss_db_from_pg.items():
             if not records:
                 continue
             if boss not in cd_map:
                 continue
 
             last = records[-1]
-            kill_time = last.get("kill")
-            respawn_str = last.get("respawn")
+            kill_time = last.get("kill")        # 格式範例 "14:30:00"
+            respawn_str = last.get("respawn")  # ISO 格式字串
             note = last.get("note", "").strip()
+            
             if not kill_time or not respawn_str:
                 continue
 
@@ -1601,6 +1784,7 @@ def handle_message(event):
                     missed = rounds_passed + 1
 
             # ===== 時間格式 hhmmss =====
+            # 將 "14:30:00" 轉為 "143000"
             parts = kill_time.split(":")
             if len(parts) == 3:
                 hhmmss = parts[0] + parts[1] + parts[2]
@@ -1617,6 +1801,7 @@ def handle_message(event):
 
             output.append(line)
 
+        # 組合所有行並回覆
         reply = "\n".join(output)
 
         line_bot_api.reply_message(
@@ -1624,7 +1809,9 @@ def handle_message(event):
             TextSendMessage(text=reply)
         )
         return
+    
     # 名冊功能
+
     db.setdefault("__ROSTER_WAIT__", {})
     # === 加入名冊 ===
     if msg.startswith("加入名冊"):
@@ -1811,6 +1998,8 @@ def handle_message(event):
     # 開機 初始化 CD 王
     if msg.startswith("開機 "):
         parts = msg.split(" ", 1)
+        if len(parts) < 2: return
+        
         time_token = parts[1].strip()
         base_time = parse_time(time_token)
         
@@ -1821,18 +2010,19 @@ def handle_message(event):
             )
             return
             
-        init_cd_boss_with_given_time(db, group_id, base_time)
-        save_db(db)
+        # 關鍵修改：呼叫新邏輯，傳入 group_id 與發送者 ID
+        group_id = getattr(event.source, 'group_id', 'default_group')
+        init_cd_boss_with_given_time(group_id, base_time, user)
         
-        # 1. 取得 Flex 字典內容
+        # 取得 Flex 字典內容
         flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
         
-        # 2. 修改此處：將字典轉換為物件並包裝送出
+        # 將字典轉換為物件並包裝送出
         line_bot_api.reply_message(
             event.reply_token,
             FlexSendMessage(
                 alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
-                contents=BubbleContainer.new_from_json_dict(flex_contents) # 這裡最重要！
+                contents=BubbleContainer.new_from_json_dict(flex_contents)
             )
         )
         return
@@ -1849,14 +2039,19 @@ def handle_message(event):
         )
         line_bot_api.reply_message(event.reply_token, flex)
         return
+
     if msg == "確定清除":
         wait = db.get("__WAIT__", {}).get(group_id)
         if not wait or wait["user"] != user:
             return
-        # ===== ① 先送出 KPI =====
+
         now = now_tw()
         start, end = get_kpi_range(now)
-        kpi_data = calculate_kpi(boss_db, start, end)
+        
+        # 關鍵修改：從資料庫抓取所有王表紀錄來計算最後一次 KPI
+        boss_db_from_pg = get_latest_boss_records(group_id)
+        kpi_data = calculate_kpi(boss_db_from_pg, start, end)
+
         if kpi_data:
             ranking = sorted(
                 kpi_data.items(),
@@ -1876,19 +2071,22 @@ def handle_message(event):
                         alt_text="本週 KPI 排行榜",
                         contents=kpi_bubble
                     ),
-                    TextSendMessage("🗑 清除所有紀錄")
+                    TextSendMessage("🗑 已清除資料庫所有紀錄")
                 ]
             )
         else:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("📊 本週尚無 KPI 紀錄，將直接清除資料")
+                TextSendMessage("📊 本週尚無 KPI 紀錄，已直接清除資料")
             )
-        # ===== ② 再清除資料 =====
-        db["boss"].pop(group_id, None)
+
+        # 關鍵修改：執行 SQL 指令刪除該群組紀錄
+        delete_all_boss_records(group_id)
+        
         db["__WAIT__"].pop(group_id, None)
         save_db(db)
         return
+
     if msg == "取消清除":
         db.get("__WAIT__", {}).pop(group_id, None)
         save_db(db)
@@ -1907,47 +2105,83 @@ def handle_message(event):
                 TextSendMessage("找不到此王")
             )
             return
-        if boss not in boss_db or not boss_db[boss]:
+
+        # 1. 從資料庫抓取該群組、該隻王的最近 5 筆紀錄
+        group_id = getattr(event.source, 'group_id', 'default_group')
+        conn = get_pg_conn()
+        if not conn: return
+        
+        try:
+            cur = conn.cursor()
+            # 抓取最近 5 筆，按時間由舊到新排序 (符合原本程式碼習慣)
+            query = """
+                SELECT kill_time, respawn_time, note, user_id
+                FROM (
+                    SELECT kill_time, respawn_time, note, user_id
+                    FROM boss_time
+                    WHERE group_id = %s AND boss_name = %s
+                    ORDER BY kill_time DESC
+                    LIMIT 5
+                ) sub
+                ORDER BY kill_time ASC
+            """
+            cur.execute(query, (group_id, boss))
+            rows = cur.fetchall()
+            cur.close()
+            
+            if not rows:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage("尚無紀錄")
+                )
+                return
+
+            # 2. 轉換為 Flex Message 接收的格式
+            records = []
+            for row in rows:
+                records.append({
+                    "kill": row[0].strftime("%H:%M:%S"),
+                    "respawn": row[1].isoformat(),
+                    "note": row[2] if row[2] else "",
+                    "user": row[3]
+                })
+
+            # 3. 呼叫原本的 Flex 產生器並送出
+            flex_msg = build_query_boss_flex(boss, records)
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("尚無紀錄")
+                flex_msg
             )
-            return
-        records = boss_db[boss][-5:]  # 最近 5 筆（舊 → 新）
-        flex_msg = build_query_boss_flex(boss, records)
-        line_bot_api.reply_message(
-            event.reply_token,
-            flex_msg
-        )
+        except Exception as e:
+            print(f"Error querying boss records: {e}")
+        finally:
+            conn.close()
         return
-    # KPI
+    # KPI 指令處理
     if msg.upper() == "KPI":
         now = now_tw()
         start, end = get_kpi_range(now)
-        kpi_data = calculate_kpi(boss_db, start, end)
-        if not kpi_data:
+        group_id = get_source_id(event)
+        
+        # 使用現有的 get_kpi_ranking 函式獲取資料
+        # 注意：原本檔案內的 get_kpi_ranking 內部已經會呼叫 get_kpi_range
+        period_text, ranking = get_kpi_ranking(group_id)
+        
+        if not ranking:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("📊 本週尚無 KPI 紀錄")
+                TextSendMessage(f"📊 區間：{period_text}\n目前尚無 KPI 紀錄")
             )
             return
-        ranking = sorted(
-            kpi_data.items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
-        display = [(get_username(uid), count) for uid, count in ranking]
-        bubble = build_kpi_flex(
-            "📊 本週 KPI 排行榜",
-            f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}",
-            display
-        )
+
+        # 這裡的 period_text 是由 get_kpi_ranking 產生的 "02/05 ~ 02/12"
+        # 如果你想顯示具體小時，可以在 build_kpi_flex 前重新定義它：
+        detailed_period = f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}"
+
+        bubble = build_kpi_flex("本週 KPI 排行榜", detailed_period, ranking)
         line_bot_api.reply_message(
             event.reply_token,
-            FlexSendMessage(
-                alt_text="本週 KPI 排行榜",
-                contents=bubble
-            )
+            FlexSendMessage(alt_text="本週 KPI 排行榜", contents=bubble)
         )
         return
     # 出
@@ -1956,16 +2190,20 @@ def handle_message(event):
         now = now_tw()
         time_items = []
         unregistered = []
-        # ===== CD 王 =====
+        
+        group_id = getattr(event.source, 'group_id', 'default_group')
+        boss_db_from_pg = get_latest_boss_records(group_id) 
+
         for boss, cd in cd_map.items():
-            if boss not in boss_db or not boss_db[boss]:
+            if boss not in boss_db_from_pg or not boss_db_from_pg[boss]:
                 unregistered.append(boss)
                 continue
-            rec = boss_db[boss][-1]
+            
+            rec = boss_db_from_pg[boss][-1]
             base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
             step = timedelta(hours=cd)
+            
             if now < base_respawn:
-                # 尚未第一次重生
                 display_time = base_respawn
                 passed_minutes = None
                 missed = 0
@@ -1974,16 +2212,15 @@ def handle_message(event):
                 rounds_passed = int(diff.total_seconds() // step.total_seconds())
                 current_respawn = base_respawn + rounds_passed * step
                 passed_minutes = int((now - current_respawn).total_seconds() // 60)
+                
                 if passed_minutes <= 30:
-                    # 還在這一輪 30 分鐘內 → 未打
                     display_time = current_respawn
-                    missed = rounds_passed          
+                    missed = rounds_passed           
                 else:
-                    # 已超過 30 分鐘 → 真的錯過一輪
                     display_time = current_respawn + step
                     missed = rounds_passed + 1
                     passed_minutes = None
-            # ===== 組顯示字串 =====
+            
             note = rec.get("note", "").strip()
             line = f"{display_time.strftime('%H:%M:%S')} {boss}"
             if note:
@@ -1993,27 +2230,22 @@ def handle_message(event):
             if missed > 0:
                 line += f" #過{missed}"
             time_items.append((display_time, line))
-        # ===== 排序（一定先完整排序）=====
+
         time_items.sort(key=lambda x: x[0])
-        # ===== 根據時段 / 指令 決定顯示數 =====
+        
         if is_force_full:
-            display_items = time_items  # 出出 → 強制全部
-        elif is_peak_time():
-            display_items = time_items[:14]  # 熱門 → 限制
-        else:
-            display_items = time_items  # 非熱門 → 全部
-        # ===== 輸出 =====
-        if is_force_full:
+            display_items = time_items
             output = ["📢【即將重生列表｜完整】", ""]
         elif is_peak_time():
+            display_items = time_items[:14]
             output = ["📢【即將重生列表｜熱門】", ""]
         else:
+            display_items = time_items
             output = ["📢【即將重生列表】", ""]
 
         for _, line in display_items:
             output.append(line)
 
-        # 熱門時段但被限制時，給提示
         if is_peak_time() and not is_force_full:
             output.append("")
             output.append("👉 輸入「出出」可查看完整列表")
@@ -2038,14 +2270,15 @@ def handle_message(event):
     #       time_items.append(
     #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
     #        )
+
+
     # ===== 登記王（支援多行 / 備份貼上 + KPI）=====
-    restored_kpi = {}  # 放在迴圈前面
+    restored_kpi = {}
     skip_kpi = False
     for line in lines:
         raw_line = line.strip()
         if not raw_line: continue
 
-        # 1. KPI 備份處理 (保持原樣)
         if raw_line == "__KPI_START__":
             skip_kpi = True
             continue
@@ -2056,10 +2289,9 @@ def handle_message(event):
                 save_db(db)
             continue
         if skip_kpi:
-            # ... (此處保留你原本解析 restored_kpi 的邏輯) ...
+            # ... (此處保留解析 restored_kpi 的邏輯) ...
             continue
 
-        # 2. 普通登記行處理
         clean_line = sanitize_register_line(raw_line)
         if not clean_line: continue
 
@@ -2072,7 +2304,6 @@ def handle_message(event):
         boss_name = parts[1]
         note = " ".join(parts[2:]) if len(parts) > 2 else ""
 
-        # === 解析時間 (修正 6 失敗的問題) ===
         if time_token in ["6", "6666"] or time_token.upper() == "K":
             t = now_tw()
         else:
@@ -2090,32 +2321,30 @@ def handle_message(event):
         cd = cd_map.get(boss)
         if cd is None: continue
 
-        # 3. 寫入資料庫
+        # 3. 寫入資料庫 (完全取代 boss_db 操作)
         respawn = t + timedelta(hours=cd)
-        rec = {
-            "date": now_tw().strftime("%Y-%m-%d"),
-            "kill": t.strftime("%H:%M:%S"),
-            "respawn": respawn.isoformat(),
-            "note": note,
-            "user": user,
-            "source": "backup" if is_backup_mode else "manual"
-        }
-        boss_db.setdefault(boss, []).append(rec)
-        boss_db[boss] = boss_db[boss][-20:]
+        save_boss_to_pg(
+            group_id=group_id,
+            boss_name=boss,
+            kill_time=t,
+            respawn_time=respawn,
+            user_id=user,
+            note=note,
+            source="backup" if is_backup_mode else "manual"
+        )
         success_count += 1
 
-        # 4. 回應邏輯 (確保單行輸入 6 時會觸發)
+        # 4. 回應邏輯
         if not is_backup_mode:
-            save_db(db) # 單次登記立即存檔
             registrar = get_username(user)
-            text_msg = build_register_boss_text(boss, rec['kill'], respawn.strftime('%H:%M:%S'), registrar, note)
-            flex_msg = build_register_boss_flex(boss, rec['kill'], respawn.strftime('%H:%M:%S'), registrar, note)
+            kill_str = t.strftime("%H:%M:%S")
+            resp_str = respawn.strftime('%H:%M:%S')
+            
+            text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, note)
+            flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, note)
             safe_reply(event, text_msg, flex_msg)
 
-    # 5. 迴圈結束後的整批存檔與備份模式回覆
-    if success_count > 0:
-        save_db(db)
-
+    # 5. 迴圈結束後的回覆 (不再需要針對 boss_db 做 save_db)
     if is_backup_mode:
         summary_msg = f"📦 備份登記完成：成功 {success_count} 隻"
         if failed_lines:
