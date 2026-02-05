@@ -1786,7 +1786,7 @@ def handle_message(event):
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
     clean_msg = msg.strip()
-    # 備份
+# # 備份
     if clean_msg == "備份" and "\n" not in msg:
         now = now_tw()
         output = []
@@ -1794,63 +1794,44 @@ def handle_message(event):
         output.append("📦【王表備份】")
         output.append("")
 
-        # 關鍵修改：從資料庫抓取該群組所有王最新的一筆紀錄
         group_id = getattr(event.source, 'group_id', 'default_group')
+        # 這裡會用到您剛才提到的 get_latest_boss_records
         boss_db_from_pg = get_latest_boss_records(group_id)
 
-        # 遍歷資料庫抓回來的資料
+        if not boss_db_from_pg:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="目前資料庫無任何紀錄可供備份"))
+            return
+
+        # 遍歷抓回來的資料
         for boss, records in boss_db_from_pg.items():
             if not records:
                 continue
-            if boss not in cd_map:
-                continue
-
-            last = records[-1]
-            kill_time = last.get("kill")        # 格式範例 "14:30:00"
-            respawn_str = last.get("respawn")  # ISO 格式字串
+            
+            # 取得該王最後一筆紀錄
+            last = records[0] # 因為 get_latest_boss_records 回傳的是 list，取第一個
+            
+            # 取得原始時間 (格式 14:30:00) 並轉為 143000
+            kill_time = last.get("kill") 
             note = last.get("note", "").strip()
             
-            if not kill_time or not respawn_str:
+            if not kill_time:
                 continue
 
-            # ===== 計算過幾 =====
-            cd_hours = cd_map[boss]
-            base_respawn = datetime.fromisoformat(respawn_str).astimezone(TZ)
-            step = timedelta(hours=cd_hours)
+            # 將 "14:30:00" 轉為 "1430" 或 "143000"
+            hhmmss = kill_time.replace(":", "") 
 
-            if now < base_respawn:
-                missed = 0
-            else:
-                diff = now - base_respawn
-                rounds_passed = int(diff.total_seconds() // step.total_seconds())
-                current_respawn = base_respawn + rounds_passed * step
-                passed_minutes = int((now - current_respawn).total_seconds() // 60)
-
-                if passed_minutes <= 30:
-                    missed = rounds_passed
-                else:
-                    missed = rounds_passed + 1
-
-            # ===== 時間格式 hhmmss =====
-            # 將 "14:30:00" 轉為 "143000"
-            parts = kill_time.split(":")
-            if len(parts) == 3:
-                hhmmss = parts[0] + parts[1] + parts[2]
-            elif len(parts) == 2:
-                hhmmss = parts[0] + parts[1] + "00"
-            else:
-                continue
-
-            # ===== 組輸出 =====
+            # 組合成指令格式： "1430 歐林 備註"
             line = f"{hhmmss} {boss}"
             if note:
                 line += f" {note}"
-            line += f" #過{missed}"
-
+            
             output.append(line)
 
         # 組合所有行並回覆
-        reply = "\n".join(output)
+        if len(output) <= 3: # 只有標題沒有內容
+            reply = "目前無有效紀錄可供備份"
+        else:
+            reply = "\n".join(output)
 
         line_bot_api.reply_message(
             event.reply_token,
