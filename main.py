@@ -292,48 +292,64 @@ def save_db(db):
             json.dump(db, f, ensure_ascii=False, indent=2)
 init_db()
 def build_all_boss_quick_flex():
-    # 取得您現有的所有 BOSS 名稱
-    boss_names = list(cd_map.keys())
-    now_str = now_tw().strftime("%H%M")
+    # 取得您現有的所有 BOSS 名稱並排序（排序後比較好找王）
+    boss_names = sorted(list(cd_map.keys()))
     
     rows = []
-    # 每 4 隻王一列，總共約 7 列
-    for i in range(0, len(boss_names), 4):
-        chunk = boss_names[i:i+4]
+    # 每 3 隻王一列
+    for i in range(0, len(boss_names), 3):
+        chunk = boss_names[i:i+3]
         cols = []
         for name in chunk:
             cols.append({
                 "type": "box",
                 "layout": "vertical",
-                "contents": [{"type": "text", "text": name, "size": "xs", "align": "center", "color": "#ffffff"}],
-                "backgroundColor": "#4682B4",
-                "paddingAll": "md",
+                "backgroundColor": "#4682B4", # 藍色基塊
                 "cornerRadius": "md",
+                "contents": [
+                    {
+                        "type": "text", 
+                        "text": name, 
+                        "size": "sm", 
+                        "align": "center", 
+                        "color": "#ffffff",
+                        "weight": "bold"
+                    }
+                ],
+                "paddingAll": "12px",
                 "action": {
                     "type": "message",
                     "label": name,
-                    "text": f"!{name} {now_str}" # 點擊後發送登記指令
+                    "text": f"6666 {name}" # 依照您的指令格式：6666 王名
                 }
             })
-        # 如果最後一列不滿 4 個，補位用
-        while len(cols) < 4:
-            cols.append({"type": "spacer"})
+        
+        # 補齊最後一列的空格
+        while len(cols) < 3:
+            cols.append({"type": "spacer", "flex": 1})
             
         rows.append({
             "type": "box",
             "layout": "horizontal",
-            "spacing": "sm",
+            "spacing": "md",
             "contents": cols
         })
 
     bubble = {
         "type": "bubble",
         "header": {
-            "type": "box", "layout": "vertical", "backgroundColor": "#2c3e50",
-            "contents": [{"type": "text", "text": "快速登記 (點選王名即登記現時)", "weight": "bold", "color": "#ffffff", "size": "sm"}]
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#2c3e50",
+            "contents": [
+                {"type": "text", "text": "快速登記選單 (點擊即 6666)", "weight": "bold", "color": "#ffffff", "size": "md", "align": "center"}
+            ]
         },
         "body": {
-            "type": "box", "layout": "vertical", "spacing": "sm", "contents": rows
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": rows
         }
     }
     return FlexSendMessage(alt_text="全 BOSS 快速登記選單", contents=bubble)
