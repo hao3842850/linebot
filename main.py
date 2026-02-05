@@ -1786,57 +1786,38 @@ def handle_message(event):
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
     clean_msg = msg.strip()
-# # 備份
+    
+    # 備份 (修正版：純粹輸出原始紀錄)
     if clean_msg == "備份" and "\n" not in msg:
         now = now_tw()
-        output = []
-
-        output.append("📦【王表備份】")
-        output.append("")
+        output = ["📦【王表備份】", ""]
 
         group_id = getattr(event.source, 'group_id', 'default_group')
-        # 這裡會用到您剛才提到的 get_latest_boss_records
+        # 抓取該群組所有王最新的一筆紀錄
         boss_db_from_pg = get_latest_boss_records(group_id)
 
-        if not boss_db_from_pg:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="目前資料庫無任何紀錄可供備份"))
-            return
-
-        # 遍歷抓回來的資料
         for boss, records in boss_db_from_pg.items():
-            if not records:
-                continue
+            if not records: continue
             
-            # 取得該王最後一筆紀錄
-            last = records[0] # 因為 get_latest_boss_records 回傳的是 list，取第一個
-            
-            # 取得原始時間 (格式 14:30:00) 並轉為 143000
-            kill_time = last.get("kill") 
+            # 取得最後一次登記的原始資料
+            last = records[0] 
+            kill_time = last.get("kill") # 格式 "14:30:00"
             note = last.get("note", "").strip()
-            
-            if not kill_time:
-                continue
 
-            # 將 "14:30:00" 轉為 "1430" 或 "143000"
-            hhmmss = kill_time.replace(":", "") 
+            if not kill_time: continue
 
-            # 組合成指令格式： "1430 歐林 備註"
+            # 將 "14:30:00" 轉為 "1430" (最純粹的輸入格式)
+            hhmmss = kill_time.replace(":", "")[:6] 
+
+            # ===== 組輸出 (不帶 #過) =====
             line = f"{hhmmss} {boss}"
             if note:
                 line += f" {note}"
-            
+
             output.append(line)
 
-        # 組合所有行並回覆
-        if len(output) <= 3: # 只有標題沒有內容
-            reply = "目前無有效紀錄可供備份"
-        else:
-            reply = "\n".join(output)
-
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=reply)
-        )
+        reply = "\n".join(output)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
         return
     
     # 名冊功能
