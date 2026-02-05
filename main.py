@@ -29,12 +29,6 @@ handler = WebhookHandler(CHANNEL_SECRET)
 TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 DATABASE_URL = os.getenv("DATABASE_URL")
-TIME_PATTERN = re.compile(r'^(\d{2}:\d{2}:\d{2})\s+(.+)$')
-REMOVE_PATTERNS = [
-    re.compile(r'#過\d*'),
-    re.compile(r'<\d+分未打>')
-]
-REMARK_PATTERN = re.compile(r'（([^）]+)）')
 # 工具函式
 def is_peak_time():
     h = now_tw().hour
@@ -74,131 +68,13 @@ def init_db():
             json.dump({"boss": {}}, f, ensure_ascii=False, indent=2)
 def load_db():
     with db_lock:
-        if not os.path.exists(DB_FILE):
-            return {"boss_config": {}, "boss_status": {}}
         with open(DB_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-
 def save_db(db):
     with db_lock:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(db, f, ensure_ascii=False, indent=2)
 init_db()
-def parse_boss_line(line: str):
-    line = line.strip()
-    if not line:
-        return None
-
-    m = TIME_PATTERN.match(line)
-    if not m:
-        return None
-
-    appear_time_str, rest = m.groups()
-
-    # 只抓真的 () 備註
-    remark_match = REMARK_PATTERN.search(rest)
-    remark = remark_match.group(1) if remark_match else None
-
-    # 移除備註本體
-    rest = REMARK_PATTERN.sub('', rest)
-
-    # 移除 #過 / <未打>
-    for p in REMOVE_PATTERNS:
-        rest = p.sub('', rest)
-
-    boss_name = rest.strip()
-    if not boss_name:
-        return None
-
-    return appear_time_str, boss_name, remark
-def rollback_kill_time(appear_time_str: str, respawn_minutes: int):
-    now = datetime.now(TZ)
-    appear_time = datetime.strptime(appear_time_str, "%H:%M:%S").time()
-    appear_dt = TZ.localize(datetime.combine(now.date(), appear_time))
-
-    kill_dt = appear_dt - timedelta(minutes=respawn_minutes)
-
-    if kill_dt > appear_dt:
-        kill_dt -= timedelta(days=1)
-
-    return kill_dt
-def update_boss_status_json(db, boss_name: str, kill_time: datetime, remark: str | None):
-    status = db.setdefault("boss_status", {})
-    old = status.get(boss_name)
-
-    kill_time_str = kill_time.isoformat()
-
-    if old is None:
-        status[boss_name] = {
-            "last_kill_time": kill_time_str,
-            "remark": remark
-        }
-        return True
-
-    old_time = datetime.fromisoformat(old["last_kill_time"])
-
-    if kill_time > old_time:
-        status[boss_name] = {
-            "last_kill_time": kill_time_str,
-            "remark": remark
-        }
-        return True
-
-    return False
-def process_respawn_list(text: str):
-    success = 0
-    failed = []
-
-    with db_lock:
-        db = load_db()
-        boss_config = db.get("boss_config", {})
-
-        for line in text.splitlines():
-            parsed = parse_boss_line(line)
-            if not parsed:
-                continue
-
-            appear_time, boss_name, remark = parsed
-
-            cfg = boss_config.get(boss_name)
-            if not cfg:
-                failed.append(f"{boss_name}（查無此王）")
-                continue
-
-            respawn_minutes = cfg.get("respawn_minutes")
-            if respawn_minutes is None:
-                failed.append(f"{boss_name}（未設定重生時間）")
-                continue
-
-            try:
-                kill_time = rollback_kill_time(appear_time, respawn_minutes)
-            except Exception:
-                failed.append(f"{boss_name}（時間解析失敗）")
-                continue
-
-            if update_boss_status_json(db, boss_name, kill_time, remark):
-                success += 1
-
-        save_db(db)
-
-    return success, failed
-def reply_respawn_list(event):
-    text = event.message.text
-    success, failed = process_respawn_list(text)
-
-    reply = (
-        "✅ 回推登記完成\n"
-        f"成功：{success} 隻\n"
-        f"失敗：{len(failed)} 隻"
-    )
-
-    if failed:
-        reply += "\n\n失敗名單：\n" + "\n".join(f"- {x}" for x in failed)
-
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply)
-    )
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
     map_list = BOSS_MAP.get(boss, [])
     map_text = "、".join(map_list) if map_list else "未知"
