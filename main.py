@@ -94,12 +94,12 @@ def save_boss_to_pg(group_id, boss_name, kill_time, respawn_time, user_id, note,
         conn.close()
 
 def get_latest_boss_records(group_id):
-    """從資料庫抓取各隻王最後一筆紀錄 (用於 '出' 與 '備份' 指令)"""
+    """從資料庫抓取各隻王最後一筆紀錄 (用於 '備份' 與 '出')"""
     conn = get_pg_conn()
     if not conn: return {}
     try:
         cur = conn.cursor()
-        # 抓取最新紀錄
+        # DISTINCT ON 確保每隻王只取最新的一筆
         query = """
             SELECT DISTINCT ON (boss_name) 
                    boss_name, kill_time, respawn_time, note, user_id, source
@@ -114,26 +114,27 @@ def get_latest_boss_records(group_id):
         result = {}
         for row in rows:
             boss_name = row[0]
-            # --- 關鍵修正：確保時間轉換為台北時區 ---
-            # 如果資料庫抓出來是 naive (無時區)，就掛上 UTC 再轉台北
-            kt_raw = row[1]
+            kt_raw = row[1]  # 資料庫原始時間 (通常是 UTC)
+            
+            # --- 關鍵修復：時區轉換 ---
+            # 如果抓出來的時間沒有時區資訊，先給它 UTC，再轉成台北 TZ (GMT+8)
             if kt_raw.tzinfo is None:
                 kt_tw = pytz.utc.localize(kt_raw).astimezone(TZ)
             else:
                 kt_tw = kt_raw.astimezone(TZ)
             
-            # 同理處理 respawn_time
+            # 處理重生時間
             rt_raw = row[2]
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
-            # 轉換回原本程式碼習慣的格式，並補齊 calculate_kpi 需要的 'date'
+            # 轉換為 dict 格式，並補齊 KPI 結算需要的欄位
             result[boss_name] = [{
-                "date": kt_tw.strftime("%Y-%m-%d"),       # 修正：補上 KPI 需要的 date
-                "kill": kt_tw.strftime("%H:%M:%S"),       # 修正：確保是台北時間的文字
+                "date": kt_tw.strftime("%Y-%m-%d"),
+                "kill": kt_tw.strftime("%H:%M:%S"), # 這邊輸出的就會是正確的台北時間
                 "respawn": rt_tw.isoformat(),
                 "note": row[3] if row[3] else "",
                 "user": row[4],
-                "source": row[5] if len(row) > 5 else "manual"
+                "source": row[5]
             }]
         return result
     except Exception as e:
