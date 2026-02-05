@@ -1897,11 +1897,16 @@ def handle_message(event):
     # 3. 結標：!結標
     elif text == "結標":
         if group_id in active_auctions:
-            res = active_auctions.pop(group_id) # 移除並取得資料
-            if res["bidder"]:
-                msg = f"🎊 競標結束！\n【{res['item']}】\n得標：{res['bidder']}\n金額：{res['bid bid']} 鑽"
+            res = active_auctions.pop(group_id)
+            if res.get("bidder_name"):
+                # 這裡修正了欄位名稱與格式
+                msg = (f"🎊 競標結束！\n"
+                       f"【{res['item']}】\n"
+                       f"得標者：{res['bidder_name']}\n"
+                       f"金額：{res['bid']} 鑽")
             else:
-                msg = f"已取消【{res['item']}】的競標。"
+                msg = f"已取消【{res['item']}】的競標（無人下標）。"
+            
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
 
     # 名冊功能
