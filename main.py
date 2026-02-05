@@ -292,11 +292,13 @@ def save_db(db):
             json.dump(db, f, ensure_ascii=False, indent=2)
 init_db()
 def build_all_boss_quick_flex():
-    # 取得您現有的所有 BOSS 名稱並排序（排序後比較好找王）
+    # 取得 BOSS 名稱
     boss_names = sorted(list(cd_map.keys()))
     
+    # 建立外層的內容清單
     rows = []
-    # 每 3 隻王一列
+    
+    # 每 3 隻王一列 (3 欄)
     for i in range(0, len(boss_names), 3):
         chunk = boss_names[i:i+3]
         cols = []
@@ -304,37 +306,38 @@ def build_all_boss_quick_flex():
             cols.append({
                 "type": "box",
                 "layout": "vertical",
-                "backgroundColor": "#4682B4", # 藍色基塊
+                "backgroundColor": "#4682B4",
                 "cornerRadius": "md",
                 "contents": [
                     {
-                        "type": "text", 
-                        "text": name, 
-                        "size": "sm", 
-                        "align": "center", 
+                        "type": "text",
+                        "text": name,
+                        "size": "xs", # 縮小字體確保不換行
+                        "align": "center",
                         "color": "#ffffff",
                         "weight": "bold"
                     }
                 ],
-                "paddingAll": "12px",
+                "paddingAll": "10px",
                 "action": {
                     "type": "message",
                     "label": name,
-                    "text": f"6666 {name}" # 依照您的指令格式：6666 王名
+                    "text": f"6666 {name}"
                 }
             })
         
-        # 補齊最後一列的空格
+        # 補齊空格
         while len(cols) < 3:
             cols.append({"type": "spacer", "flex": 1})
             
         rows.append({
             "type": "box",
             "layout": "horizontal",
-            "spacing": "md",
+            "spacing": "sm",
             "contents": cols
         })
 
+    # 組合最終 JSON
     bubble = {
         "type": "bubble",
         "header": {
@@ -342,17 +345,18 @@ def build_all_boss_quick_flex():
             "layout": "vertical",
             "backgroundColor": "#2c3e50",
             "contents": [
-                {"type": "text", "text": "快速登記選單 (點擊即 6666)", "weight": "bold", "color": "#ffffff", "size": "md", "align": "center"}
+                {"type": "text", "text": "快速登記選單 (6666)", "weight": "bold", "color": "#ffffff", "size": "md", "align": "center"}
             ]
         },
         "body": {
             "type": "box",
             "layout": "vertical",
-            "spacing": "md",
+            "spacing": "sm", # 減少行距
             "contents": rows
         }
     }
-    return FlexSendMessage(alt_text="全 BOSS 快速登記選單", contents=bubble)
+    # 這裡必須回傳 FlexSendMessage 物件
+    return FlexSendMessage(alt_text="快速登記選單", contents=bubble)
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
     map_list = BOSS_MAP.get(boss, [])
     map_text = "、".join(map_list) if map_list else "未知"
