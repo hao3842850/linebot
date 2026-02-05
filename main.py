@@ -9,7 +9,7 @@ from linebot.models import (
     TextSendMessage,
     FlexSendMessage
 )
-from linebot.models import TextSendMessage, Mention, MentionItem
+from linebot.models import TextSendMessage, FlexSendMessage
 from datetime import datetime, timedelta, timezone
 import psycopg2
 from urllib.parse import urlparse
@@ -331,29 +331,33 @@ def notify_boss_team(group_id, boss_name):
         # 1. 預先定義基礎文字
         base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
         
-        # 2. 初始化變數，確保不論有無成員，變數都不會是「未定義」
+        # 2. 初始化變數，預設為純文字提醒
         full_text = f"⏰ 提醒：{base_msg}"
-        mention = None
+        mention_payload = None 
 
-        # 3. 如果有成員，才重新包裝成標記格式
+        # 3. 如果有成員，手動建構標記字典 (不使用 Mention 類別)
         if rows:
             user_ids = [r[0] for r in rows]
             text_prefix = "📢 打王組集合！ "
             
-            # 建立標記物件
-            mention_items = [
-                MentionItem(index=len(text_prefix) + i, length=1, user_id=uid) 
-                for i, uid in enumerate(user_ids[:50])
-            ]
+            mentionees = []
+            for i, uid in enumerate(user_ids[:50]):
+                mentionees.append({
+                    "index": len(text_prefix) + i,
+                    "length": 1,
+                    "userId": uid  # 注意：API 字典格式是 userId
+                })
             
-            full_text = f"{text_prefix}{' ' * len(mention_items)}\n{base_msg}"
-            mention = Mention(mention_items=mention_items)
+            # 組合文字：前綴 + 空格預留位 + 訊息內容
+            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
+            # 這是手動建構的標記物件字典
+            mention_payload = {"mentionees": mentionees}
 
         # 4. 統一發送訊息
-        # 如果 mention 是 None，TextSendMessage 會自動忽略它
+        # 我們直接傳入字典作為 mention 參數，這樣 SDK 就不會報錯
         line_bot_api.push_message(
             group_id, 
-            TextSendMessage(text=full_text, mention=mention)
+            TextSendMessage(text=full_text, mention=mention_payload)
         )
             
     except Exception as e:
@@ -456,37 +460,37 @@ def notify_boss_team_with_flex(group_id, boss_name):
         
         base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
         full_text = f"⏰ 提醒：{base_msg}"
-        mention = None
+        mention_payload = None  # 用來存標記資料的變數
 
-        # 2. 處理標記邏輯 (使用字典格式避開 ImportError)
+        # 2. 手動建構標記 (使用字典而非類別)
         if rows:
             user_ids = [r[0] for r in rows]
             text_prefix = "📢 打王組集合！ "
-            mention_items = []
-            for i, uid in enumerate(user_ids[:50]):
-                mention_items.append({
+            mentionees = []
+            
+            # 手動計算每個人的標記位置
+            for i, uid in enumerate(user_ids[:50]): # LINE 限制上限 50 人
+                mentionees.append({
                     "index": len(text_prefix) + i,
                     "length": 1,
                     "userId": uid
                 })
-            full_text = f"{text_prefix}{' ' * len(mention_items)}\n{base_msg}"
-            mention = {"mentionees": mention_items}
+            
+            # 組合最終文字：前綴 + 空格(標記位) + 訊息
+            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
+            # 這就是 LINE API 需要的標記字典格式
+            mention_payload = {"mentionees": mentionees}
 
-        # 3. 定義 bubble (這就是畫面上紅色的警告卡片)
+        # 3. 定義 bubble (卡片內容)
         bubble = {
             "type": "bubble",
             "size": "sm",
             "header": {
-                "type": "box",
-                "layout": "vertical",
-                "backgroundColor": "#E74C3C",
-                "contents": [
-                    {"type": "text", "text": "⚔️ 特殊警告", "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}
-                ]
+                "type": "box", "layout": "vertical", "backgroundColor": "#E74C3C",
+                "contents": [{"type": "text", "text": "⚔️ 大王警告", "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}]
             },
             "body": {
-                "type": "box",
-                "layout": "vertical",
+                "type": "box", "layout": "vertical", 
                 "contents": [
                     {"type": "text", "text": f"{boss_name}", "weight": "bold", "size": "xl", "align": "center", "margin": "md"},
                     {"type": "text", "text": "準備重生", "size": "sm", "color": "#aaaaaa", "align": "center"}
@@ -494,9 +498,9 @@ def notify_boss_team_with_flex(group_id, boss_name):
             }
         }
 
-        # 4. 同時發送
+        # 4. 發送訊息 (直接將字典丟入 mention 參數)
         messages = [
-            TextSendMessage(text=full_text, mention=mention),
+            TextSendMessage(text=full_text, mention=mention_payload),
             FlexSendMessage(alt_text=f"警報: {boss_name}", contents=bubble)
         ]
         
@@ -2373,19 +2377,20 @@ def handle_message(event):
             )
             return
             
-        # 關鍵修改：呼叫新邏輯，傳入 group_id 與發送者 ID
+        # 取得 group_id
         group_id = getattr(event.source, 'group_id', 'default_group')
+        # 執行初始化邏輯
         init_cd_boss_with_given_time(group_id, base_time, user)
         
-        # 取得 Flex 字典內容
+        # 1. 取得 Flex 字典內容 (確保 build_boot_init_flex 回傳的是 dict)
         flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
         
-        # 將字典轉換為物件並包裝送出
+        # 2. 關鍵修正：直接傳入字典，不要使用 BubbleContainer.new_from_json_dict
         line_bot_api.reply_message(
             event.reply_token,
             FlexSendMessage(
                 alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
-                contents=BubbleContainer.new_from_json_dict(flex_contents)
+                contents=flex_contents  # 直接傳字典進去
             )
         )
         return
