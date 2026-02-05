@@ -9,6 +9,7 @@ from linebot.models import (
     TextSendMessage,
     FlexSendMessage
 )
+from linebot.models import TextSendMessage, Mention, MentionItem
 from datetime import datetime, timedelta, timezone
 from linebot.models import TextSendMessage, FlexSendMessage, BubbleContainer
 import psycopg2
@@ -19,6 +20,9 @@ from datetime import datetime, timedelta
 import pytz
 import asyncio
 from threading import Lock
+import threading
+import time
+from datetime import timedelta
 # 基本設定
 db_lock = Lock()
 app = FastAPI()
@@ -273,6 +277,91 @@ def get_all_records_for_kpi(group_id, start_time, end_time):
     finally:
         conn.close()
     return records
+def background_check():
+    while True:
+        try:
+            conn = get_pg_conn()
+            cur = conn.cursor()
+            now = now_tw()
+            
+            # 撈取所有還沒重生的紀錄
+            cur.execute("SELECT group_id, boss_name, respawn_time FROM boss_time")
+            rows = cur.fetchall()
+            
+            for row in rows:
+                group_id, boss_name, respawn_time = row
+                
+                # 確保時區一致
+                if respawn_time.tzinfo is None:
+                    respawn_time = TZ.localize(respawn_time)
+                
+                # 計算距離重生的秒數
+                time_diff = (respawn_time - now).total_seconds()
+
+                # 判斷是否在 5 分鐘左右 (270~330 秒)
+                if 270 <= time_diff < 330:
+                    # 【核心修改】：只針對大王清單內的王進行處理
+                    if boss_name in MAJOR_BOSSES:
+                        # 執行標記通知
+                        notify_boss_team(group_id, boss_name)
+                    # 一般王直接跳過，不做任何動作 (不用發送普通推播)
+            
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"背景檢查發生錯誤: {e}")
+        
+        # 每 60 秒檢查一次
+        time.sleep(60)
+
+# 啟動背景執行緒 (放在檔案最下方)
+t = threading.Thread(target=background_check)
+t.daemon = True
+t.start()
+
+# 1. 定義需要 @標記 的大王清單 (名稱需與 cd_map 一致)
+MAJOR_BOSSES = ["古代巨人", "不死鳥", "死亡騎士", "克特"]
+
+def notify_boss_team(group_id, boss_name):
+    conn = get_pg_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
+        rows = cur.fetchall()
+        
+        # 1. 預先定義基礎文字
+        base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
+        
+        # 2. 初始化變數，確保不論有無成員，變數都不會是「未定義」
+        full_text = f"⏰ 提醒：{base_msg}"
+        mention = None
+
+        # 3. 如果有成員，才重新包裝成標記格式
+        if rows:
+            user_ids = [r[0] for r in rows]
+            text_prefix = "📢 打王組集合！ "
+            
+            # 建立標記物件
+            mention_items = [
+                MentionItem(index=len(text_prefix) + i, length=1, user_id=uid) 
+                for i, uid in enumerate(user_ids[:50])
+            ]
+            
+            full_text = f"{text_prefix}{' ' * len(mention_items)}\n{base_msg}"
+            mention = Mention(mention_items=mention_items)
+
+        # 4. 統一發送訊息
+        # 如果 mention 是 None，TextSendMessage 會自動忽略它
+        line_bot_api.push_message(
+            group_id, 
+            TextSendMessage(text=full_text, mention=mention)
+        )
+            
+    except Exception as e:
+        print(f"通知打王組失敗: {e}")
+    finally:
+        cur.close()
+        conn.close()
 
 
 
@@ -357,6 +446,60 @@ def build_all_boss_quick_flex():
     
     # 務必檢查這裡的 FlexSendMessage 拼字與結構
     return FlexSendMessage(alt_text="快速登記選單", contents=bubble_content)
+
+def notify_boss_team_with_flex(group_id, boss_name):
+    conn = get_pg_conn()
+    cur = conn.cursor()
+    try:
+        # 1. 抓取打王組成員
+        cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
+        rows = cur.fetchall()
+        
+        # 2. 初始化預設文字與標記 (解決未定義問題)
+        base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
+        full_text = f"⏰ 提醒：{base_msg}"
+        mention = None
+
+        # 3. 如果有成員，構建標記資訊
+        if rows:
+            user_ids = [r[0] for r in rows]
+            text_prefix = "📢 打王組集合！ "
+            mention_items = [
+                MentionItem(index=len(text_prefix) + i, length=1, user_id=uid) 
+                for i, uid in enumerate(user_ids[:50])
+            ]
+            full_text = f"{text_prefix}{' ' * len(mention_items)}\n{base_msg}"
+            mention = Mention(mention_items=mention_items)
+
+        # 4. 建立 Flex Message 卡片內容
+        bubble = {
+            "type": "bubble",
+            "size": "sm",
+            "header": {
+                "type": "box", "layout": "vertical", "backgroundColor": "#E74C3C",
+                "contents": [{"type": "text", "text": "⚔️ 特殊警告", "color": "#ffffff", "weight": "bold", "size": "sm"}]
+            },
+            "body": {
+                "type": "box", "layout": "vertical", 
+                "contents": [{"type": "text", "text": f"{boss_name} 準備重生", "weight": "bold", "size": "md"}]
+            }
+        }
+
+        # 5. 同時發送文字(含標記)與 Flex 卡片
+        # 將訊息包裝成清單一次推送
+        messages = [
+            TextSendMessage(text=full_text, mention=mention),
+            FlexSendMessage(alt_text=f"警報: {boss_name}", contents=bubble)
+        ]
+        
+        line_bot_api.push_message(group_id, messages)
+            
+    except Exception as e:
+        print(f"通知打王組(Flex)失敗: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
     map_list = BOSS_MAP.get(boss, [])
     map_text = "、".join(map_list) if map_list else "未知"
@@ -1923,6 +2066,46 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
         return
     
+    # 1. 加入打王組：輸入「+1」
+    if text == "+1":
+        user_name = get_username(user_id)
+        conn = get_pg_conn()
+        cur = conn.cursor()
+        try:
+            # 存入資料
+            cur.execute(
+                "INSERT INTO boss_team (group_id, user_id, user_name) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                (group_id, user_id, user_name)
+            )
+            conn.commit()
+
+            # 💡 增加步驟：抓取該群組目前所有成員名單
+            cur.execute("SELECT user_name FROM boss_team WHERE group_id = %s", (group_id,))
+            rows = cur.fetchall()
+            members = [r[0] for r in rows]
+            member_list_str = "、".join(members) # 用頓號隔開人名
+
+            line_bot_api.reply_message(
+                event.reply_token, 
+                TextSendMessage(text=f"✅ {user_name} 已加入打王組！\n\n目前成員：{member_list_str}")
+            )
+        except Exception as e:
+            print(f"Error: {e}")
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 系統忙碌中，請稍後再試"))
+        finally:
+            cur.close()
+            conn.close()
+
+    # 2. 退出打王組：輸入「-1」
+    elif text == "-1":
+        conn = get_pg_conn()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM boss_team WHERE group_id = %s AND user_id = %s", (group_id, user_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 已將您移出打王組。"))
+
     # 在 handle_message 內判斷指令的地方
     if text == "登記" or text == "打王":
         flex = build_all_boss_quick_flex()
