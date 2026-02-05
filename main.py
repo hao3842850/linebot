@@ -15,6 +15,7 @@ import psycopg2
 from urllib.parse import urlparse
 import os
 import json
+import requests
 from datetime import datetime, timedelta
 import pytz
 import asyncio
@@ -28,6 +29,7 @@ app = FastAPI()
 active_auctions = {}
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 CHANNEL_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
 line_bot_api = LineBotApi(CHANNEL_TOKEN)
 handler = WebhookHandler(CHANNEL_SECRET)
 TZ = pytz.timezone("Asia/Taipei")
@@ -325,42 +327,63 @@ def notify_boss_team(group_id, boss_name):
     conn = get_pg_conn()
     cur = conn.cursor()
     try:
+        # 1. 抓取成員
         cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
         rows = cur.fetchall()
         
+        # 2. 基礎訊息文字
         base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
         
         if rows:
             user_ids = [r[0] for r in rows]
-            # 📢 文字後面緊跟著一個空格
             text_prefix = "📢 打王組集合！ "
-            
             mentionees = []
-            # 每個 ID 分配一個空格，確保索引位置絕對精確
+            
+            # 3. 嚴格計算每個人的 Index 位址
             for i, uid in enumerate(user_ids[:50]):
                 mentionees.append({
-                    "index": len(text_prefix) + i, # 從前綴長度開始，每一位加1
+                    "index": len(text_prefix) + i,
                     "length": 1,
                     "userId": str(uid)
                 })
-            
-            # 生成對應數量的空格
-            spaces = " " * len(mentionees)
-            # 最終結構：前綴 + 標記點(空格) + 換行 + 內容
-            full_text = f"{text_prefix}{spaces}\n{base_msg}"
-            
-            # 封裝成 LINE API 字典
-            mention_data = {"mentionees": mentionees}
 
-            line_bot_api.push_message(
-                group_id, 
-                TextSendMessage(text=full_text, mention=mention_data)
+            # 組合最終文字：前綴 + 空格預留位 + 訊息內容
+            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
+
+            # 4. 手動建構 Payload (不依賴 SDK 類別)
+            payload = {
+                "to": group_id,
+                "messages": [
+                    {
+                        "type": "text",
+                        "text": full_text,
+                        "mention": {
+                            "mentionees": mentionees
+                        }
+                    }
+                ]
+            }
+
+            # 5. 直接發送 Post 請求到 LINE API
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+            }
+            
+            response = requests.post(
+                "https://api.line.me/v2/bot/message/push",
+                headers=headers,
+                data=json.dumps(payload)
             )
+            
+            if response.status_code != 200:
+                print(f"LINE API 報錯: {response.text}")
         else:
+            # 沒人時發送普通訊息
             line_bot_api.push_message(group_id, TextSendMessage(text=f"⏰ {base_msg}"))
             
     except Exception as e:
-        print(f"通知失敗: {e}")
+        print(f"通知過程發生錯誤: {e}")
     finally:
         cur.close()
         conn.close()
@@ -2410,6 +2433,17 @@ def handle_message(event):
             event.reply_token,
             TextSendMessage(text=f"{prefix} @", mention=m_data)
         )
+    if msg == "檢查ID":
+        # 這是檢查你的資料庫到底存了什麼，這步非常重要
+        conn = get_pg_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT user_id, user_name FROM boss_team WHERE group_id = %s", (group_id,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        info = "\n".join([f"ID: {r[0]} | 名稱: {r[1]}" for r in rows])
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"目前名單：\n{info}"))
     # clear
     if msg == "clear":
         db.setdefault("__WAIT__", {})
