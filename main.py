@@ -450,38 +450,56 @@ def notify_boss_team_with_flex(group_id, boss_name):
     conn = get_pg_conn()
     cur = conn.cursor()
     try:
+        # 1. 抓取打王組成員
         cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
         rows = cur.fetchall()
         
         base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
-        
+        full_text = f"⏰ 提醒：{base_msg}"
+        mention = None
+
+        # 2. 處理標記邏輯 (使用字典格式避開 ImportError)
         if rows:
             user_ids = [r[0] for r in rows]
             text_prefix = "📢 打王組集合！ "
-            
-            # 手動建立標記清單（不使用 MentionItem 類別）
             mention_items = []
             for i, uid in enumerate(user_ids[:50]):
                 mention_items.append({
                     "index": len(text_prefix) + i,
                     "length": 1,
-                    "userId": uid  # 注意：這裡是 userId 不是 user_id
+                    "userId": uid
                 })
-            
             full_text = f"{text_prefix}{' ' * len(mention_items)}\n{base_msg}"
-            
-            # 直接用字典格式包裝標記
-            mention_dict = {"mentionees": mention_items}
+            mention = {"mentionees": mention_items}
 
-            # 發送訊息（直接傳入字典作為 mention 參數）
-            messages = [
-                TextSendMessage(text=full_text, mention=mention_dict),
-                FlexSendMessage(alt_text=f"警報: {boss_name}", contents=bubble)
-            ]
-        else:
-            # 沒人時發送普通訊息
-            messages = [TextSendMessage(text=f"⏰ 提醒：{base_msg}")]
+        # 3. 定義 bubble (這就是畫面上紅色的警告卡片)
+        bubble = {
+            "type": "bubble",
+            "size": "sm",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": "#E74C3C",
+                "contents": [
+                    {"type": "text", "text": "⚔️ 特殊警告", "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}
+                ]
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {"type": "text", "text": f"{boss_name}", "weight": "bold", "size": "xl", "align": "center", "margin": "md"},
+                    {"type": "text", "text": "準備重生", "size": "sm", "color": "#aaaaaa", "align": "center"}
+                ]
+            }
+        }
 
+        # 4. 同時發送
+        messages = [
+            TextSendMessage(text=full_text, mention=mention),
+            FlexSendMessage(alt_text=f"警報: {boss_name}", contents=bubble)
+        ]
+        
         line_bot_api.push_message(group_id, messages)
             
     except Exception as e:
