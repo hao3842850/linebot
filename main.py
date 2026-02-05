@@ -94,15 +94,15 @@ def save_boss_to_pg(group_id, boss_name, kill_time, respawn_time, user_id, note,
         conn.close()
 
 def get_latest_boss_records(group_id):
-    """從資料庫抓取各隻王最後一筆紀錄 (用於 '出' 指令)"""
+    """從資料庫抓取各隻王最後一筆紀錄 (用於 '出' 與 '備份' 指令)"""
     conn = get_pg_conn()
     if not conn: return {}
     try:
         cur = conn.cursor()
-        # 使用 DISTINCT ON 抓取每隻王最新的一筆資料
+        # 抓取最新紀錄
         query = """
             SELECT DISTINCT ON (boss_name) 
-                   boss_name, kill_time, respawn_time, note, user_id
+                   boss_name, kill_time, respawn_time, note, user_id, source
             FROM boss_time
             WHERE group_id = %s
             ORDER BY boss_name, kill_time DESC
@@ -111,15 +111,29 @@ def get_latest_boss_records(group_id):
         rows = cur.fetchall()
         cur.close()
         
-        # 轉換回原本程式碼習慣的格式，方便相容
         result = {}
         for row in rows:
             boss_name = row[0]
+            # --- 關鍵修正：確保時間轉換為台北時區 ---
+            # 如果資料庫抓出來是 naive (無時區)，就掛上 UTC 再轉台北
+            kt_raw = row[1]
+            if kt_raw.tzinfo is None:
+                kt_tw = pytz.utc.localize(kt_raw).astimezone(TZ)
+            else:
+                kt_tw = kt_raw.astimezone(TZ)
+            
+            # 同理處理 respawn_time
+            rt_raw = row[2]
+            rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
+
+            # 轉換回原本程式碼習慣的格式，並補齊 calculate_kpi 需要的 'date'
             result[boss_name] = [{
-                "kill": row[1].strftime("%H:%M:%S"),
-                "respawn": row[2].isoformat(),
-                "note": row[3],
-                "user": row[4]
+                "date": kt_tw.strftime("%Y-%m-%d"),       # 修正：補上 KPI 需要的 date
+                "kill": kt_tw.strftime("%H:%M:%S"),       # 修正：確保是台北時間的文字
+                "respawn": rt_tw.isoformat(),
+                "note": row[3] if row[3] else "",
+                "user": row[4],
+                "source": row[5] if len(row) > 5 else "manual"
             }]
         return result
     except Exception as e:
