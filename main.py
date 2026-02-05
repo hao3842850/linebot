@@ -223,6 +223,22 @@ def get_kpi_ranking(group_id):
     finally:
         conn.close()
 
+def delete_all_boss_records(group_id):
+    """刪除該群組在 PostgreSQL 中的所有吃王紀錄"""
+    conn = get_pg_conn()
+    if not conn: return
+    try:
+        cur = conn.cursor()
+        # 執行刪除指令
+        query = "DELETE FROM boss_time WHERE group_id = %s"
+        cur.execute(query, (group_id,))
+        conn.commit() # 必須 commit 才會生效
+        cur.close()
+        print(f"[{group_id}] All records deleted.")
+    except Exception as e:
+        print(f"Error deleting records: {e}")
+    finally:
+        conn.close()
 
 
 
@@ -2041,51 +2057,46 @@ def handle_message(event):
         return
 
     if msg == "確定清除":
-        wait = db.get("__WAIT__", {}).get(group_id)
-        if not wait or wait["user"] != user:
+            wait = db.get("__WAIT__", {}).get(group_id)
+            if not wait or wait["user"] != user:
+                return
+
+            now = now_tw()
+            start, end = get_kpi_range(now)
+            
+            # 1. 抓取最後一次 KPI 資料 (僅做顯示用)
+            boss_db_from_pg = get_latest_boss_records(group_id)
+            kpi_data = calculate_kpi(boss_db_from_pg, start, end)
+
+            # 2. 先執行資料庫刪除動作 (關鍵！)
+            delete_all_boss_records(group_id)
+            
+            # 3. 清除等待狀態
+            db.get("__WAIT__", {}).pop(group_id, None)
+            save_db(db)
+
+            # 4. 根據是否有 KPI 資料發送回覆
+            if kpi_data:
+                ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
+                display = [(get_username(uid), count) for uid, count in ranking]
+                kpi_bubble = build_kpi_flex(
+                    "📊 本週 KPI 排行榜（清除前）",
+                    f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}",
+                    display
+                )
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    [
+                        FlexSendMessage(alt_text="本週 KPI 排行榜", contents=kpi_bubble),
+                        TextSendMessage("🗑 資料庫已清空，KPI 統計已結算。")
+                    ]
+                )
+            else:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage("📊 本週尚無 KPI 紀錄，資料庫已直接清空。")
+                )
             return
-
-        now = now_tw()
-        start, end = get_kpi_range(now)
-        
-        # 關鍵修改：從資料庫抓取所有王表紀錄來計算最後一次 KPI
-        boss_db_from_pg = get_latest_boss_records(group_id)
-        kpi_data = calculate_kpi(boss_db_from_pg, start, end)
-
-        if kpi_data:
-            ranking = sorted(
-                kpi_data.items(),
-                key=lambda x: x[1],
-                reverse=True
-            )
-            display = [(get_username(uid), count) for uid, count in ranking]
-            kpi_bubble = build_kpi_flex(
-                "📊 本週 KPI 排行榜（清除前）",
-                f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}",
-                display
-            )
-            line_bot_api.reply_message(
-                event.reply_token,
-                [
-                    FlexSendMessage(
-                        alt_text="本週 KPI 排行榜",
-                        contents=kpi_bubble
-                    ),
-                    TextSendMessage("🗑 已清除資料庫所有紀錄")
-                ]
-            )
-        else:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("📊 本週尚無 KPI 紀錄，已直接清除資料")
-            )
-
-        # 關鍵修改：執行 SQL 指令刪除該群組紀錄
-        delete_all_boss_records(group_id)
-        
-        db["__WAIT__"].pop(group_id, None)
-        save_db(db)
-        return
 
     if msg == "取消清除":
         db.get("__WAIT__", {}).pop(group_id, None)
