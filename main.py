@@ -22,6 +22,7 @@ from threading import Lock
 # 基本設定
 db_lock = Lock()
 app = FastAPI()
+active_auctions = {}
 CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 CHANNEL_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 line_bot_api = LineBotApi(CHANNEL_TOKEN)
@@ -916,6 +917,41 @@ def build_boot_init_flex(base_time_str):
             ]
         }
     }
+def build_auction_flex(item_name, highest_bid, bidder_name):
+    # 如果沒人標，顯示「暫無」
+    display_bidder = bidder_name if bidder_name else "暫無"
+    
+    bubble = {
+      "type": "bubble",
+      "header": {
+        "type": "box", "layout": "vertical", "backgroundColor": "#E67E22",
+        "contents": [{"type": "text", "text": "⚔️ 盟內裝備快閃競標", "weight": "bold", "color": "#FFFFFF", "size": "sm"}]
+      },
+      "body": {
+        "type": "box", "layout": "vertical", "spacing": "md",
+        "contents": [
+          {"type": "text", "text": f"📦 物品：{item_name}", "weight": "bold", "size": "lg"},
+          {"type": "separator"},
+          {"type": "box", "layout": "vertical", "spacing": "sm", "contents": [
+              {"type": "box", "layout": "horizontal", "contents": [
+                  {"type": "text", "text": "目前最高標", "size": "sm", "color": "#aaaaaa", "flex": 3},
+                  {"type": "text", "text": f"{highest_bid} 鑽", "size": "sm", "weight": "bold", "color": "#E67E22", "flex": 4}
+              ]},
+              {"type": "box", "layout": "horizontal", "contents": [
+                  {"type": "text", "text": "領先盟友", "size": "sm", "color": "#aaaaaa", "flex": 3},
+                  {"type": "text", "text": f"{display_bidder}", "size": "sm", "flex": 4}
+              ]}
+          ]}
+        ]
+      },
+      "footer": {
+        "type": "box", "layout": "vertical",
+        "contents": [
+          {"type": "text", "text": "輸入「下標 金額」參與", "size": "xs", "color": "#aaaaaa", "align": "center"}
+        ]
+      }
+    }
+    return FlexSendMessage(alt_text=f"競標中: {item_name}", contents=bubble)
 def build_kpi_flex(title, period_text, ranking):
     rows = []
     # 定義前三名的特殊顏色與圖標
@@ -1771,6 +1807,7 @@ def build_kpi_backup_text(kpi_db):
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user = event.source.user_id
+    user_id = event.source.user_id
     text = event.message.text.strip()
     msg = text
     raw_text = event.message.text.strip()
@@ -1821,6 +1858,52 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
         return
     
+    # 1. 發起：!掉落 物品名
+    if text.startswith("競標 "):
+        item = text.replace("競標 ", "").strip()
+        active_auctions[group_id] = {
+            "item": item,
+            "bid": 0,
+            "bidder": None,
+            "bidder_id": None
+        }
+        flex = build_auction_flex(item, 0, None)
+        line_bot_api.reply_message(event.reply_token, flex)
+
+    # 2. 下標：!下標 數字
+    elif text.startswith("下標 "):
+        if group_id not in active_auctions:
+            return # 沒有正在進行的競標則不回應
+            
+        try:
+            new_bid = int(text.replace("下標 ", "").strip())
+            current = active_auctions[group_id]
+            
+            if new_bid > current["bid"]:
+                user_name = get_username(user_id)
+                active_auctions[group_id].update({
+                    "bid": new_bid,
+                    "bidder": user_name,
+                    "bidder_id": user_id
+                })
+                # 回傳更新後的卡片
+                flex = build_auction_flex(current["item"], new_bid, user_name)
+                line_bot_api.reply_message(event.reply_token, flex)
+            else:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 金額需大於 {current['bid']}"))
+        except:
+            pass # 忽略格式錯誤
+
+    # 3. 結標：!結標
+    elif text == "結標":
+        if group_id in active_auctions:
+            res = active_auctions.pop(group_id) # 移除並取得資料
+            if res["bidder"]:
+                msg = f"🎊 競標結束！\n【{res['item']}】\n得標：{res['bidder']}\n金額：{res['bid bid']} 鑽"
+            else:
+                msg = f"已取消【{res['item']}】的競標。"
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
+
     # 名冊功能
 
     db.setdefault("__ROSTER_WAIT__", {})
