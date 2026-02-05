@@ -149,6 +149,21 @@ def get_latest_boss_records(group_id):
     finally:
         conn.close()
 
+def save_to_boss_team(group_id, user_id, user_name):
+    conn = get_pg_conn()
+    cur = conn.cursor()
+    try:
+        # 確保 user_id 存入的是 Ua123... 那串，而不是 user_name
+        cur.execute("""
+            INSERT INTO boss_team (group_id, user_id, user_name) 
+            VALUES (%s, %s, %s)
+            ON CONFLICT (group_id, user_id) DO UPDATE SET user_name = EXCLUDED.user_name
+        """, (group_id, user_id, user_name))
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+
 def init_cd_boss_with_given_time(group_id, base_time, user_id):
     """
     開機初始化：只針對『目前沒紀錄』的王補上開機時間。
