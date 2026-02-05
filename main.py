@@ -209,29 +209,29 @@ def get_kpi_ranking(group_id):
         conn.close()
 
 def delete_all_boss_records(group_id):
-    """確實執行 SQL 刪除並 commit"""
+    """確實執行 SQL 刪除"""
     conn = get_pg_conn()
     if not conn: return
     try:
         cur = conn.cursor()
-        # 這裡會刪除該群組所有過往紀錄
+        # 強制指定群組刪除
         cur.execute("DELETE FROM boss_time WHERE group_id = %s", (group_id,))
-        conn.commit() # 沒這一行，資料庫就不會變動
+        conn.commit()  # <--- 這行沒寫資料永遠刪不掉
+        print(f"PostgreSQL 刪除完成: {group_id}")
         cur.close()
-        print(f"[{group_id}] PostgreSQL 資料已成功清空")
     except Exception as e:
-        print(f"Delete Error: {e}")
+        print(f"SQL 刪除出錯: {e}")
     finally:
         conn.close()
 
 def get_all_records_for_kpi(group_id, start_time, end_time):
-    """抓取區間內『所有』紀錄，用於結算（不使用 DISTINCT ON）"""
+    """抓取區間內所有紀錄用於結算"""
     conn = get_pg_conn()
     if not conn: return {}
     records = {}
     try:
         cur = conn.cursor()
-        # 抓取該群組在時間範圍內的所有資料
+        # 注意：這裡不要用 DISTINCT ON，要抓全部次數
         query = """
             SELECT boss_name, kill_time, user_id 
             FROM boss_time 
@@ -242,9 +242,7 @@ def get_all_records_for_kpi(group_id, start_time, end_time):
         cur.execute(query, (group_id, start_time, end_time))
         rows = cur.fetchall()
         for boss, kt, uid in rows:
-            if boss not in records:
-                records[boss] = []
-            # 存入格式必須符合 calculate_kpi 所需的 (時間, ID)
+            if boss not in records: records[boss] = []
             records[boss].append((kt, uid))
         cur.close()
     finally:
@@ -2030,47 +2028,54 @@ def handle_message(event):
         return
 
     if msg == "確定清除":
-        wait = db.get("__WAIT__", {}).get(group_id)
-        if not wait or wait["user"] != user:
-            return
+        try:
+            wait = db.get("__WAIT__", {}).get(group_id)
+            if not wait or wait["user"] != user:
+                return
 
-        now = now_tw()
-        start, end = get_kpi_range(now)
-        
-        # 1. 抓取完整結算資料 (趁資料還在資料庫時抓取)
-        boss_db_for_kpi = get_all_records_for_kpi(group_id, start, end)
-        kpi_data = calculate_kpi(boss_db_for_kpi, start, end)
-
-        # 2. 執行刪除 (PostgreSQL 確實 commit)
-        delete_all_boss_records(group_id)
-        
-        # 3. 同步清理本地 JSON 暫存 (防止王表讀取到舊的 JSON 資料)
-        if "boss_db" in db and group_id in db["boss_db"]:
-            db["boss_db"][group_id] = {}
-        
-        # 4. 清除確認狀態並存檔
-        db.get("__WAIT__", {}).pop(group_id, None)
-        save_db(db)
-
-        # 5. 輸出最後的 KPI 報表
-        if kpi_data:
-            ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
-            display = [(get_username(uid), count) for uid, count in ranking]
-            period_text = f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}"
+            # 1. 取得統計時間範圍 (週三 05:00 起)
+            now = now_tw()
+            start, end = get_kpi_range(now)
             
-            bubble = build_kpi_flex("📊 本週 KPI 最終結算", period_text, display)
-            line_bot_api.reply_message(
-                event.reply_token,
-                [
-                    FlexSendMessage(alt_text="KPI 結算排行榜", contents=bubble),
-                    TextSendMessage("🗑 該群組王表資料已完全清空。")
-                ]
-            )
-        else:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("🗑 資料庫已清空 (此區間無登記紀錄)。")
-            )
+            # 2. 抓取資料 (在刪除之前！)
+            boss_db_for_kpi = get_all_records_for_kpi(group_id, start, end)
+            kpi_data = calculate_kpi(boss_db_for_kpi, start, end)
+
+            # 3. 執行物理刪除
+            delete_all_boss_records(group_id)
+            
+            # 4. 同步清除 JSON (這是最容易被忽略的一步)
+            if "boss_db" in db and group_id in db:
+                db["boss_db"][group_id] = {}
+            if group_id in db: # 檢查直接在根目錄的情況
+                db[group_id] = {}
+
+            # 5. 清除等待狀態與存檔
+            db.get("__WAIT__", {}).pop(group_id, None)
+            save_db(db)
+
+            # 6. 回覆 KPI 排行榜
+            if kpi_data:
+                ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
+                display = [(get_username(uid), count) for uid, count in ranking]
+                period_text = f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}"
+                
+                bubble = build_kpi_flex("📊 本週 KPI 結算", period_text, display)
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    [
+                        FlexSendMessage(alt_text="KPI 結算", contents=bubble),
+                        TextSendMessage("🗑️ 資料庫與王表已完全清空。")
+                    ]
+                )
+            else:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage("🗑️ 資料已清空 (本週無 KPI 紀錄)。")
+                )
+        except Exception as e:
+            print(f"Clear Process Error: {e}")
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(f"⚠️ 清除過程中出錯：{str(e)}"))
         return
 
     if msg == "取消清除":
