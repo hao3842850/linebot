@@ -291,6 +291,52 @@ def save_db(db):
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(db, f, ensure_ascii=False, indent=2)
 init_db()
+def build_all_boss_quick_flex():
+    # 取得您現有的所有 BOSS 名稱
+    boss_names = list(cd_map.keys())
+    now_str = now_tw().strftime("%H%M")
+    
+    rows = []
+    # 每 4 隻王一列，總共約 7 列
+    for i in range(0, len(boss_names), 4):
+        chunk = boss_names[i:i+4]
+        cols = []
+        for name in chunk:
+            cols.append({
+                "type": "box",
+                "layout": "vertical",
+                "contents": [{"type": "text", "text": name, "size": "xs", "align": "center", "color": "#ffffff"}],
+                "backgroundColor": "#4682B4",
+                "paddingAll": "md",
+                "cornerRadius": "md",
+                "action": {
+                    "type": "message",
+                    "label": name,
+                    "text": f"!{name} {now_str}" # 點擊後發送登記指令
+                }
+            })
+        # 如果最後一列不滿 4 個，補位用
+        while len(cols) < 4:
+            cols.append({"type": "spacer"})
+            
+        rows.append({
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "sm",
+            "contents": cols
+        })
+
+    bubble = {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#2c3e50",
+            "contents": [{"type": "text", "text": "快速登記 (點選王名即登記現時)", "weight": "bold", "color": "#ffffff", "size": "sm"}]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "sm", "contents": rows
+        }
+    }
+    return FlexSendMessage(alt_text="全 BOSS 快速登記選單", contents=bubble)
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
     map_list = BOSS_MAP.get(boss, [])
     map_text = "、".join(map_list) if map_list else "未知"
@@ -1855,6 +1901,12 @@ def handle_message(event):
 
         reply = "\n".join(output)
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        return
+    
+    # 在 handle_message 內判斷指令的地方
+    if text == "登記" or text == "打王":
+        flex = build_all_boss_quick_flex()
+        line_bot_api.reply_message(event.reply_token, flex)
         return
 # --- 競標系統區塊 ---
     
