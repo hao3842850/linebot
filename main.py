@@ -11,7 +11,6 @@ from linebot.models import (
 )
 from linebot.models import TextSendMessage, Mention, MentionItem
 from datetime import datetime, timedelta, timezone
-from linebot.models import TextSendMessage, FlexSendMessage, BubbleContainer
 import psycopg2
 from urllib.parse import urlparse
 import os
@@ -451,51 +450,42 @@ def notify_boss_team_with_flex(group_id, boss_name):
     conn = get_pg_conn()
     cur = conn.cursor()
     try:
-        # 1. 抓取打王組成員
         cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
         rows = cur.fetchall()
         
-        # 2. 初始化預設文字與標記 (解決未定義問題)
         base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
-        full_text = f"⏰ 提醒：{base_msg}"
-        mention = None
-
-        # 3. 如果有成員，構建標記資訊
+        
         if rows:
             user_ids = [r[0] for r in rows]
             text_prefix = "📢 打王組集合！ "
-            mention_items = [
-                MentionItem(index=len(text_prefix) + i, length=1, user_id=uid) 
-                for i, uid in enumerate(user_ids[:50])
-            ]
+            
+            # 手動建立標記清單（不使用 MentionItem 類別）
+            mention_items = []
+            for i, uid in enumerate(user_ids[:50]):
+                mention_items.append({
+                    "index": len(text_prefix) + i,
+                    "length": 1,
+                    "userId": uid  # 注意：這裡是 userId 不是 user_id
+                })
+            
             full_text = f"{text_prefix}{' ' * len(mention_items)}\n{base_msg}"
-            mention = Mention(mention_items=mention_items)
+            
+            # 直接用字典格式包裝標記
+            mention_dict = {"mentionees": mention_items}
 
-        # 4. 建立 Flex Message 卡片內容
-        bubble = {
-            "type": "bubble",
-            "size": "sm",
-            "header": {
-                "type": "box", "layout": "vertical", "backgroundColor": "#E74C3C",
-                "contents": [{"type": "text", "text": "⚔️ 特殊警告", "color": "#ffffff", "weight": "bold", "size": "sm"}]
-            },
-            "body": {
-                "type": "box", "layout": "vertical", 
-                "contents": [{"type": "text", "text": f"{boss_name} 準備重生", "weight": "bold", "size": "md"}]
-            }
-        }
+            # 發送訊息（直接傳入字典作為 mention 參數）
+            messages = [
+                TextSendMessage(text=full_text, mention=mention_dict),
+                FlexSendMessage(alt_text=f"警報: {boss_name}", contents=bubble)
+            ]
+        else:
+            # 沒人時發送普通訊息
+            messages = [TextSendMessage(text=f"⏰ 提醒：{base_msg}")]
 
-        # 5. 同時發送文字(含標記)與 Flex 卡片
-        # 將訊息包裝成清單一次推送
-        messages = [
-            TextSendMessage(text=full_text, mention=mention),
-            FlexSendMessage(alt_text=f"警報: {boss_name}", contents=bubble)
-        ]
-        
         line_bot_api.push_message(group_id, messages)
             
     except Exception as e:
-        print(f"通知打王組(Flex)失敗: {e}")
+        print(f"通知出錯: {e}")
     finally:
         cur.close()
         conn.close()
