@@ -225,13 +225,12 @@ def delete_all_boss_records(group_id):
         conn.close()
 
 def get_all_records_for_kpi(group_id, start_time, end_time):
-    """抓取區間內所有紀錄用於結算"""
+    """抓取區間內所有紀錄，並轉為 calculate_kpi 預期的格式"""
     conn = get_pg_conn()
     if not conn: return {}
     records = {}
     try:
         cur = conn.cursor()
-        # 注意：這裡不要用 DISTINCT ON，要抓全部次數
         query = """
             SELECT boss_name, kill_time, user_id 
             FROM boss_time 
@@ -241,9 +240,15 @@ def get_all_records_for_kpi(group_id, start_time, end_time):
         """
         cur.execute(query, (group_id, start_time, end_time))
         rows = cur.fetchall()
+        
         for boss, kt, uid in rows:
-            if boss not in records: records[boss] = []
-            records[boss].append((kt, uid))
+            if boss not in records:
+                records[boss] = []
+            # 修改這裡：將 tuple 轉為 dict，這樣 calculate_kpi 就不會噴錯
+            records[boss].append({
+                "kill": kt,   # 這是 datetime 物件
+                "user": uid
+            })
         cur.close()
     finally:
         conn.close()
@@ -2033,28 +2038,27 @@ def handle_message(event):
             if not wait or wait["user"] != user:
                 return
 
-            # 1. 取得統計時間範圍 (週三 05:00 起)
             now = now_tw()
             start, end = get_kpi_range(now)
             
-            # 2. 抓取資料 (在刪除之前！)
+            # 1. 抓取格式正確的資料
             boss_db_for_kpi = get_all_records_for_kpi(group_id, start, end)
+            
+            # 2. 計算 KPI (現在 boss_db_for_kpi 裡面是字典了，不會再報 tuple 錯誤)
             kpi_data = calculate_kpi(boss_db_for_kpi, start, end)
 
-            # 3. 執行物理刪除
+            # 3. 先執行物理刪除 (PostgreSQL)
             delete_all_boss_records(group_id)
             
-            # 4. 同步清除 JSON (這是最容易被忽略的一步)
-            if "boss_db" in db and group_id in db:
+            # 4. 清除本地 JSON 內的紀錄 (非常重要，否則王表指令還會抓到舊資料)
+            if "boss_db" in db and group_id in db["boss_db"]:
                 db["boss_db"][group_id] = {}
-            if group_id in db: # 檢查直接在根目錄的情況
-                db[group_id] = {}
-
-            # 5. 清除等待狀態與存檔
+            
+            # 5. 清除確認狀態與存檔
             db.get("__WAIT__", {}).pop(group_id, None)
             save_db(db)
 
-            # 6. 回覆 KPI 排行榜
+            # 6. 回覆
             if kpi_data:
                 ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
                 display = [(get_username(uid), count) for uid, count in ranking]
@@ -2065,7 +2069,7 @@ def handle_message(event):
                     event.reply_token,
                     [
                         FlexSendMessage(alt_text="KPI 結算", contents=bubble),
-                        TextSendMessage("🗑️ 資料庫與王表已完全清空。")
+                        TextSendMessage("🗑️ 資料已完全清空。")
                     ]
                 )
             else:
@@ -2074,8 +2078,11 @@ def handle_message(event):
                     TextSendMessage("🗑️ 資料已清空 (本週無 KPI 紀錄)。")
                 )
         except Exception as e:
-            print(f"Clear Process Error: {e}")
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(f"⚠️ 清除過程中出錯：{str(e)}"))
+            # 如果還是出錯，這裡會印出到底是哪一行
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"詳細錯誤資訊:\n{error_details}")
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(f"⚠️ 修正後仍出錯：{str(e)}"))
         return
 
     if msg == "取消清除":
