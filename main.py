@@ -355,7 +355,7 @@ def notify_boss_team(group_id, boss_name):
     conn = get_pg_conn()
     cur = conn.cursor()
     try:
-        # 1. 抓取成員
+        # 1. 抓取成員 (確保 user_id 是第一欄)
         cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
         rows = cur.fetchall()
         
@@ -366,17 +366,18 @@ def notify_boss_team(group_id, boss_name):
             mention_text = ""
             
             for i, row in enumerate(rows[:50]):
-                uid = row[0] # 資料庫的第一欄應該是 U123...
+                uid = str(row[0]).strip() # 確保抓到的是 U 開頭的 ID 字串
                 
-                # 讓標記緊跟在字串最前面，完全不留空格偏移
+                # 計算位置：目前的 mention_text 長度就是下一個 @ 的 index
                 mentionees.append({
                     "index": len(mention_text),
                     "length": 1,
-                    "userId": str(uid)
+                    "userId": uid
                 })
-                mention_text += "@" # 每個標記就是一個 @ 符號
+                mention_text += "@" # 每個標記對應一個字元
                 
-            full_text = f"{mention_text}\n📢 打王組集合！\n【{boss_name}】準備重生！"
+            # 組合最終文字
+            full_text = f"{mention_text}\n📢 打王組集合！\n{base_msg}"
 
             payload = {
                 "to": group_id,
@@ -391,23 +392,22 @@ def notify_boss_team(group_id, boss_name):
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
             }
-            # 發送並抓取結果
-            res = requests.post("https://api.line.me/v2/bot/message/push", headers=headers, json=payload)
-            print(f"DEBUG API回傳: {res.text}") # 這裡可以在終端機看到 LINE 為什麼不給你標記
-            
-            # 修正點：將結果賦值給 response
+
+            # 2. 關鍵修正：只保留這一個發送動作
             response = requests.post(
                 "https://api.line.me/v2/bot/message/push", 
                 headers=headers, 
-                data=json.dumps(payload)
+                json=payload # 使用 json 參數會自動處理 json.dumps
             )
             
-            # 現在 response 已經定義，可以正常檢查
+            # 3. 檢查回傳結果
             if response.status_code != 200:
                 print(f"LINE API 報錯: {response.text}")
             else:
+                print(f"DEBUG API回傳: {response.text}")
                 print(f"成功發送標記通知：{boss_name}")
         else:
+            # 沒人時使用原本的 SDK 發送
             line_bot_api.push_message(group_id, TextSendMessage(text=f"⏰ {base_msg}"))
             
     except Exception as e:
@@ -2128,25 +2128,28 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
         return
     
-    # 1. 加入打王組：輸入「+1」
     if text == "+1":
-        user_id = event.source.user_id  # 這是 U 開頭的 ID，標記必備
-        user_name = get_user_name(user_id) # 這是用來顯示在名單上的名稱
+        user_id = event.source.user_id
+        user_name = get_user_name(user_id)
         conn = get_pg_conn()
         cur = conn.cursor()
         try:
-            # 存入資料
+            # 修改點：ON CONFLICT 時更新名字，確保 user_id 與 user_name 對位
             cur.execute(
-                "INSERT INTO boss_team (group_id, user_id, user_name) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                """
+                INSERT INTO boss_team (group_id, user_id, user_name) 
+                VALUES (%s, %s, %s) 
+                ON CONFLICT (group_id, user_id) 
+                DO UPDATE SET user_name = EXCLUDED.user_name
+                """,
                 (group_id, user_id, user_name)
             )
             conn.commit()
 
-            # 💡 增加步驟：抓取該群組目前所有成員名單
             cur.execute("SELECT user_name FROM boss_team WHERE group_id = %s", (group_id,))
             rows = cur.fetchall()
             members = [r[0] for r in rows]
-            member_list_str = "、".join(members) # 用頓號隔開人名
+            member_list_str = "、".join(members)
 
             line_bot_api.reply_message(
                 event.reply_token, 
@@ -2154,11 +2157,7 @@ def handle_message(event):
             )
         except Exception as e:
             print(f"Error: {e}")
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 系統忙碌中，請稍後再試"))
-        finally:
-            cur.close()
-            conn.close()
-
+            
     # 2. 退出打王組：輸入「-1」
     elif text == "-1":
         conn = get_pg_conn()
