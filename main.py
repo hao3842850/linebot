@@ -362,25 +362,21 @@ def notify_boss_team(group_id, boss_name):
         base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
         
         if rows:
-            user_ids = [r[0] for r in rows]
-            # 修正點：後方加一個空格作為起始緩衝
-            text_prefix = "📢 打王組集合！ " 
-            
             mentionees = []
             mention_text = ""
             
-            for i, uid in enumerate(user_ids[:50]):
-                # 計算位置：前綴長度 + 目前已產生的標記文字長度 + 1 (因為我們用 " @")
-                current_index = len(text_prefix) + len(mention_text) + 1
+            for i, row in enumerate(rows[:50]):
+                uid = row[0] # 資料庫的第一欄應該是 U123...
+                
+                # 讓標記緊跟在字串最前面，完全不留空格偏移
                 mentionees.append({
-                    "index": current_index,
-                    "length": 1, 
+                    "index": len(mention_text),
+                    "length": 1,
                     "userId": str(uid)
                 })
-                # 修正點：使用 " @" 確保每個標記前都有空格，增加成功率
-                mention_text += " @" 
+                mention_text += "@" # 每個標記就是一個 @ 符號
                 
-            full_text = f"{text_prefix}{mention_text}\n{base_msg}"
+            full_text = f"{mention_text}\n📢 打王組集合！\n【{boss_name}】準備重生！"
 
             payload = {
                 "to": group_id,
@@ -395,6 +391,9 @@ def notify_boss_team(group_id, boss_name):
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
             }
+            # 發送並抓取結果
+            res = requests.post("https://api.line.me/v2/bot/message/push", headers=headers, json=payload)
+            print(f"DEBUG API回傳: {res.text}") # 這裡可以在終端機看到 LINE 為什麼不給你標記
             
             # 修正點：將結果賦值給 response
             response = requests.post(
