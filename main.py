@@ -315,6 +315,19 @@ def background_check():
         # 每 60 秒檢查一次
         time.sleep(60)
 
+def get_user_name(user_id):
+    """
+    透過 LINE API 取得使用者的顯示名稱
+    """
+    try:
+        # 使用 SDK 內建的 get_profile 取得用戶資料
+        profile = line_bot_api.get_profile(user_id)
+        return profile.display_name
+    except Exception as e:
+        print(f"取得用戶名稱失敗: {e}")
+        # 如果抓不到（例如用戶沒加好友），回傳「冒險者」作為替代
+        return "冒險者"
+
 # 啟動背景執行緒 (放在檔案最下方)
 t = threading.Thread(target=background_check)
 t.daemon = True
@@ -331,55 +344,56 @@ def notify_boss_team(group_id, boss_name):
         cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
         rows = cur.fetchall()
         
-        # 2. 基礎訊息文字
         base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
         
         if rows:
             user_ids = [r[0] for r in rows]
-            text_prefix = "📢 打王組集合！ "
-            mentionees = []
+            # 修正點：後方加一個空格作為起始緩衝
+            text_prefix = "📢 打王組集合！ " 
             
-            # 3. 嚴格計算每個人的 Index 位址
+            mentionees = []
+            mention_text = ""
+            
             for i, uid in enumerate(user_ids[:50]):
+                # 計算位置：前綴長度 + 目前已產生的標記文字長度 + 1 (因為我們用 " @")
+                current_index = len(text_prefix) + len(mention_text) + 1
                 mentionees.append({
-                    "index": len(text_prefix) + i,
-                    "length": 1,
+                    "index": current_index,
+                    "length": 1, 
                     "userId": str(uid)
                 })
+                # 修正點：使用 " @" 確保每個標記前都有空格，增加成功率
+                mention_text += " @" 
+                
+            full_text = f"{text_prefix}{mention_text}\n{base_msg}"
 
-            # 組合最終文字：前綴 + 空格預留位 + 訊息內容
-            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
-
-            # 4. 手動建構 Payload (不依賴 SDK 類別)
             payload = {
                 "to": group_id,
-                "messages": [
-                    {
-                        "type": "text",
-                        "text": full_text,
-                        "mention": {
-                            "mentionees": mentionees
-                        }
-                    }
-                ]
+                "messages": [{
+                    "type": "text",
+                    "text": full_text,
+                    "mention": {"mentionees": mentionees}
+                }]
             }
-
-            # 5. 直接發送 Post 請求到 LINE API
+            
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
             }
             
+            # 修正點：將結果賦值給 response
             response = requests.post(
-                "https://api.line.me/v2/bot/message/push",
-                headers=headers,
+                "https://api.line.me/v2/bot/message/push", 
+                headers=headers, 
                 data=json.dumps(payload)
             )
             
+            # 現在 response 已經定義，可以正常檢查
             if response.status_code != 200:
                 print(f"LINE API 報錯: {response.text}")
+            else:
+                print(f"成功發送標記通知：{boss_name}")
         else:
-            # 沒人時發送普通訊息
             line_bot_api.push_message(group_id, TextSendMessage(text=f"⏰ {base_msg}"))
             
     except Exception as e:
@@ -2102,7 +2116,8 @@ def handle_message(event):
     
     # 1. 加入打王組：輸入「+1」
     if text == "+1":
-        user_name = get_username(user_id)
+        user_id = event.source.user_id  # 這是 U 開頭的 ID，標記必備
+        user_name = get_user_name(user_id) # 這是用來顯示在名單上的名稱
         conn = get_pg_conn()
         cur = conn.cursor()
         try:
