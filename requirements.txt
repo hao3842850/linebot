@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-line-bot-sdk=2.6.1
+line-bot-sdk==2.6.1
 pytz
 psycopg2-binary
 # rebuild
