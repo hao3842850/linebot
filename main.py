@@ -35,7 +35,7 @@ def is_peak_time():
 
     #h = now_tw().hour
     #return 19 <= h <= 23
-    
+
 def safe_reply(event, text_msg, flex_msg=None):
     try:
         if is_peak_time() or flex_msg is None:
@@ -209,27 +209,23 @@ def get_kpi_ranking(group_id):
         conn.close()
 
 def delete_all_boss_records(group_id):
-    """刪除該群組在 PostgreSQL 中的所有吃王紀錄"""
+    """確實執行 SQL 刪除並 commit"""
     conn = get_pg_conn()
-    if not conn: 
-        print("資料庫連線失敗，無法刪除")
-        return
+    if not conn: return
     try:
         cur = conn.cursor()
-        # 執行刪除
-        query = "DELETE FROM boss_time WHERE group_id = %s"
-        cur.execute(query, (group_id,))
-        # 重要：必須提交事務
-        conn.commit() 
-        print(f"[{group_id}] 資料庫刪除指令執行成功")
+        # 這裡會刪除該群組所有過往紀錄
+        cur.execute("DELETE FROM boss_time WHERE group_id = %s", (group_id,))
+        conn.commit() # 沒這一行，資料庫就不會變動
         cur.close()
+        print(f"[{group_id}] PostgreSQL 資料已成功清空")
     except Exception as e:
-        print(f"執行 DELETE SQL 出錯: {e}")
+        print(f"Delete Error: {e}")
     finally:
         conn.close()
 
 def get_all_records_for_kpi(group_id, start_time, end_time):
-    """抓取該區間內所有紀錄，用於結算"""
+    """抓取區間內『所有』紀錄，用於結算（不使用 DISTINCT ON）"""
     conn = get_pg_conn()
     if not conn: return {}
     records = {}
@@ -245,16 +241,16 @@ def get_all_records_for_kpi(group_id, start_time, end_time):
         """
         cur.execute(query, (group_id, start_time, end_time))
         rows = cur.fetchall()
-        
         for boss, kt, uid in rows:
             if boss not in records:
                 records[boss] = []
-            # 格式必須符合 calculate_kpi 所需的 (時間, ID)
+            # 存入格式必須符合 calculate_kpi 所需的 (時間, ID)
             records[boss].append((kt, uid))
         cur.close()
     finally:
         conn.close()
     return records
+
 
 
         
@@ -2038,43 +2034,42 @@ def handle_message(event):
         if not wait or wait["user"] != user:
             return
 
-        # --- 步驟 A: 先抓取要結算 KPI 的資料 (此時資料還在) ---
         now = now_tw()
         start, end = get_kpi_range(now)
-        # 確保 get_all_records_for_kpi 能抓到全部資料
+        
+        # 1. 抓取完整結算資料 (趁資料還在資料庫時抓取)
         boss_db_for_kpi = get_all_records_for_kpi(group_id, start, end)
         kpi_data = calculate_kpi(boss_db_for_kpi, start, end)
 
-        # --- 步驟 B: 執行真正的刪除 ---
-        # 1. 刪除 PostgreSQL 資料
+        # 2. 執行刪除 (PostgreSQL 確實 commit)
         delete_all_boss_records(group_id)
         
-        # 2. 如果你的王表還有存一份在 JSON (boss_db)，也要清掉
+        # 3. 同步清理本地 JSON 暫存 (防止王表讀取到舊的 JSON 資料)
         if "boss_db" in db and group_id in db["boss_db"]:
             db["boss_db"][group_id] = {}
         
-        # 3. 清除等待狀態
+        # 4. 清除確認狀態並存檔
         db.get("__WAIT__", {}).pop(group_id, None)
         save_db(db)
 
-        # --- 步驟 C: 回覆結算結果 ---
+        # 5. 輸出最後的 KPI 報表
         if kpi_data:
             ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
             display = [(get_username(uid), count) for uid, count in ranking]
             period_text = f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}"
-            bubble = build_kpi_flex("📊 本週 KPI 最終結算", period_text, display)
             
+            bubble = build_kpi_flex("📊 本週 KPI 最終結算", period_text, display)
             line_bot_api.reply_message(
                 event.reply_token,
                 [
-                    FlexSendMessage(alt_text="KPI 結算", contents=bubble),
-                    TextSendMessage("🗑 資料庫與王表已完全清空。")
+                    FlexSendMessage(alt_text="KPI 結算排行榜", contents=bubble),
+                    TextSendMessage("🗑 該群組王表資料已完全清空。")
                 ]
             )
         else:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("🗑 資料庫已清空（本週無登記紀錄）。")
+                TextSendMessage("🗑 資料庫已清空 (此區間無登記紀錄)。")
             )
         return
 
