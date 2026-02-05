@@ -918,38 +918,37 @@ def build_boot_init_flex(base_time_str):
         }
     }
 def build_auction_flex(item_name, highest_bid, bidder_name):
-    # 如果沒人標，顯示「暫無」
-    display_bidder = bidder_name if bidder_name else "暫無"
+    display_bidder = bidder_name if bidder_name else "目前尚無人出價"
     
     bubble = {
-      "type": "bubble",
-      "header": {
-        "type": "box", "layout": "vertical", "backgroundColor": "#E67E22",
-        "contents": [{"type": "text", "text": "⚔️ 盟內裝備快閃競標", "weight": "bold", "color": "#FFFFFF", "size": "sm"}]
-      },
-      "body": {
-        "type": "box", "layout": "vertical", "spacing": "md",
-        "contents": [
-          {"type": "text", "text": f"📦 物品：{item_name}", "weight": "bold", "size": "lg"},
-          {"type": "separator"},
-          {"type": "box", "layout": "vertical", "spacing": "sm", "contents": [
-              {"type": "box", "layout": "horizontal", "contents": [
-                  {"type": "text", "text": "目前最高標", "size": "sm", "color": "#aaaaaa", "flex": 3},
-                  {"type": "text", "text": f"{highest_bid} 鑽", "size": "sm", "weight": "bold", "color": "#E67E22", "flex": 4}
-              ]},
-              {"type": "box", "layout": "horizontal", "contents": [
-                  {"type": "text", "text": "領先盟友", "size": "sm", "color": "#aaaaaa", "flex": 3},
-                  {"type": "text", "text": f"{display_bidder}", "size": "sm", "flex": 4}
-              ]}
-          ]}
-        ]
-      },
-      "footer": {
-        "type": "box", "layout": "vertical",
-        "contents": [
-          {"type": "text", "text": "輸入「下標 金額」參與", "size": "xs", "color": "#aaaaaa", "align": "center"}
-        ]
-      }
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#E67E22",
+            "contents": [{"type": "text", "text": "⚔️ 盟內裝備快閃競標", "weight": "bold", "color": "#FFFFFF", "size": "sm"}]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "md",
+            "contents": [
+                {"type": "text", "text": f"📦 物品：{item_name}", "weight": "bold", "size": "lg"},
+                {"type": "separator"},
+                {"type": "box", "layout": "vertical", "spacing": "sm", "contents": [
+                    {"type": "box", "layout": "horizontal", "contents": [
+                        {"type": "text", "text": "最高標", "size": "sm", "color": "#aaaaaa", "flex": 2},
+                        {"type": "text", "text": f"{highest_bid} 鑽", "size": "sm", "weight": "bold", "color": "#E67E22", "flex": 4}
+                    ]},
+                    {"type": "box", "layout": "horizontal", "contents": [
+                        {"type": "text", "text": "領先者", "size": "sm", "color": "#aaaaaa", "flex": 2},
+                        {"type": "text", "text": f"{display_bidder}", "size": "sm", "flex": 4}
+                    ]}
+                ]}
+            ]
+        },
+        "footer": {
+            "type": "box", "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "輸入「下標 金額」參與競標", "size": "xs", "color": "#aaaaaa", "align": "center"}
+            ]
+        }
     }
     return FlexSendMessage(alt_text=f"競標中: {item_name}", contents=bubble)
 def build_kpi_flex(title, period_text, ranking):
@@ -1857,53 +1856,55 @@ def handle_message(event):
         reply = "\n".join(output)
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
         return
+# --- 競標系統區塊 ---
     
-    # 1. 發起：!掉落 物品名
-    if text.startswith("競標 "):
-        item = text.replace("競標 ", "").strip()
+    # 1. 發起：例如打「掉落 紅布」
+    if text.startswith("掉落 "):
+        item_name = text.replace("掉落 ", "").strip()
         active_auctions[group_id] = {
-            "item": item,
+            "item": item_name,
             "bid": 0,
-            "bidder": None,
+            "bidder_name": None,
             "bidder_id": None
         }
-        flex = build_auction_flex(item, 0, None)
+        flex = build_auction_flex(item_name, 0, None)
         line_bot_api.reply_message(event.reply_token, flex)
 
-    # 2. 下標：!下標 數字
+    # 2. 下標：例如打「下標 1000」
     elif text.startswith("下標 "):
-        if group_id not in active_auctions:
-            return # 沒有正在進行的競標則不回應
-            
-        try:
-            new_bid = int(text.replace("下標 ", "").strip())
-            current = active_auctions[group_id]
-            
-            if new_bid > current["bid"]:
-                user_name = get_username(user_id)
-                active_auctions[group_id].update({
-                    "bid": new_bid,
-                    "bidder": user_name,
-                    "bidder_id": user_id
-                })
-                # 回傳更新後的卡片
-                flex = build_auction_flex(current["item"], new_bid, user_name)
-                line_bot_api.reply_message(event.reply_token, flex)
-            else:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 金額需大於 {current['bid']}"))
-        except:
-            pass # 忽略格式錯誤
+        if group_id in active_auctions:
+            try:
+                # 取得金額
+                new_bid = int(text.replace("下標 ", "").strip())
+                current = active_auctions[group_id]
+                
+                if new_bid > current["bid"]:
+                    current_user_name = get_username(user_id)
+                    active_auctions[group_id].update({
+                        "bid": new_bid,
+                        "bidder_name": current_user_name,
+                        "bidder_id": user_id
+                    })
+                    # 更新卡片回傳
+                    flex = build_auction_flex(current["item"], new_bid, current_user_name)
+                    line_bot_api.reply_message(event.reply_token, flex)
+                else:
+                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 出價需高於目前的 {current['bid']} 鑽"))
+            except ValueError:
+                pass # 數字格式錯誤則不回應
 
-    # 3. 結標：!結標
+    # 3. 結標：直接打「結標」
     elif text == "結標":
         if group_id in active_auctions:
+            # 取出資料並從暫存移除
             res = active_auctions.pop(group_id)
-            if res.get("bidder_name"):
-                # 這裡修正了欄位名稱與格式
-                msg = (f"🎊 競標結束！\n"
-                       f"【{res['item']}】\n"
-                       f"得標者：{res['bidder_name']}\n"
-                       f"金額：{res['bid']} 鑽")
+            
+            if res["bidder_name"]:
+                msg = (f"🎊 競標結束！\n\n"
+                       f"📦 物品：{res['item']}\n"
+                       f"👤 得標者：{res['bidder_name']}\n"
+                       f"💰 金額：{res['bid']} 鑽\n\n"
+                       f"恭喜得標！請雙方進行交易。")
             else:
                 msg = f"已取消【{res['item']}】的競標（無人下標）。"
             
