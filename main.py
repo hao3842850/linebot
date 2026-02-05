@@ -225,14 +225,15 @@ def delete_all_boss_records(group_id):
         conn.close()
 
 def get_all_records_for_kpi(group_id, start_time, end_time):
-    """抓取區間內所有紀錄，並轉為 calculate_kpi 預期的格式"""
+    """抓取區間內所有紀錄，並格式化為符合 calculate_kpi 要求的 dict 格式"""
     conn = get_pg_conn()
     if not conn: return {}
     records = {}
     try:
         cur = conn.cursor()
+        # 注意：這裡多抓一個 source 欄位，因為你的 KPI 邏輯有排除 backup
         query = """
-            SELECT boss_name, kill_time, user_id 
+            SELECT boss_name, kill_time, user_id, source
             FROM boss_time 
             WHERE group_id = %s 
               AND kill_time >= %s 
@@ -241,13 +242,16 @@ def get_all_records_for_kpi(group_id, start_time, end_time):
         cur.execute(query, (group_id, start_time, end_time))
         rows = cur.fetchall()
         
-        for boss, kt, uid in rows:
+        for boss, kt, uid, src in rows:
             if boss not in records:
                 records[boss] = []
-            # 修改這裡：將 tuple 轉為 dict，這樣 calculate_kpi 就不會噴錯
+            
+            # 這裡的 Key 必須完全對應 rec['date'] 和 rec['kill']
             records[boss].append({
-                "kill": kt,   # 這是 datetime 物件
-                "user": uid
+                "date": kt.strftime("%Y-%m-%d"),    # 對應 rec['date']
+                "kill": kt.strftime("%H:%M:%S"),    # 對應 rec['kill']
+                "user": uid,                        # 對應 rec['user']
+                "source": src                       # 對應 rec.get("source")
             })
         cur.close()
     finally:
@@ -2034,6 +2038,7 @@ def handle_message(event):
 
     if msg == "確定清除":
         try:
+            # 權限檢查
             wait = db.get("__WAIT__", {}).get(group_id)
             if not wait or wait["user"] != user:
                 return
@@ -2041,24 +2046,25 @@ def handle_message(event):
             now = now_tw()
             start, end = get_kpi_range(now)
             
-            # 1. 抓取格式正確的資料
+            # 1. 抓取格式正確的資料 (內含 date, kill, user, source)
             boss_db_for_kpi = get_all_records_for_kpi(group_id, start, end)
             
-            # 2. 計算 KPI (現在 boss_db_for_kpi 裡面是字典了，不會再報 tuple 錯誤)
+            # 2. 呼叫你的 calculate_kpi 進行統計
             kpi_data = calculate_kpi(boss_db_for_kpi, start, end)
 
-            # 3. 先執行物理刪除 (PostgreSQL)
+            # 3. 執行物理刪除 (PostgreSQL)
+            # 務必確認 delete_all_boss_records 函式內有 conn.commit()
             delete_all_boss_records(group_id)
             
-            # 4. 清除本地 JSON 內的紀錄 (非常重要，否則王表指令還會抓到舊資料)
+            # 4. 清除本地 JSON 內的紀錄 (避免王表指令抓到舊資料)
             if "boss_db" in db and group_id in db["boss_db"]:
                 db["boss_db"][group_id] = {}
             
-            # 5. 清除確認狀態與存檔
+            # 5. 清除等待狀態與存檔
             db.get("__WAIT__", {}).pop(group_id, None)
             save_db(db)
 
-            # 6. 回覆
+            # 6. 回覆 KPI 圖卡 (因為現在 is_peak_time 回傳 False，一定會出圖卡)
             if kpi_data:
                 ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
                 display = [(get_username(uid), count) for uid, count in ranking]
@@ -2069,20 +2075,18 @@ def handle_message(event):
                     event.reply_token,
                     [
                         FlexSendMessage(alt_text="KPI 結算", contents=bubble),
-                        TextSendMessage("🗑️ 資料已完全清空。")
+                        TextSendMessage("🗑️ 資料已完全清空，KPI 結算完畢。")
                     ]
                 )
             else:
                 line_bot_api.reply_message(
                     event.reply_token,
-                    TextSendMessage("🗑️ 資料已清空 (本週無 KPI 紀錄)。")
+                    TextSendMessage("🗑️ 資料已清空 (本週無符合條件之 KPI 紀錄)。")
                 )
         except Exception as e:
-            # 如果還是出錯，這裡會印出到底是哪一行
             import traceback
-            error_details = traceback.format_exc()
-            print(f"詳細錯誤資訊:\n{error_details}")
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(f"⚠️ 修正後仍出錯：{str(e)}"))
+            print(traceback.format_exc()) # 後台印出詳細報錯位置
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(f"⚠️ 清除失敗：{str(e)}"))
         return
 
     if msg == "取消清除":
