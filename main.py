@@ -100,23 +100,21 @@ def save_boss_to_pg(group_id, boss_name, kill_time, respawn_time, user_id, note,
         conn.close()
 
 def get_latest_boss_records(group_id, boss_name=None):
-    """從資料庫抓取紀錄。若有 boss_name 則抓單一王，否則抓全部最新一筆。"""
     conn = get_pg_conn()
     if not conn: return {}
     try:
         cur = conn.cursor()
-        
-        # 💡 修改 SQL 邏輯：如果有 boss_name 就加 WHERE 過濾
         if boss_name:
+            # 模式 A: 針對單一王 (自動補時用)
             query = """
                 SELECT boss_name, kill_time, respawn_time, note, user_id, source
                 FROM boss_time
                 WHERE group_id = %s AND boss_name = %s
-                ORDER BY kill_time DESC
-                LIMIT 1
+                ORDER BY kill_time DESC LIMIT 1
             """
             cur.execute(query, (group_id, boss_name))
         else:
+            # 模式 B: 抓全體最新一筆 (出 指令用)
             query = """
                 SELECT DISTINCT ON (boss_name) 
                        boss_name, kill_time, respawn_time, note, user_id, source
@@ -125,37 +123,29 @@ def get_latest_boss_records(group_id, boss_name=None):
                 ORDER BY boss_name, kill_time DESC
             """
             cur.execute(query, (group_id,))
-            
-        rows = cur.fetchall()
-        cur.close()
         
+        rows = cur.fetchall()
         result = {}
         for row in rows:
             b_name = row[0]
             kt_raw = row[1]
-            # 時區處理 (沿用您的邏輯)
             kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
             rt_raw = row[2]
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
-            # 轉換為 dict 格式
-            data = {
+            # 統一回傳格式為 list
+            result[b_name] = [{
                 "date": kt_tw.strftime("%Y-%m-%d"),
                 "kill": kt_tw.strftime("%H:%M:%S"),
-                "respawn": rt_tw,  # 💡 這裡直接留 datetime 物件，方便後面計算
+                "respawn": rt_tw.isoformat(), # 出 指令需要 isoformat 轉回 datetime
                 "note": row[3] if row[3] else "",
                 "user": row[4],
                 "source": row[5]
-            }
-            
-            if boss_name:
-                return [data] # 如果是查單一王，直接回傳 list
-            result[b_name] = [data]
-            
+            }]
         return result
     except Exception as e:
-        print(f"Error fetching boss records: {e}")
-        return {} if not boss_name else []
+        print(f"Error: {e}")
+        return {}
     finally:
         conn.close()
 
