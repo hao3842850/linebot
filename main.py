@@ -2749,22 +2749,21 @@ def handle_message(event):
         parts = clean_line.split()
         first_token = parts[0].upper()
         
-        # 1. 判定登記模式
+        # 模式判定
         is_time_first = first_token.isdigit() or first_token in ["K", "6", "6666"]
         
         t = None
         boss = None
-        current_input_note = "" # 確保每次重置
+        current_input_note = ""
 
         if is_time_first:
-            # 【模式 B】：手動登記 (例如: 6 克特 空)
+            # 【模式 B】：手動登記 (例如: 6 克特)
             if len(parts) < 2:
                 failed_lines.append(raw_line)
                 continue
             
             time_token = parts[0]
             boss = get_boss(parts[1])
-            # 💡 抓取這次輸入的備註
             current_input_note = " ".join(parts[2:]) if len(parts) > 2 else ""
             
             if not boss:
@@ -2776,13 +2775,12 @@ def handle_message(event):
             else:
                 t = parse_time(time_token)
         else:
-            # 【模式 A】：自動補時 (例如: 克特 空)
+            # 【模式 A】：自動補時 (例如: 克特)
             boss = get_boss(parts[0])
             if boss:
-                # 💡 核心修正：強制抓取這次輸入的備註，沒寫就是空字串
                 current_input_note = " ".join(parts[1:]) if len(parts) > 1 else ""
                 
-                # 抓取資料庫最近一筆紀錄
+                # 💡 核心修復：強制去資料庫抓「最近一次」的紀錄
                 last_records = get_latest_boss_records(group_id, boss)
                 
                 rec = None
@@ -2792,45 +2790,47 @@ def handle_message(event):
                     rec = last_records[boss][0]
                 
                 if rec:
-                    # 💡 核心修復：補時必須使用上次的「重生時間」作為本次「死亡時間」
-                    # 避免抓到舊的死亡時間導致時間倒退或加上 CD 後爆走
+                    # 💡 關鍵：分秒不差的秘密在於必須抓上一筆的「respawn」
                     t_val = rec.get('respawn')
-                    if isinstance(t_val, str):
-                        t = datetime.fromisoformat(t_val).astimezone(TZ)
-                    elif t_val:
-                        t = t_val.astimezone(TZ)
+                    if t_val:
+                        # 統一轉為帶有時區的台北時間，確保計算不會產生幾小時的偏移
+                        if isinstance(t_val, str):
+                            t = datetime.fromisoformat(t_val).astimezone(TZ)
+                        else:
+                            t = t_val.astimezone(TZ)
             
             if not t:
-                failed_lines.append(f"{raw_line} (查無紀錄，請輸入時間)")
+                failed_lines.append(f"{raw_line} (查無歷史紀錄，請手動登記一次)")
                 continue
 
-        # 💡 終極修正：強制使用本次輸入，完全不繼承資料庫內的舊備註
-        final_note = current_input_note.strip()
-
+        # 處理 CD
         cd = cd_map.get(boss)
         if cd is None: continue
 
-        # 3. 寫入資料庫
+        # 💡 計算重生時間：這筆的 respawn = 上一筆的 respawn (t) + CD
         respawn = t + timedelta(hours=cd)
+        
+        # 3. 寫入資料庫
         save_boss_to_pg(
             group_id=group_id,
             boss_name=boss,
             kill_time=t,
             respawn_time=respawn,
             user_id=user,
-            note=final_note, # 存入這次解析到的新備註
+            note=current_input_note.strip(), 
             source="backup" if is_backup_mode else "auto_next"
         )
         success_count += 1
 
-        # 4. 回應邏輯 (Flex 訊息也同步使用 final_note)
+        # 4. 回應邏輯
         if not is_backup_mode:
             registrar = get_username(user)
+            # 💡 使用 %S 確保秒數在回應中顯示，方便您對齊
             kill_str = t.strftime("%H:%M:%S") 
             resp_str = respawn.strftime("%H:%M:%S")
             
-            text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, final_note)
-            flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, final_note)
+            text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, current_input_note.strip())
+            flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, current_input_note.strip())
             safe_reply(event, text_msg, flex_msg)
 @app.get("/")
 def root():
