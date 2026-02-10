@@ -105,22 +105,22 @@ def get_latest_boss_records(group_id, boss_name=None):
     try:
         cur = conn.cursor()
         if boss_name:
-            # 模式 A: 針對單一王 (自動補時用) - 確保抓取該群組最後一筆
+            # 💡 修正點：改用 respawn_time 排序，確保抓到「最晚重生」的那筆
             query = """
                 SELECT boss_name, kill_time, respawn_time, note, user_id, source
                 FROM boss_time
                 WHERE group_id = %s AND boss_name = %s
-                ORDER BY kill_time DESC LIMIT 1
+                ORDER BY respawn_time DESC LIMIT 1
             """
             cur.execute(query, (group_id, boss_name))
         else:
-            # 模式 B: 抓全體最新一筆 (出 指令用)
+            # 抓全體最新一筆
             query = """
                 SELECT DISTINCT ON (boss_name) 
                        boss_name, kill_time, respawn_time, note, user_id, source
                 FROM boss_time
                 WHERE group_id = %s
-                ORDER BY boss_name, kill_time DESC
+                ORDER BY boss_name, respawn_time DESC
             """
             cur.execute(query, (group_id,))
         
@@ -128,25 +128,20 @@ def get_latest_boss_records(group_id, boss_name=None):
         result = {}
         for row in rows:
             b_name = row[0]
-            kt_raw = row[1] # PostgreSQL 抓出的 kill_time
-            rt_raw = row[2] # PostgreSQL 抓出的 respawn_time
+            # 💡 核心修復：直接抓取物件，不轉 ISO 字串，保留分秒精度
+            kt_raw = row[1]
+            rt_raw = row[2]
 
-            # 💡 核心修復：直接存入帶有時區的 datetime 物件，不轉字串！
             kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
-            # 保持回傳格式為 list 以相容您的舊邏輯，但 respawn 改回物件
             result[b_name] = [{
-                "date": kt_tw.strftime("%Y-%m-%d"),
-                "kill": kt_tw.strftime("%H:%M:%S"),
-                "respawn": rt_tw,  # 💡 這裡直接給物件，不要 isoformat()
-                "note": row[3] if row[3] else "",
-                "user": row[4],
-                "source": row[5]
+                "respawn": rt_tw,  # 💡 這是最重要的：傳遞 datetime 物件
+                "note": row[3] if row[3] else ""
             }]
         return result
     except Exception as e:
-        print(f"PostgreSQL 讀取失敗: {e}")
+        print(f"Error: {e}")
         return {}
     finally:
         conn.close()
@@ -2780,26 +2775,17 @@ def handle_message(event):
             # 【模式 A】：自動補時 (例如: 克特)
             boss = get_boss(parts[0])
             if boss:
+                # 💡 這次輸入的備註
                 current_input_note = " ".join(parts[1:]) if len(parts) > 1 else ""
                 
-                # 💡 核心修復：強制去資料庫抓「最近一次」的紀錄
+                # 抓取該群組該王最新紀錄
                 last_records = get_latest_boss_records(group_id, boss)
                 
-                rec = None
-                if isinstance(last_records, list) and len(last_records) > 0:
-                    rec = last_records[0]
-                elif isinstance(last_records, dict) and boss in last_records:
+                # 💡 核心修復：直接從回傳字典中提取帶有時區的 datetime 物件
+                if last_records and boss in last_records:
                     rec = last_records[boss][0]
-                
-                if rec:
-                    # 💡 關鍵：分秒不差的秘密在於必須抓上一筆的「respawn」
-                    t_val = rec.get('respawn')
-                    if t_val:
-                        # 統一轉為帶有時區的台北時間，確保計算不會產生幾小時的偏移
-                        if isinstance(t_val, str):
-                            t = datetime.fromisoformat(t_val).astimezone(TZ)
-                        else:
-                            t = t_val.astimezone(TZ)
+                    # 這裡抓到的 t 已經在 get_latest_boss_records 中轉為台北時間物件
+                    t = rec.get('respawn')
             
             if not t:
                 failed_lines.append(f"{raw_line} (查無歷史紀錄，請手動登記一次)")
@@ -2809,7 +2795,7 @@ def handle_message(event):
         cd = cd_map.get(boss)
         if cd is None: continue
 
-        # 💡 計算重生時間：這筆的 respawn = 上一筆的 respawn (t) + CD
+        # 💡 分秒不差的繼承：respawn = 前一筆重生時間 (t) + CD
         respawn = t + timedelta(hours=cd)
         
         # 3. 寫入資料庫
@@ -2827,7 +2813,6 @@ def handle_message(event):
         # 4. 回應邏輯
         if not is_backup_mode:
             registrar = get_username(user)
-            # 💡 使用 %S 確保秒數在回應中顯示，方便您對齊
             kill_str = t.strftime("%H:%M:%S") 
             resp_str = respawn.strftime("%H:%M:%S")
             
