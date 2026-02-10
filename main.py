@@ -2749,21 +2749,22 @@ def handle_message(event):
         parts = clean_line.split()
         first_token = parts[0].upper()
         
-        # 模式判定
+        # 模式判定：判斷第一個字是否為時間格式 (數字/K/6)
         is_time_first = first_token.isdigit() or first_token in ["K", "6", "6666"]
         
         t = None
         boss = None
-        current_input_note = ""
+        current_input_note = "" # 確保每次迴圈開始都是空的
 
         if is_time_first:
-            # 【模式 B】：手動登記 (例如: 6 綠王 空2)
+            # 【模式 B】：手動登記 (例如: 6 綠王 空)
             if len(parts) < 2:
                 failed_lines.append(raw_line)
                 continue
             
             time_token = parts[0]
             boss = get_boss(parts[1])
+            # 💡 抓取這次輸入的備註
             current_input_note = " ".join(parts[2:]) if len(parts) > 2 else ""
             
             if not boss:
@@ -2778,29 +2779,32 @@ def handle_message(event):
             # 【模式 A】：自動補時 (例如: 綠王 空)
             boss = get_boss(parts[0])
             if boss:
-                # 💡 關鍵：這次輸入的備註內容
+                # 💡 關鍵修正：強制抓取這次輸入的備註，若沒寫就是空字串
                 current_input_note = " ".join(parts[1:]) if len(parts) > 1 else ""
                 
-                # 呼叫資料庫抓取最新紀錄
+                # 抓取資料庫紀錄
                 last_records = get_latest_boss_records(group_id, boss)
                 
-                if last_records:
-                    # 處理回傳格式 (可能是 list 或 dict)
-                    rec = last_records[0] if isinstance(last_records, list) else last_records.get(boss, [None])[0]
-                    
-                    if rec:
-                        # 💡 核心修復 1：必須使用「重生時間」作為這一次的「死亡時間」
-                        t_val = rec['respawn'] 
-                        if isinstance(t_val, str):
-                            t = datetime.fromisoformat(t_val).astimezone(TZ)
-                        else:
-                            t = t_val.astimezone(TZ)
+                # 取得最近一次紀錄
+                rec = None
+                if isinstance(last_records, list) and len(last_records) > 0:
+                    rec = last_records[0]
+                elif isinstance(last_records, dict) and boss in last_records:
+                    rec = last_records[boss][0]
                 
+                if rec:
+                    # 💡 時間校正：自動補時必須使用上次的「重生時間」作為本次「死亡時間」
+                    t_val = rec.get('respawn')
+                    if isinstance(t_val, str):
+                        t = datetime.fromisoformat(t_val).astimezone(TZ)
+                    elif t_val:
+                        t = t_val.astimezone(TZ)
+            
             if not t:
-                failed_lines.append(f"{raw_line} (查無歷史紀錄)")
+                failed_lines.append(f"{raw_line} (查無紀錄)")
                 continue
 
-        # 💡 核心修復 2：強制使用本次輸入的備註，不繼承舊紀錄
+        # 💡 終極修正：強制使用本次輸入，完全不理會資料庫內的舊備註
         final_note = current_input_note.strip()
 
         cd = cd_map.get(boss)
@@ -2814,7 +2818,7 @@ def handle_message(event):
             kill_time=t,
             respawn_time=respawn,
             user_id=user,
-            note=final_note, # 確保存入新備註
+            note=final_note, # 這裡存入的是正確的空值或新備註
             source="backup" if is_backup_mode else "auto_next"
         )
         success_count += 1
@@ -2828,12 +2832,6 @@ def handle_message(event):
             text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, final_note)
             flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, final_note)
             safe_reply(event, text_msg, flex_msg)
-
-    if is_backup_mode:
-        summary_msg = f"📦 備份登記完成：成功 {success_count} 隻"
-        if failed_lines: summary_msg += f"\n⚠️ 失敗 {len(failed_lines)} 行"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(summary_msg))
-    return
 @app.get("/")
 def root():
     return {"status": "OK"}
