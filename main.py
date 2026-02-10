@@ -2749,22 +2749,22 @@ def handle_message(event):
         parts = clean_line.split()
         first_token = parts[0].upper()
         
-        # 判定是否為手動輸入時間 (數字、K、6)
+        # 模式判定
         is_time_first = first_token.isdigit() or first_token in ["K", "6", "6666"]
         
         t = None
         boss = None
-        current_input_note = "" 
+        current_input_note = ""
 
         if is_time_first:
-            # 【模式 B】：手動登記 (例如: 6 綠王 空)
+            # 【模式 B】：手動登記 (例如: 6 克特 空)
             if len(parts) < 2:
                 failed_lines.append(raw_line)
                 continue
             
             time_token = parts[0]
             boss = get_boss(parts[1])
-            # 💡 優先解析本次輸入的備註
+            # 💡 優先解析本次輸入的備註，不寫則為空
             current_input_note = " ".join(parts[2:]) if len(parts) > 2 else ""
             
             if not boss:
@@ -2776,10 +2776,10 @@ def handle_message(event):
             else:
                 t = parse_time(time_token)
         else:
-            # 【模式 A】：自動補時 (例如: 綠王 空)
+            # 【模式 A】：自動補時 (例如: 克特 空)
             boss = get_boss(parts[0])
             if boss:
-                # 💡 強制取這次輸入的備註，不寫就是空字串
+                # 💡 強制取這次輸入的備註，不寫就是空字串，徹底覆蓋舊備註
                 current_input_note = " ".join(parts[1:]) if len(parts) > 1 else ""
                 
                 # 抓取資料庫最近一筆紀錄
@@ -2793,18 +2793,19 @@ def handle_message(event):
                 
                 if rec:
                     # 💡 核心修復：自動補時必須拿「上次的重生時間」當作「本次死亡時間」
-                    # 避免抓到舊的死亡時間導致時間倒退或偏移
                     t_val = rec.get('respawn')
                     if isinstance(t_val, str):
+                        # 確保 ISO 字串轉回時區正確
                         t = datetime.fromisoformat(t_val).astimezone(TZ)
                     elif t_val:
+                        # 確保 Datetime 物件轉回台北時區
                         t = t_val.astimezone(TZ)
             
             if not t:
-                failed_lines.append(f"{raw_line} (查無歷史紀錄，請輸入時間)")
+                failed_lines.append(f"{raw_line} (查無歷史紀錄，請手動登記一次)")
                 continue
 
-        # 💡 備註終極覆蓋：完全不理會 rec 裡的舊備註
+        # 💡 備註完全覆蓋邏輯：不繼承資料庫抓出的任何舊內容
         final_note = current_input_note.strip()
 
         cd = cd_map.get(boss)
@@ -2818,12 +2819,12 @@ def handle_message(event):
             kill_time=t,
             respawn_time=respawn,
             user_id=user,
-            note=final_note, # 存入這次解析到的備註
+            note=final_note, # 確保存入的是本次解析的新備註
             source="backup" if is_backup_mode else "auto_next"
         )
         success_count += 1
 
-        # 4. 回應與 Flex 顯示
+        # 4. 回應邏輯
         if not is_backup_mode:
             registrar = get_username(user)
             kill_str = t.strftime("%H:%M:%S") 
