@@ -2748,32 +2748,52 @@ def handle_message(event):
         if not clean_line: continue
 
         parts = clean_line.split()
-        if len(parts) < 2:
-            failed_lines.append(raw_line)
-            continue
-
-        time_token = parts[0]
-        boss_name = parts[1]
-        note = " ".join(parts[2:]) if len(parts) > 2 else ""
-
-        if time_token in ["6", "6666"] or time_token.upper() == "K":
-            t = now_tw()
-        else:
-            t = parse_time(time_token)
+        # 1. 判斷指令模式
+        potential_boss = get_boss(parts[0])
+        
+        if potential_boss:
+            # 【模式 A】：王名 (備註) -> 範例: "克特" 或 "克特 空幾"
+            boss = potential_boss
+            note = " ".join(parts[1:]) if len(parts) > 1 else ""
             
-        if not t:
-            failed_lines.append(raw_line)
-            continue
+            # 自動抓取資料庫中該王的上次重生時間
+            last_records = get_latest_boss_records(group_id, boss)
+            if last_records:
+                t = last_records[0]['respawn_time']
+            else:
+                failed_lines.append(f"{raw_line} (查無歷史紀錄)")
+                continue
+        else:
+            # 【模式 B】：時間 王名 (備註) -> 範例: "1200 克特"
+            if len(parts) < 2:
+                failed_lines.append(raw_line)
+                continue
+            
+            time_token = parts[0]
+            boss_name = parts[1]
+            note = " ".join(parts[2:]) if len(parts) > 2 else ""
+            
+            boss = get_boss(boss_name)
+            if not boss:
+                failed_lines.append(raw_line)
+                continue
+            
+            if time_token in ["6", "6666"] or time_token.upper() == "K":
+                t = now_tw()
+            else:
+                t = parse_time(time_token)
+                
+            if not t:
+                failed_lines.append(raw_line)
+                continue
 
-        boss = get_boss(boss_name)
-        if not boss:
-            failed_lines.append(raw_line)
-            continue
+        # 2. 處理備註預設值：如果沒有輸入備註，
+        final_note = note.strip() if note.strip() else ""
 
         cd = cd_map.get(boss)
         if cd is None: continue
 
-        # 3. 寫入資料庫 (完全取代 boss_db 操作)
+        # 3. 寫入資料庫
         respawn = t + timedelta(hours=cd)
         save_boss_to_pg(
             group_id=group_id,
@@ -2781,21 +2801,20 @@ def handle_message(event):
             kill_time=t,
             respawn_time=respawn,
             user_id=user,
-            note=note,
-            source="backup" if is_backup_mode else "manual"
+            note=final_note, # 套用預設值
+            source="backup" if is_backup_mode else "auto_next"
         )
         success_count += 1
 
-        # 4. 回應邏輯
+        # 4. 回應邏輯 (確保帶入 final_note)
         if not is_backup_mode:
             registrar = get_username(user)
             kill_str = t.strftime("%H:%M:%S")
             resp_str = respawn.strftime('%H:%M:%S')
             
-            text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, note)
-            flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, note)
+            text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, final_note)
+            flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, final_note)
             safe_reply(event, text_msg, flex_msg)
-
     # 5. 迴圈結束後的回覆 (不再需要針對 boss_db 做 save_db)
     if is_backup_mode:
         summary_msg = f"📦 備份登記完成：成功 {success_count} 隻"
