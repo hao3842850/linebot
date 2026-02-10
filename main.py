@@ -99,53 +99,63 @@ def save_boss_to_pg(group_id, boss_name, kill_time, respawn_time, user_id, note,
     finally:
         conn.close()
 
-def get_latest_boss_records(group_id):
-    """從資料庫抓取各隻王最後一筆紀錄 (用於 '備份' 與 '出')"""
+def get_latest_boss_records(group_id, boss_name=None):
+    """從資料庫抓取紀錄。若有 boss_name 則抓單一王，否則抓全部最新一筆。"""
     conn = get_pg_conn()
     if not conn: return {}
     try:
         cur = conn.cursor()
-        # DISTINCT ON 確保每隻王只取最新的一筆
-        query = """
-            SELECT DISTINCT ON (boss_name) 
-                   boss_name, kill_time, respawn_time, note, user_id, source
-            FROM boss_time
-            WHERE group_id = %s
-            ORDER BY boss_name, kill_time DESC
-        """
-        cur.execute(query, (group_id,))
+        
+        # 💡 修改 SQL 邏輯：如果有 boss_name 就加 WHERE 過濾
+        if boss_name:
+            query = """
+                SELECT boss_name, kill_time, respawn_time, note, user_id, source
+                FROM boss_time
+                WHERE group_id = %s AND boss_name = %s
+                ORDER BY kill_time DESC
+                LIMIT 1
+            """
+            cur.execute(query, (group_id, boss_name))
+        else:
+            query = """
+                SELECT DISTINCT ON (boss_name) 
+                       boss_name, kill_time, respawn_time, note, user_id, source
+                FROM boss_time
+                WHERE group_id = %s
+                ORDER BY boss_name, kill_time DESC
+            """
+            cur.execute(query, (group_id,))
+            
         rows = cur.fetchall()
         cur.close()
         
         result = {}
         for row in rows:
-            boss_name = row[0]
-            kt_raw = row[1]  # 資料庫原始時間 (通常是 UTC)
-            
-            # --- 關鍵修復：時區轉換 ---
-            # 如果抓出來的時間沒有時區資訊，先給它 UTC，再轉成台北 TZ (GMT+8)
-            if kt_raw.tzinfo is None:
-                kt_tw = pytz.utc.localize(kt_raw).astimezone(TZ)
-            else:
-                kt_tw = kt_raw.astimezone(TZ)
-            
-            # 處理重生時間
+            b_name = row[0]
+            kt_raw = row[1]
+            # 時區處理 (沿用您的邏輯)
+            kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
             rt_raw = row[2]
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
-            # 轉換為 dict 格式，並補齊 KPI 結算需要的欄位
-            result[boss_name] = [{
+            # 轉換為 dict 格式
+            data = {
                 "date": kt_tw.strftime("%Y-%m-%d"),
-                "kill": kt_tw.strftime("%H:%M:%S"), # 這邊輸出的就會是正確的台北時間
-                "respawn": rt_tw.isoformat(),
+                "kill": kt_tw.strftime("%H:%M:%S"),
+                "respawn": rt_tw,  # 💡 這裡直接留 datetime 物件，方便後面計算
                 "note": row[3] if row[3] else "",
                 "user": row[4],
                 "source": row[5]
-            }]
+            }
+            
+            if boss_name:
+                return [data] # 如果是查單一王，直接回傳 list
+            result[b_name] = [data]
+            
         return result
     except Exception as e:
         print(f"Error fetching boss records: {e}")
-        return {}
+        return {} if not boss_name else []
     finally:
         conn.close()
 
@@ -2754,14 +2764,13 @@ def handle_message(event):
         if potential_boss:
             # 【模式 A】：王名 (備註) -> 範例: "克特" 或 "克特 空幾"
             boss = potential_boss
-            note = " ".join(parts[1:]) if len(parts) > 1 else ""
-            
+            note = " ".join(parts[1:]) if len(parts) > 1 else ""            
             # 自動抓取資料庫中該王的上次重生時間
             last_records = get_latest_boss_records(group_id, boss)
             if last_records:
-                t = last_records[0]['respawn_time']
+                t = last_records[0]['respawn']            
             else:
-                failed_lines.append(f"{raw_line} (查無歷史紀錄)")
+                failed_lines.append(f"{raw_line} (此王尚無歷史紀錄，請手動輸入一次時間)")
                 continue
         else:
             # 【模式 B】：時間 王名 (備註) -> 範例: "1200 克特"
