@@ -100,13 +100,21 @@ def save_boss_to_pg(group_id, boss_name, kill_time, respawn_time, user_id, note,
         conn.close()
 
 def get_latest_boss_records(group_id, boss_name=None):
+    """
+    取得最新王怪紀錄。
+    💡 修正重點：
+    1. 改用 respawn_time 排序，確保自動補時抓到的是「最後重生的基準點」。
+    2. 移除 isoformat() 字串化，直接回傳台北時區的 datetime 物件，保證分秒不差。
+    """
     conn = get_pg_conn()
-    if not conn: return {}
+    if not conn: 
+        return {}
+        
     try:
         cur = conn.cursor()
         if boss_name:
-            # 💡 修正點：改用 respawn_time 排序，確保抓到「最晚重生」的那筆
-            # 💡 修改 get_latest_boss_records 內的 SQL 語句
+            # 【模式 A】：針對單一王 (自動補時用)
+            # 💡 排序改為 respawn_time DESC，確保抓到未來重生最晚的那一筆
             query = """
                 SELECT boss_name, kill_time, respawn_time, note, user_id, source
                 FROM boss_time
@@ -115,7 +123,7 @@ def get_latest_boss_records(group_id, boss_name=None):
             """
             cur.execute(query, (group_id, boss_name))
         else:
-            # 抓全體最新一筆
+            # 【模式 B】：抓全體最新一筆 (出 指令用)
             query = """
                 SELECT DISTINCT ON (boss_name) 
                        boss_name, kill_time, respawn_time, note, user_id, source
@@ -129,20 +137,27 @@ def get_latest_boss_records(group_id, boss_name=None):
         result = {}
         for row in rows:
             b_name = row[0]
-            # 💡 核心修復：直接抓取物件，不轉 ISO 字串，保留分秒精度
-            kt_raw = row[1]
-            rt_raw = row[2]
+            kt_raw = row[1]  # 死亡時間原始物件
+            rt_raw = row[2]  # 重生時間原始物件
 
+            # 💡 關鍵修復：強制對齊台北時區 (TZ)，且不轉成字串
+            # 這樣外層 Handler 在計算 +CD 時就不會因為 ISO 字串解析而丟失分秒
             kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
+            # 統一回傳格式，respawn 欄位現在存放的是「物件」
             result[b_name] = [{
-                "respawn": rt_tw,  # 💡 這是最重要的：傳遞 datetime 物件
-                "note": row[3] if row[3] else ""
+                "date": kt_tw.strftime("%Y-%m-%d"),
+                "kill": kt_tw.strftime("%H:%M:%S"),
+                "respawn": rt_tw,  # 💡 直接傳遞 datetime 物件，分秒精確度 100% 繼承
+                "note": row[3] if row[3] else "",
+                "user": row[4],
+                "source": row[5]
             }]
         return result
+        
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"PostgreSQL 查詢出錯: {e}")
         return {}
     finally:
         conn.close()
@@ -2722,21 +2737,12 @@ def handle_message(event):
     #        )
 
 
-# ===== 登記王（支援多行 / 備份貼上 + KPI）=====
-    restored_kpi = {}
-    skip_kpi = False 
-    success_count = 0
-    failed_lines = []
-    
-    group_id = getattr(event.source, 'group_id', 'default_group')
-    user = getattr(event.source, 'user_id', 'Unknown')
-    is_backup_mode = msg.startswith("備份")
-    
-    lines = msg.split('\n')
+# ===== 登記王（最終修復完整版）=====
     for line in lines:
         raw_line = line.strip()
         if not raw_line: continue
 
+        # KPI 過濾邏輯 (如果您有使用)
         if raw_line == "__KPI_START__": skip_kpi = True; continue
         if raw_line == "__KPI_END__": skip_kpi = False; continue
         if skip_kpi: continue
@@ -2746,6 +2752,8 @@ def handle_message(event):
 
         parts = clean_line.split()
         first_token = parts[0].upper()
+        
+        # 模式判定
         is_time_first = first_token.isdigit() or first_token in ["K", "6", "6666"]
         
         t = None
@@ -2753,50 +2761,66 @@ def handle_message(event):
         current_input_note = ""
 
         if is_time_first:
-            # 【模式 B】：手動登記
+            # 【模式 B】：手動登記 (例如: 6 克特 空)
+            if len(parts) < 2:
+                failed_lines.append(raw_line)
+                continue
+            
             time_token = parts[0]
             boss = get_boss(parts[1])
             current_input_note = " ".join(parts[2:]) if len(parts) > 2 else ""
-            if not boss: continue
+            
+            if not boss:
+                failed_lines.append(raw_line)
+                continue
             
             if time_token in ["6", "6666"] or time_token.upper() == "K":
-                t = now_tw()
+                t = now_tw() # 抓取當前精準分秒
             else:
                 t = parse_time(time_token)
         else:
-            # 【模式 A】：自動補時 (王名 模式)
+            # 【模式 A】：自動補時 (例如: 克特 空)
             boss = get_boss(parts[0])
             if boss:
+                # 💡 本次備註強制覆蓋舊備註
                 current_input_note = " ".join(parts[1:]) if len(parts) > 1 else ""
-                # 💡 從資料庫抓取物件
+                
+                # 抓取資料庫紀錄
                 last_records = get_latest_boss_records(group_id, boss)
                 
+                # 💡 直接提取 datetime 物件基準
                 if last_records and boss in last_records:
-                    # 💡 直接提取 get_latest_boss_records 已經處理好的台北時間物件
-                    t = last_records[boss][0].get('respawn')
+                    rec = last_records[boss][0]
+                    t = rec.get('respawn') 
             
             if not t:
-                failed_lines.append(f"{raw_line} (請先手動登記一次)")
+                failed_lines.append(f"{raw_line} (無歷史紀錄，請輸入時間手動校正一次)")
                 continue
 
-        # 💡 重生計算：直接繼承前一筆的精準分秒
+        # 處理 CD 與重生計算
         cd = cd_map.get(boss)
         if cd is None: continue
+
+        # 💡 分秒不差的繼承：respawn = t (上一筆重生) + CD
         respawn = t + timedelta(hours=cd)
         
         # 3. 寫入資料庫
         save_boss_to_pg(
-            group_id=group_id, boss_name=boss,
-            kill_time=t, respawn_time=respawn,
-            user_id=user, note=current_input_note.strip(),
+            group_id=group_id,
+            boss_name=boss,
+            kill_time=t,
+            respawn_time=respawn,
+            user_id=user,
+            note=current_input_note.strip(), 
             source="backup" if is_backup_mode else "auto_next"
         )
         success_count += 1
 
-        # 4. 回應 (顯示秒數方便校對)
+        # 4. 回應邏輯 (顯示秒數方便對齊)
         if not is_backup_mode:
             registrar = get_username(user)
             kill_str, resp_str = t.strftime("%H:%M:%S"), respawn.strftime("%H:%M:%S")
+            
             text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, current_input_note.strip())
             flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, current_input_note.strip())
             safe_reply(event, text_msg, flex_msg)
