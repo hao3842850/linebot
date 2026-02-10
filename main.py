@@ -2738,6 +2738,17 @@ def handle_message(event):
 
 
 # ===== 登記王（最終修復完整版）=====
+    success_count = 0
+    failed_lines = []
+    # 💡 核心修正：必須在進入迴圈前，先初始化所有狀態變數
+    skip_kpi = False  
+    restored_kpi = {}
+    
+    group_id = getattr(event.source, 'group_id', 'default_group')
+    user = getattr(event.source, 'user_id', 'Unknown')
+    is_backup_mode = msg.startswith("備份")
+    
+    lines = msg.split('\n')
     for line in lines:
         raw_line = line.strip()
         if not raw_line: continue
