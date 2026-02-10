@@ -119,7 +119,7 @@ def get_latest_boss_records(group_id, boss_name=None):
                 SELECT boss_name, kill_time, respawn_time, note, user_id, source
                 FROM boss_time
                 WHERE group_id = %s AND boss_name = %s
-                ORDER BY respawn_time DESC LIMIT 1
+                ORDER BY respawn_time DESC LIMIT 1  -- 💡 改用重生時間排序
             """
             cur.execute(query, (group_id, boss_name))
         else:
@@ -142,14 +142,14 @@ def get_latest_boss_records(group_id, boss_name=None):
 
             # 💡 關鍵修復：強制對齊台北時區 (TZ)，且不轉成字串
             # 這樣外層 Handler 在計算 +CD 時就不會因為 ISO 字串解析而丟失分秒
+            # 修改 get_latest_boss_records 內部 (約第 170 行附近)
             kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
-            # 統一回傳格式，respawn 欄位現在存放的是「物件」
             result[b_name] = [{
                 "date": kt_tw.strftime("%Y-%m-%d"),
                 "kill": kt_tw.strftime("%H:%M:%S"),
-                "respawn": rt_tw,  # 💡 直接傳遞 datetime 物件，分秒精確度 100% 繼承
+                "respawn": rt_tw,  # 💡 這裡改為傳遞 rt_tw 物件，不要 .isoformat()
                 "note": row[3] if row[3] else "",
                 "user": row[4],
                 "source": row[5]
@@ -2740,8 +2740,7 @@ def handle_message(event):
 # ===== 登記王（最終修復完整版）=====
     success_count = 0
     failed_lines = []
-    # 💡 核心修正：必須在進入迴圈前，先初始化所有狀態變數
-    skip_kpi = False  
+    skip_kpi = False  # 💡 必須移到這裡初始化
     restored_kpi = {}
     
     group_id = getattr(event.source, 'group_id', 'default_group')
@@ -2789,23 +2788,19 @@ def handle_message(event):
                 t = now_tw() # 抓取當前精準分秒
             else:
                 t = parse_time(time_token)
+        # 簡化 Handler 模式 A (自動補時) 邏輯
         else:
-            # 【模式 A】：自動補時 (例如: 克特 空)
             boss = get_boss(parts[0])
             if boss:
-                # 💡 本次備註強制覆蓋舊備註
                 current_input_note = " ".join(parts[1:]) if len(parts) > 1 else ""
-                
-                # 抓取資料庫紀錄
                 last_records = get_latest_boss_records(group_id, boss)
                 
-                # 💡 直接提取 datetime 物件基準
                 if last_records and boss in last_records:
                     rec = last_records[boss][0]
-                    t = rec.get('respawn') 
+                    t = rec.get('respawn') # 💡 這裡直接拿物件，不用 fromisoformat
             
             if not t:
-                failed_lines.append(f"{raw_line} (無歷史紀錄，請輸入時間手動校正一次)")
+                failed_lines.append(f"{raw_line} (無紀錄)")
                 continue
 
         # 處理 CD 與重生計算
