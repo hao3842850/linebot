@@ -2729,10 +2729,18 @@ def handle_message(event):
         raw_line = line.strip()
         if not raw_line: continue
 
-        # KPI 旗標處理 (跳過暫不處理的 KPI 文字)
-        if raw_line == "__KPI_START__": skip_kpi = True; continue
-        if raw_line == "__KPI_END__": skip_kpi = False; continue
-        if skip_kpi: continue
+        # KPI 旗標處理
+        if raw_line == "__KPI_START__":
+            skip_kpi = True
+            continue
+        if raw_line == "__KPI_END__":
+            skip_kpi = False
+            # (下方的 save_db 邏輯建議註解掉，因為您現在用 PostgreSQL)
+            continue
+            
+        # 這裡會讀取 skip_kpi，如果上面沒有初始化，就會報錯
+        if skip_kpi:
+            continue
 
         clean_line = sanitize_register_line(raw_line)
         if not clean_line: continue
