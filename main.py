@@ -2726,11 +2726,10 @@ def handle_message(event):
 
 # ===== 登記王（支援多行 / 備份貼上 + KPI）=====
     restored_kpi = {}
-    skip_kpi = False  # 修正：確保在迴圈外初始化，避免 UnboundLocalError
+    skip_kpi = False 
     success_count = 0
     failed_lines = []
     
-    # 取得群組 ID
     group_id = getattr(event.source, 'group_id', 'default_group')
     user = getattr(event.source, 'user_id', 'Unknown')
     is_backup_mode = msg.startswith("備份")
@@ -2740,53 +2739,26 @@ def handle_message(event):
         raw_line = line.strip()
         if not raw_line: continue
 
-        # KPI 旗標處理 (這部分目前屬於停滯功能，僅保留結構)
-        if raw_line == "__KPI_START__":
-            skip_kpi = True
-            continue
-        if raw_line == "__KPI_END__":
-            skip_kpi = False
-            continue
-        if skip_kpi:
-            continue
+        if raw_line == "__KPI_START__": skip_kpi = True; continue
+        if raw_line == "__KPI_END__": skip_kpi = False; continue
+        if skip_kpi: continue
 
         clean_line = sanitize_register_line(raw_line)
         if not clean_line: continue
 
         parts = clean_line.split()
+        first_token = parts[0].upper()
         
-        # 1. 判斷指令模式
-        potential_boss = get_boss(parts[0]) # 先檢查第一個字是不是王名
+        # --- [邏輯修訂：精準判斷模式] ---
+        # 判斷第一個 token 是否為時間格式 (數字、K、6、6666)
+        is_time_first = first_token.isdigit() or first_token in ["K", "6", "6666"]
         
-        if potential_boss:
-            # 【模式 A】：王名 (備註) -> 範例: "克特" 或 "克特 空2"
-            boss = potential_boss
-            # 備註處理：除了王名以外的所有字串，若無則為 "" (空值)
-            note = " ".join(parts[1:]) if len(parts) > 1 else ""
-            
-            # 💡 呼叫修正後的函式：傳入 group_id 與 boss 名稱
-            last_records = get_latest_boss_records(group_id, boss)
-            
-            # 判斷回傳格式 (因為您的函式會根據 boss_name 是否存在回傳 list)
-            if last_records and isinstance(last_records, list):
-                # 抓取該王上次重生的時間作為本次開王時間
-                t = last_records[0]['respawn']
-                # 如果資料庫抓出來是 iso 字串，則轉回 datetime 物件
-                if isinstance(t, str):
-                    try:
-                        t = datetime.fromisoformat(t).astimezone(TZ)
-                    except:
-                        pass
-            elif isinstance(last_records, dict) and boss in last_records:
-                # 兼容舊版回傳 dict 的可能性
-                t = last_records[boss][0]['respawn']
-                if isinstance(t, str):
-                    t = datetime.fromisoformat(t).astimezone(TZ)
-            else:
-                failed_lines.append(f"{raw_line} (此王尚無歷史紀錄，請輸入時間)")
-                continue
-        else:
-            # 【模式 B】：時間 王名 (備註) -> 範例: "1200 克特"
+        t = None
+        boss = None
+        note = ""
+
+        if is_time_first:
+            # 【模式 B】：時間 王名 (備註) -> 範例: "6 克特" 或 "1200 克特"
             if len(parts) < 2:
                 failed_lines.append(raw_line)
                 continue
@@ -2800,14 +2772,30 @@ def handle_message(event):
                 failed_lines.append(raw_line)
                 continue
             
-            # 處理快速登記 (K/6/6666)
             if time_token in ["6", "6666"] or time_token.upper() == "K":
                 t = now_tw()
             else:
                 t = parse_time(time_token)
-                
+        else:
+            # 【模式 A】：王名 (備註) -> 範例: "克特" 或 "克特 空幾"
+            boss = get_boss(parts[0])
+            if boss:
+                note = " ".join(parts[1:]) if len(parts) > 1 else ""
+                # 從資料庫抓取上次重生時間
+                last_records = get_latest_boss_records(group_id, boss)
+                if last_records and isinstance(last_records, list):
+                    t_val = last_records[0]['respawn']
+                    # 確保轉為 datetime 物件
+                    if isinstance(t_val, str):
+                        t = datetime.fromisoformat(t_val).astimezone(TZ)
+                    else:
+                        t = t_val
+                elif isinstance(last_records, dict) and boss in last_records:
+                    t_val = last_records[boss][0]['respawn']
+                    t = datetime.fromisoformat(t_val).astimezone(TZ) if isinstance(t_val, str) else t_val
+            
             if not t:
-                failed_lines.append(raw_line)
+                failed_lines.append(f"{raw_line} (無紀錄或格式錯誤)")
                 continue
 
         # 2. 處理備註：確保是空值 (Empty String)
@@ -2839,11 +2827,9 @@ def handle_message(event):
             flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, final_note)
             safe_reply(event, text_msg, flex_msg)
 
-    # 5. 迴圈結束後的回覆
     if is_backup_mode:
         summary_msg = f"📦 備份登記完成：成功 {success_count} 隻"
-        if failed_lines:
-            summary_msg += f"\n⚠️ 失敗 {len(failed_lines)} 行"
+        if failed_lines: summary_msg += f"\n⚠️ 失敗 {len(failed_lines)} 行"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(summary_msg))
     return
 @app.get("/")
