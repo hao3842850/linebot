@@ -99,82 +99,54 @@ def save_boss_to_pg(group_id, boss_name, kill_time, respawn_time, user_id, note,
     finally:
         conn.close()
 
-def get_latest_boss_records(group_id, boss_name=None):
-    """
-    取得最新王怪紀錄。
-    💡 修正重點：
-    1. 改用 respawn_time 排序，確保自動補時抓到的是「最後重生的基準點」。
-    2. 移除 isoformat() 字串化，直接回傳台北時區的 datetime 物件，保證分秒不差。
-    """
+def get_latest_boss_records(group_id):
+    """從資料庫抓取各隻王最後一筆紀錄 (用於 '備份' 與 '出')"""
     conn = get_pg_conn()
-    if not conn: 
-        return {}
-        
+    if not conn: return {}
     try:
         cur = conn.cursor()
-        if boss_name:
-            # 【模式 A】：針對單一王 (自動補時用)
-            # 💡 排序改為 respawn_time DESC，確保抓到未來重生最晚的那一筆
-            query = """
-                SELECT boss_name, kill_time, respawn_time, note, user_id, source
-                FROM boss_time
-                WHERE group_id = %s AND boss_name = %s
-                ORDER BY respawn_time DESC LIMIT 1  -- 💡 改用重生時間排序
-            """
-            cur.execute(query, (group_id, boss_name))
-        else:
-            # 【模式 B】：抓全體最新一筆 (出 指令用)
-            query = """
-                SELECT DISTINCT ON (boss_name) 
-                       boss_name, kill_time, respawn_time, note, user_id, source
-                FROM boss_time
-                WHERE group_id = %s
-                ORDER BY boss_name, respawn_time DESC
-            """
-            cur.execute(query, (group_id,))
-        
+        # DISTINCT ON 確保每隻王只取最新的一筆
+        query = """
+            SELECT DISTINCT ON (boss_name) 
+                   boss_name, kill_time, respawn_time, note, user_id, source
+            FROM boss_time
+            WHERE group_id = %s
+            ORDER BY boss_name, kill_time DESC
+        """
+        cur.execute(query, (group_id,))
         rows = cur.fetchall()
+        cur.close()
+        
         result = {}
         for row in rows:
-            b_name = row[0]
-            kt_raw = row[1]  # 死亡時間原始物件
-            rt_raw = row[2]  # 重生時間原始物件
-
-            # 💡 關鍵修復：強制對齊台北時區 (TZ)，且不轉成字串
-            # 這樣外層 Handler 在計算 +CD 時就不會因為 ISO 字串解析而丟失分秒
-            # 修改 get_latest_boss_records 內部 (約第 170 行附近)
-            kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
+            boss_name = row[0]
+            kt_raw = row[1]  # 資料庫原始時間 (通常是 UTC)
+            
+            # --- 關鍵修復：時區轉換 ---
+            # 如果抓出來的時間沒有時區資訊，先給它 UTC，再轉成台北 TZ (GMT+8)
+            if kt_raw.tzinfo is None:
+                kt_tw = pytz.utc.localize(kt_raw).astimezone(TZ)
+            else:
+                kt_tw = kt_raw.astimezone(TZ)
+            
+            # 處理重生時間
+            rt_raw = row[2]
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
-            result[b_name] = [{
+            # 轉換為 dict 格式，並補齊 KPI 結算需要的欄位
+            result[boss_name] = [{
                 "date": kt_tw.strftime("%Y-%m-%d"),
-                "kill": kt_tw.strftime("%H:%M:%S"),
-                "respawn": rt_tw,  # 💡 這裡改為傳遞 rt_tw 物件，不要 .isoformat()
+                "kill": kt_tw.strftime("%H:%M:%S"), # 這邊輸出的就會是正確的台北時間
+                "respawn": rt_tw.isoformat(),
                 "note": row[3] if row[3] else "",
                 "user": row[4],
                 "source": row[5]
             }]
         return result
-        
     except Exception as e:
-        print(f"PostgreSQL 查詢出錯: {e}")
+        print(f"Error fetching boss records: {e}")
         return {}
     finally:
-        conn.close()
-
-def save_to_boss_team(group_id, user_id, user_name):
-    conn = get_pg_conn()
-    cur = conn.cursor()
-    try:
-        # 確保 user_id 存入的是 Ua123... 那串，而不是 user_name
-        cur.execute("""
-            INSERT INTO boss_team (group_id, user_id, user_name) 
-            VALUES (%s, %s, %s)
-            ON CONFLICT (group_id, user_id) DO UPDATE SET user_name = EXCLUDED.user_name
-        """, (group_id, user_id, user_name))
-        conn.commit()
-    finally:
-        cur.close()
         conn.close()
 
 def init_cd_boss_with_given_time(group_id, base_time, user_id):
@@ -343,19 +315,6 @@ def background_check():
         # 每 60 秒檢查一次
         time.sleep(60)
 
-def get_user_name(user_id):
-    """
-    透過 LINE API 取得使用者的顯示名稱
-    """
-    try:
-        # 使用 SDK 內建的 get_profile 取得用戶資料
-        profile = line_bot_api.get_profile(user_id)
-        return profile.display_name
-    except Exception as e:
-        print(f"取得用戶名稱失敗: {e}")
-        # 如果抓不到（例如用戶沒加好友），回傳「冒險者」作為替代
-        return "冒險者"
-
 # 啟動背景執行緒 (放在檔案最下方)
 t = threading.Thread(target=background_check)
 t.daemon = True
@@ -368,59 +327,59 @@ def notify_boss_team(group_id, boss_name):
     conn = get_pg_conn()
     cur = conn.cursor()
     try:
-        # 1. 抓取成員 (確保 user_id 是第一欄)
+        # 1. 抓取成員
         cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
         rows = cur.fetchall()
         
+        # 2. 基礎訊息文字
         base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
         
         if rows:
+            user_ids = [r[0] for r in rows]
+            text_prefix = "📢 打王組集合！ "
             mentionees = []
-            mention_text = ""
             
-            for i, row in enumerate(rows[:50]):
-                uid = str(row[0]).strip() # 確保抓到的是 U 開頭的 ID 字串
-                
-                # 計算位置：目前的 mention_text 長度就是下一個 @ 的 index
+            # 3. 嚴格計算每個人的 Index 位址
+            for i, uid in enumerate(user_ids[:50]):
                 mentionees.append({
-                    "index": len(mention_text),
+                    "index": len(text_prefix) + i,
                     "length": 1,
-                    "userId": uid
+                    "userId": str(uid)
                 })
-                mention_text += "@" # 每個標記對應一個字元
-                
-            # 組合最終文字
-            full_text = f"{mention_text}\n📢 打王組集合！\n{base_msg}"
 
+            # 組合最終文字：前綴 + 空格預留位 + 訊息內容
+            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
+
+            # 4. 手動建構 Payload (不依賴 SDK 類別)
             payload = {
                 "to": group_id,
-                "messages": [{
-                    "type": "text",
-                    "text": full_text,
-                    "mention": {"mentionees": mentionees}
-                }]
+                "messages": [
+                    {
+                        "type": "text",
+                        "text": full_text,
+                        "mention": {
+                            "mentionees": mentionees
+                        }
+                    }
+                ]
             }
-            
+
+            # 5. 直接發送 Post 請求到 LINE API
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
             }
-
-            # 2. 關鍵修正：只保留這一個發送動作
+            
             response = requests.post(
-                "https://api.line.me/v2/bot/message/push", 
-                headers=headers, 
-                json=payload # 使用 json 參數會自動處理 json.dumps
+                "https://api.line.me/v2/bot/message/push",
+                headers=headers,
+                data=json.dumps(payload)
             )
             
-            # 3. 檢查回傳結果
             if response.status_code != 200:
                 print(f"LINE API 報錯: {response.text}")
-            else:
-                print(f"DEBUG API回傳: {response.text}")
-                print(f"成功發送標記通知：{boss_name}")
         else:
-            # 沒人時使用原本的 SDK 發送
+            # 沒人時發送普通訊息
             line_bot_api.push_message(group_id, TextSendMessage(text=f"⏰ {base_msg}"))
             
     except Exception as e:
@@ -2141,28 +2100,24 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
         return
     
+    # 1. 加入打王組：輸入「+1」
     if text == "+1":
-        user_id = event.source.user_id
-        user_name = get_user_name(user_id)
+        user_name = get_username(user_id)
         conn = get_pg_conn()
         cur = conn.cursor()
         try:
-            # 修改點：ON CONFLICT 時更新名字，確保 user_id 與 user_name 對位
+            # 存入資料
             cur.execute(
-                """
-                INSERT INTO boss_team (group_id, user_id, user_name) 
-                VALUES (%s, %s, %s) 
-                ON CONFLICT (group_id, user_id) 
-                DO UPDATE SET user_name = EXCLUDED.user_name
-                """,
+                "INSERT INTO boss_team (group_id, user_id, user_name) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                 (group_id, user_id, user_name)
             )
             conn.commit()
 
+            # 💡 增加步驟：抓取該群組目前所有成員名單
             cur.execute("SELECT user_name FROM boss_team WHERE group_id = %s", (group_id,))
             rows = cur.fetchall()
             members = [r[0] for r in rows]
-            member_list_str = "、".join(members)
+            member_list_str = "、".join(members) # 用頓號隔開人名
 
             line_bot_api.reply_message(
                 event.reply_token, 
@@ -2170,7 +2125,11 @@ def handle_message(event):
             )
         except Exception as e:
             print(f"Error: {e}")
-            
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 系統忙碌中，請稍後再試"))
+        finally:
+            cur.close()
+            conn.close()
+
     # 2. 退出打王組：輸入「-1」
     elif text == "-1":
         conn = get_pg_conn()
@@ -2737,99 +2696,84 @@ def handle_message(event):
     #        )
 
 
-# ===== 登記王（最終修復完整版）=====
-    success_count = 0
-    failed_lines = []
-    skip_kpi = False  # 💡 必須移到這裡初始化
+    # ===== 登記王（支援多行 / 備份貼上 + KPI）=====
     restored_kpi = {}
-    
-    group_id = getattr(event.source, 'group_id', 'default_group')
-    user = getattr(event.source, 'user_id', 'Unknown')
-    is_backup_mode = msg.startswith("備份")
-    
-    lines = msg.split('\n')
+    skip_kpi = False
     for line in lines:
         raw_line = line.strip()
         if not raw_line: continue
 
-        # KPI 過濾邏輯 (如果您有使用)
-        if raw_line == "__KPI_START__": skip_kpi = True; continue
-        if raw_line == "__KPI_END__": skip_kpi = False; continue
-        if skip_kpi: continue
+        if raw_line == "__KPI_START__":
+            skip_kpi = True
+            continue
+        if raw_line == "__KPI_END__":
+            skip_kpi = False
+            if restored_kpi:
+                db.setdefault("kpi_backup", {})[now_tw().strftime("%Y-%m-%d")] = restored_kpi
+                save_db(db)
+            continue
+        if skip_kpi:
+            # ... (此處保留解析 restored_kpi 的邏輯) ...
+            continue
 
         clean_line = sanitize_register_line(raw_line)
         if not clean_line: continue
 
         parts = clean_line.split()
-        first_token = parts[0].upper()
-        
-        # 模式判定
-        is_time_first = first_token.isdigit() or first_token in ["K", "6", "6666"]
-        
-        t = None
-        boss = None
-        current_input_note = ""
+        if len(parts) < 2:
+            failed_lines.append(raw_line)
+            continue
 
-        if is_time_first:
-            # 【模式 B】：手動登記 (例如: 6 克特 空)
-            if len(parts) < 2:
-                failed_lines.append(raw_line)
-                continue
-            
-            time_token = parts[0]
-            boss = get_boss(parts[1])
-            current_input_note = " ".join(parts[2:]) if len(parts) > 2 else ""
-            
-            if not boss:
-                failed_lines.append(raw_line)
-                continue
-            
-            if time_token in ["6", "6666"] or time_token.upper() == "K":
-                t = now_tw() # 抓取當前精準分秒
-            else:
-                t = parse_time(time_token)
-        # 簡化 Handler 模式 A (自動補時) 邏輯
+        time_token = parts[0]
+        boss_name = parts[1]
+        note = " ".join(parts[2:]) if len(parts) > 2 else ""
+
+        if time_token in ["6", "6666"] or time_token.upper() == "K":
+            t = now_tw()
         else:
-            boss = get_boss(parts[0])
-            if boss:
-                current_input_note = " ".join(parts[1:]) if len(parts) > 1 else ""
-                last_records = get_latest_boss_records(group_id, boss)
-                
-                if last_records and boss in last_records:
-                    rec = last_records[boss][0]
-                    t = rec.get('respawn') # 💡 這裡直接拿物件，不用 fromisoformat
+            t = parse_time(time_token)
             
-            if not t:
-                failed_lines.append(f"{raw_line} (無紀錄)")
-                continue
+        if not t:
+            failed_lines.append(raw_line)
+            continue
 
-        # 處理 CD 與重生計算
+        boss = get_boss(boss_name)
+        if not boss:
+            failed_lines.append(raw_line)
+            continue
+
         cd = cd_map.get(boss)
         if cd is None: continue
 
-        # 💡 分秒不差的繼承：respawn = t (上一筆重生) + CD
+        # 3. 寫入資料庫 (完全取代 boss_db 操作)
         respawn = t + timedelta(hours=cd)
-        
-        # 3. 寫入資料庫
         save_boss_to_pg(
             group_id=group_id,
             boss_name=boss,
             kill_time=t,
             respawn_time=respawn,
             user_id=user,
-            note=current_input_note.strip(), 
-            source="backup" if is_backup_mode else "auto_next"
+            note=note,
+            source="backup" if is_backup_mode else "manual"
         )
         success_count += 1
 
-        # 4. 回應邏輯 (顯示秒數方便對齊)
+        # 4. 回應邏輯
         if not is_backup_mode:
             registrar = get_username(user)
-            kill_str, resp_str = t.strftime("%H:%M:%S"), respawn.strftime("%H:%M:%S")
+            kill_str = t.strftime("%H:%M:%S")
+            resp_str = respawn.strftime('%H:%M:%S')
             
-            text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, current_input_note.strip())
-            flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, current_input_note.strip())
+            text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, note)
+            flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, note)
             safe_reply(event, text_msg, flex_msg)
+
+    # 5. 迴圈結束後的回覆 (不再需要針對 boss_db 做 save_db)
+    if is_backup_mode:
+        summary_msg = f"📦 備份登記完成：成功 {success_count} 隻"
+        if failed_lines:
+            summary_msg += f"\n⚠️ 失敗 {len(failed_lines)} 行"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(summary_msg))
 @app.get("/")
 def root():
     return {"status": "OK"}
