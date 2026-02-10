@@ -106,6 +106,7 @@ def get_latest_boss_records(group_id, boss_name=None):
         cur = conn.cursor()
         if boss_name:
             # 💡 修正點：改用 respawn_time 排序，確保抓到「最晚重生」的那筆
+            # 💡 修改 get_latest_boss_records 內的 SQL 語句
             query = """
                 SELECT boss_name, kill_time, respawn_time, note, user_id, source
                 FROM boss_time
@@ -2745,8 +2746,6 @@ def handle_message(event):
 
         parts = clean_line.split()
         first_token = parts[0].upper()
-        
-        # 模式判定
         is_time_first = first_token.isdigit() or first_token in ["K", "6", "6666"]
         
         t = None
@@ -2754,68 +2753,50 @@ def handle_message(event):
         current_input_note = ""
 
         if is_time_first:
-            # 【模式 B】：手動登記 (例如: 6 克特)
-            if len(parts) < 2:
-                failed_lines.append(raw_line)
-                continue
-            
+            # 【模式 B】：手動登記
             time_token = parts[0]
             boss = get_boss(parts[1])
             current_input_note = " ".join(parts[2:]) if len(parts) > 2 else ""
-            
-            if not boss:
-                failed_lines.append(raw_line)
-                continue
+            if not boss: continue
             
             if time_token in ["6", "6666"] or time_token.upper() == "K":
                 t = now_tw()
             else:
                 t = parse_time(time_token)
         else:
-            # 【模式 A】：自動補時 (例如: 克特)
+            # 【模式 A】：自動補時 (王名 模式)
             boss = get_boss(parts[0])
             if boss:
-                # 💡 這次輸入的備註
                 current_input_note = " ".join(parts[1:]) if len(parts) > 1 else ""
-                
-                # 抓取該群組該王最新紀錄
+                # 💡 從資料庫抓取物件
                 last_records = get_latest_boss_records(group_id, boss)
                 
-                # 💡 核心修復：直接從回傳字典中提取帶有時區的 datetime 物件
                 if last_records and boss in last_records:
-                    rec = last_records[boss][0]
-                    # 這裡抓到的 t 已經在 get_latest_boss_records 中轉為台北時間物件
-                    t = rec.get('respawn')
+                    # 💡 直接提取 get_latest_boss_records 已經處理好的台北時間物件
+                    t = last_records[boss][0].get('respawn')
             
             if not t:
-                failed_lines.append(f"{raw_line} (查無歷史紀錄，請手動登記一次)")
+                failed_lines.append(f"{raw_line} (請先手動登記一次)")
                 continue
 
-        # 處理 CD
+        # 💡 重生計算：直接繼承前一筆的精準分秒
         cd = cd_map.get(boss)
         if cd is None: continue
-
-        # 💡 分秒不差的繼承：respawn = 前一筆重生時間 (t) + CD
         respawn = t + timedelta(hours=cd)
         
         # 3. 寫入資料庫
         save_boss_to_pg(
-            group_id=group_id,
-            boss_name=boss,
-            kill_time=t,
-            respawn_time=respawn,
-            user_id=user,
-            note=current_input_note.strip(), 
+            group_id=group_id, boss_name=boss,
+            kill_time=t, respawn_time=respawn,
+            user_id=user, note=current_input_note.strip(),
             source="backup" if is_backup_mode else "auto_next"
         )
         success_count += 1
 
-        # 4. 回應邏輯
+        # 4. 回應 (顯示秒數方便校對)
         if not is_backup_mode:
             registrar = get_username(user)
-            kill_str = t.strftime("%H:%M:%S") 
-            resp_str = respawn.strftime("%H:%M:%S")
-            
+            kill_str, resp_str = t.strftime("%H:%M:%S"), respawn.strftime("%H:%M:%S")
             text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, current_input_note.strip())
             flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, current_input_note.strip())
             safe_reply(event, text_msg, flex_msg)
