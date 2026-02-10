@@ -2749,25 +2749,23 @@ def handle_message(event):
         parts = clean_line.split()
         first_token = parts[0].upper()
         
-        # --- [邏輯修訂：精準判斷模式] ---
-        # 判斷第一個 token 是否為時間格式 (數字、K、6、6666)
+        # 模式判定
         is_time_first = first_token.isdigit() or first_token in ["K", "6", "6666"]
         
         t = None
         boss = None
-        note = ""
+        current_input_note = "" # 這次輸入的備註
 
         if is_time_first:
-            # 【模式 B】：時間 王名 (備註) -> 範例: "6 克特" 或 "1200 克特"
+            # 【模式 B】：手動輸入時間 (如 6 綠王 空2)
             if len(parts) < 2:
                 failed_lines.append(raw_line)
                 continue
             
             time_token = parts[0]
-            boss_name = parts[1]
-            note = " ".join(parts[2:]) if len(parts) > 2 else ""
+            boss = get_boss(parts[1])
+            current_input_note = " ".join(parts[2:]) if len(parts) > 2 else ""
             
-            boss = get_boss(boss_name)
             if not boss:
                 failed_lines.append(raw_line)
                 continue
@@ -2777,29 +2775,32 @@ def handle_message(event):
             else:
                 t = parse_time(time_token)
         else:
-            # 【模式 A】：王名 (備註) -> 範例: "克特" 或 "克特 空幾"
+            # 【模式 A】：自動帶入時間 (如 綠王 空2)
             boss = get_boss(parts[0])
             if boss:
-                note = " ".join(parts[1:]) if len(parts) > 1 else ""
-                # 從資料庫抓取上次重生時間
+                current_input_note = " ".join(parts[1:]) if len(parts) > 1 else ""
                 last_records = get_latest_boss_records(group_id, boss)
+                
                 if last_records and isinstance(last_records, list):
                     t_val = last_records[0]['respawn']
-                    # 確保轉為 datetime 物件
+                    # 時區校正
                     if isinstance(t_val, str):
-                        t = datetime.fromisoformat(t_val).astimezone(TZ)
+                        t = datetime.fromisoformat(t_val).replace(tzinfo=pytz.utc).astimezone(TZ)
+                    elif t_val.tzinfo is None:
+                        t = TZ.localize(t_val)
                     else:
-                        t = t_val
+                        t = t_val.astimezone(TZ)
                 elif isinstance(last_records, dict) and boss in last_records:
                     t_val = last_records[boss][0]['respawn']
-                    t = datetime.fromisoformat(t_val).astimezone(TZ) if isinstance(t_val, str) else t_val
+                    t = datetime.fromisoformat(t_val).replace(tzinfo=pytz.utc).astimezone(TZ) if isinstance(t_val, str) else t_val.astimezone(TZ)
             
             if not t:
-                failed_lines.append(f"{raw_line} (無紀錄或格式錯誤)")
+                failed_lines.append(f"{raw_line} (查無歷史紀錄)")
                 continue
 
-        # 2. 處理備註：確保是空值 (Empty String)
-        final_note = note.strip() if note else ""
+        # 💡 核心修正：強制使用「這次輸入」的備註，如果不填則為空字串
+        # 不再從 last_records 裡面抓 note 出來用
+        final_note = current_input_note.strip()
 
         cd = cd_map.get(boss)
         if cd is None: continue
@@ -2812,7 +2813,7 @@ def handle_message(event):
             kill_time=t,
             respawn_time=respawn,
             user_id=user,
-            note=final_note,
+            note=final_note, # 確保存入的是新的備註
             source="backup" if is_backup_mode else "auto_next"
         )
         success_count += 1
