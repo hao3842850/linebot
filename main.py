@@ -105,7 +105,7 @@ def get_latest_boss_records(group_id, boss_name=None):
     try:
         cur = conn.cursor()
         if boss_name:
-            # 模式 A: 針對單一王 (自動補時用)
+            # 模式 A: 針對單一王 (自動補時用) - 確保抓取該群組最後一筆
             query = """
                 SELECT boss_name, kill_time, respawn_time, note, user_id, source
                 FROM boss_time
@@ -128,23 +128,25 @@ def get_latest_boss_records(group_id, boss_name=None):
         result = {}
         for row in rows:
             b_name = row[0]
-            kt_raw = row[1]
+            kt_raw = row[1] # PostgreSQL 抓出的 kill_time
+            rt_raw = row[2] # PostgreSQL 抓出的 respawn_time
+
+            # 💡 核心修復：直接存入帶有時區的 datetime 物件，不轉字串！
             kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
-            rt_raw = row[2]
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
-            # 統一回傳格式為 list
+            # 保持回傳格式為 list 以相容您的舊邏輯，但 respawn 改回物件
             result[b_name] = [{
                 "date": kt_tw.strftime("%Y-%m-%d"),
                 "kill": kt_tw.strftime("%H:%M:%S"),
-                "respawn": rt_tw.isoformat(), # 出 指令需要 isoformat 轉回 datetime
+                "respawn": rt_tw,  # 💡 這裡直接給物件，不要 isoformat()
                 "note": row[3] if row[3] else "",
                 "user": row[4],
                 "source": row[5]
             }]
         return result
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"PostgreSQL 讀取失敗: {e}")
         return {}
     finally:
         conn.close()
