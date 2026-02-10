@@ -1698,7 +1698,7 @@ alias_map = {
     "小紅": ["小紅", "55", "紅", "R", "r"],
     "小綠": ["小綠", "54", "綠", "G", "g"],
     "守護螞蟻": ["守護螞蟻", "螞蟻", "29", "ant", "a", "A"],
-    "巨大蜈蚣": ["巨大蜈蚣", "蜈蚣", "海4", "海蟲"],
+    "巨大蜈蚣": ["巨大蜈蚣", "蜈蚣", "海4", "海蟲", "6"],
     "86左飛龍": ["左飛龍", "861", "86左飛龍", "左", "86下"],
     "86右飛龍": ["右飛龍", "862", "86右飛龍", "右", "86上"],
     "伊弗利特": ["伊弗利特", "伊弗", "EF", "ef", "伊佛", "衣服", "E", "e"],
@@ -2724,43 +2724,37 @@ def handle_message(event):
     #        )
 
 
-    # ===== 登記王（支援多行 / 備份貼上 + KPI）=====
-    restored_kpi = {}
-    skip_kpi = False
+# ===== 登記王（支援多行 / 備份貼上 + KPI）=====
     for line in lines:
         raw_line = line.strip()
         if not raw_line: continue
 
-        if raw_line == "__KPI_START__":
-            skip_kpi = True
-            continue
-        if raw_line == "__KPI_END__":
-            skip_kpi = False
-            if restored_kpi:
-                db.setdefault("kpi_backup", {})[now_tw().strftime("%Y-%m-%d")] = restored_kpi
-                save_db(db)
-            continue
-        if skip_kpi:
-            # ... (此處保留解析 restored_kpi 的邏輯) ...
-            continue
+        # KPI 旗標處理 (跳過暫不處理的 KPI 文字)
+        if raw_line == "__KPI_START__": skip_kpi = True; continue
+        if raw_line == "__KPI_END__": skip_kpi = False; continue
+        if skip_kpi: continue
 
         clean_line = sanitize_register_line(raw_line)
         if not clean_line: continue
 
         parts = clean_line.split()
+        
         # 1. 判斷指令模式
         potential_boss = get_boss(parts[0])
         
         if potential_boss:
             # 【模式 A】：王名 (備註) -> 範例: "克特" 或 "克特 空幾"
             boss = potential_boss
-            note = " ".join(parts[1:]) if len(parts) > 1 else ""            
-            # 自動抓取資料庫中該王的上次重生時間
+            note = " ".join(parts[1:]) if len(parts) > 1 else ""
+            
+            # 💡 從資料庫抓取上次重生時間 (傳入兩個參數)
             last_records = get_latest_boss_records(group_id, boss)
-            if last_records:
-                t = last_records[0]['respawn']            
+            if last_records and isinstance(last_records, list):
+                t = last_records[0]['respawn']
+                # 如果 respawn 是 iso字串，請取消下面這行的註解:
+                # if isinstance(t, str): t = datetime.fromisoformat(t).astimezone(TZ)
             else:
-                failed_lines.append(f"{raw_line} (此王尚無歷史紀錄，請手動輸入一次時間)")
+                failed_lines.append(f"{raw_line} (此王尚無歷史紀錄，請手動輸入時間)")
                 continue
         else:
             # 【模式 B】：時間 王名 (備註) -> 範例: "1200 克特"
@@ -2777,6 +2771,7 @@ def handle_message(event):
                 failed_lines.append(raw_line)
                 continue
             
+            # 處理快速登記 (K/6/6666)
             if time_token in ["6", "6666"] or time_token.upper() == "K":
                 t = now_tw()
             else:
@@ -2786,8 +2781,8 @@ def handle_message(event):
                 failed_lines.append(raw_line)
                 continue
 
-        # 2. 處理備註預設值：如果沒有輸入備註，
-        final_note = note.strip() if note.strip() else ""
+        # 2. 處理備註：確保是空字串 (Empty String)
+        final_note = note.strip() if note else ""
 
         cd = cd_map.get(boss)
         if cd is None: continue
@@ -2800,16 +2795,17 @@ def handle_message(event):
             kill_time=t,
             respawn_time=respawn,
             user_id=user,
-            note=final_note, # 套用預設值
+            note=final_note,
             source="backup" if is_backup_mode else "auto_next"
         )
         success_count += 1
 
-        # 4. 回應邏輯 (確保帶入 final_note)
+        # 4. 回應邏輯
         if not is_backup_mode:
             registrar = get_username(user)
-            kill_str = t.strftime("%H:%M:%S")
-            resp_str = respawn.strftime('%H:%M:%S')
+            # 顯示格式改為 HH:mm 較為簡潔，依您喜好可改回 %H:%M:%S
+            kill_str = t.strftime("%H:%M:%S") 
+            resp_str = respawn.strftime("%H:%M:%S")
             
             text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, final_note)
             flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, final_note)
