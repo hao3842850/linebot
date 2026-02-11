@@ -2208,21 +2208,30 @@ def handle_message(event):
                 flex = build_shift_success_flex(user_name)
                 line_bot_api.reply_message(event.reply_token, flex)
                 return
-    # --- 新增：處理輪空指令 (例如：四色 空) ---
+    # 1. 先取得訊息並切分字串 (確保 parts 被定義)
+    msg_text = event.message.text.strip()
+    parts = msg_text.split()
+
+    # 2. 判斷是否為輪空指令 (例如：四色 空)
     if len(parts) >= 2 and ("空" in parts[1] or "輪空" in parts[1]):
         boss_input = parts[0]
-        note = parts[1] # 取得用戶輸入的 "空"、"空1" 等作為備註
-            
+        note = parts[1]
+        
         # 轉換王名別名
         boss_name = None
         for real_name, aliases in alias_map.items():
             if boss_input == real_name or boss_input in aliases:
                 boss_name = real_name
                 break
-            
+        
         if boss_name:
+            # 呼叫處理函式
             handle_boss_skipped(event, group_id, boss_name, user_id, note)
-            return # 處理完後結束，不跑下面的時間解析
+            return
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❓ 找不到王名：{boss_input}"))
+            return
+
     # 備份 (修正版：純粹輸出原始紀錄)
     if clean_msg == "備份" and "\n" not in msg:
         now = now_tw()
