@@ -2229,7 +2229,7 @@ def handle_message(event):
             handle_boss_skipped(event, group_id, boss_name, user_id, note)
             return
         else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❓ 找不到王名：{boss_input}"))
+            
             return
 
     # 備份 (修正版：純粹輸出原始紀錄)
