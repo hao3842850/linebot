@@ -1678,8 +1678,8 @@ def build_shift_status_flex(group_id, current_uid, next_uid):
     bubble = {
         "type": "bubble",
         "header": {
-            "type": "box", "layout": "vertical", "backgroundColor": "#1A237E",
-            "contents": [{"type": "text", "text": "⚔️ 戰力交接系統", "color": "#FFFFFF", "weight": "bold"}]
+            "type": "box", "layout": "vertical", "backgroundColor": "#DA9921",
+            "contents": [{"type": "text", "text": "⚔️ 王表交接系統", "color": "#FFFFFF", "weight": "bold"}]
         },
         "body": {
             "type": "box", "layout": "vertical", "spacing": "md",
@@ -2147,18 +2147,19 @@ def handle_message(event):
                 line_bot_api.reply_message(event.reply_token, flex)
                 return
 
-    # --- 接班功能 ---
+    # --- 接班功能修正版 ---
     elif raw_text == "接班":
-        user_name = get_username(user_id) # 使用您現有的名冊查詢函式
+        user_name = get_username(user_id)
         with get_pg_conn() as conn:
             with conn.cursor() as cur:
+                # 這裡我們使用 EXCLUDED 來引用想要插入的值，避免重複傳入參數
                 cur.execute("""
                     INSERT INTO shift_info (group_id, next_user_id)
                     VALUES (%s, %s)
                     ON CONFLICT (group_id) DO UPDATE SET 
                         next_user_id = EXCLUDED.next_user_id,
-                        updated_at = NOW()
-                """, (group_id, user_id, user_id))
+                        updated_at = NOW();
+                """, (group_id, user_id)) # 這裡只需要 2 個參數，對應上面的 2 個 %s
                 conn.commit()
                 
                 flex = build_shift_success_flex(user_name)
