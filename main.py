@@ -1,28 +1,14 @@
 # 天堂M 吃王小幫手
+
+import os, json, time, asyncio, threading, requests, pytz, psycopg2
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
+from threading import Lock
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import (
-    MemberJoinedEvent,
-    MessageEvent,
-    TextMessage,
-    TextSendMessage,
-    FlexSendMessage
-)
-from linebot.models import TextSendMessage, FlexSendMessage
-from datetime import datetime, timedelta, timezone
-import psycopg2
-from urllib.parse import urlparse
-import os
-import json
-import requests
-from datetime import datetime, timedelta
-import pytz
-import asyncio
-from threading import Lock
-import threading
-import time
-from datetime import timedelta
+from linebot.models import (MemberJoinedEvent, MessageEvent, TextMessage, TextSendMessage, FlexSendMessage)
+
 # 基本設定
 db_lock = Lock()
 app = FastAPI()
@@ -1509,6 +1495,21 @@ def ensure_roster_table():
             );
             """)
         conn.commit()
+def ensure_shift_table():
+    with get_pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS shift_info (
+                    group_id TEXT PRIMARY KEY,
+                    current_user_id TEXT,
+                    next_user_id TEXT,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            """)
+            conn.commit()
+
+# 在啟動區（如 init_db 附近）執行一次
+ensure_shift_table()
 def get_line_display_name(user_id):
     try:
         profile = line_bot_api.get_profile(user_id)
@@ -1663,6 +1664,50 @@ def build_roster_flex(rows):
             "contents": body_contents
         }
     }
+def build_shift_status_flex(group_id, current_uid, next_uid):
+    # 使用您現有的 get_username 獲取角色名
+    current_name = get_username(current_uid) if current_uid else "目前沒人當班"
+    next_name = get_username(next_uid) if next_uid else "等待接班..."
+    next_color = "#000000" if next_uid else "#FF6D18" # 沒人接班時顯示橘紅色
+
+    bubble = {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#1A237E", # 與 KPI 卡片同色
+            "contents": [{"type": "text", "text": "📅 戰力交接班", "color": "#FFFFFF", "weight": "bold"}]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "md",
+            "contents": [
+                {"type": "text", "text": f"👤 當班：{current_name}", "weight": "bold", "size": "md"},
+                {"type": "text", "text": f"⏭️ 下一班：{next_name}", "color": next_color, "size": "md"},
+                {"type": "separator", "margin": "md"}
+            ]
+        },
+        "footer": {
+            "type": "box", "layout": "vertical",
+            "contents": [
+                {"type": "button", "style": "primary", "color": "#2E7D32", "action": {"type": "message", "label": "點我接班", "text": "接班"}}
+            ]
+        }
+    }
+    return FlexSendMessage(alt_text="目前班表狀態", contents=bubble)
+
+def build_shift_success_flex(user_name):
+    # 簡潔的成功提示卡片
+    return FlexSendMessage(
+        alt_text="接班成功",
+        contents={
+            "type": "bubble", "size": "kilo",
+            "body": {
+                "type": "box", "layout": "vertical", "paddingAll": "lg",
+                "contents": [
+                    {"type": "text", "text": "✅ 接班登記成功", "weight": "bold", "color": "#2E7D32"},
+                    {"type": "text", "text": f"下一班人員：{user_name}", "margin": "md", "size": "sm"}
+                ]
+            }
+        }
+    )
 
 # 王資料
 alias_map = {
@@ -2066,6 +2111,49 @@ def handle_message(event):
     db["boss"].setdefault(group_id, {})
     boss_db = db["boss"][group_id]
     clean_msg = msg.strip()
+    msg_text = event.message.text.strip() # 取得並去空格
+
+    # --- 交班功能 (玩家輸入 @All 交班) ---
+    if "@All 交班" in msg_text:
+        group_id = get_source_id(event)
+        with get_pg_conn() as conn:
+            with conn.cursor() as cur:
+                # 1. 抓取目前狀態
+                cur.execute("SELECT next_user_id FROM shift_info WHERE group_id = %s", (group_id,))
+                row = cur.fetchone()
+                
+                # 2. 邏輯切換：將原本的「下一班」遞補為「當班」，並清空「下一班」
+                new_current = row[0] if row else None
+                cur.execute("""
+                    INSERT INTO shift_info (group_id, current_user_id, next_user_id)
+                    VALUES (%s, %s, NULL)
+                    ON CONFLICT (group_id) DO UPDATE SET 
+                        current_user_id = EXCLUDED.current_user_id,
+                        next_user_id = NULL,
+                        updated_at = NOW()
+                """, (group_id, new_current))
+                conn.commit()
+                
+                # 3. 輸出卡片 (顯示空格)
+                flex = build_shift_status_flex(group_id, new_current, None)
+                line_bot_api.reply_message(event.reply_token, flex)
+
+    # --- 接班功能 (玩家點擊按鈕或輸入 接班) ---
+    elif msg_text == "接班":
+        group_id = get_source_id(event)
+        user_id = event.source.user_id
+        user_name = get_username(user_id) # 獲取名冊姓名
+        
+        with get_pg_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE shift_info SET next_user_id = %s, updated_at = NOW()
+                    WHERE group_id = %s
+                """, (user_id, group_id))
+                conn.commit()
+                
+                flex = build_shift_success_flex(user_name)
+                line_bot_api.reply_message(event.reply_token, flex)
     
     # 備份 (修正版：純粹輸出原始紀錄)
     if clean_msg == "備份" and "\n" not in msg:
