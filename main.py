@@ -86,18 +86,18 @@ def save_boss_to_pg(group_id, boss_name, kill_time, respawn_time, user_id, note,
         conn.close()
 
 def get_latest_boss_records(group_id):
-    """從資料庫抓取各隻王最後一筆紀錄 (用於 '備份' 與 '出')"""
+    """修正版：確保抓取重生時間最晚的一筆紀錄"""
     conn = get_pg_conn()
     if not conn: return {}
     try:
         cur = conn.cursor()
-        # DISTINCT ON 確保每隻王只取最新的一筆
+        # 改用 respawn_time DESC，確保抓到最新的重生點
         query = """
             SELECT DISTINCT ON (boss_name) 
                    boss_name, kill_time, respawn_time, note, user_id, source
             FROM boss_time
             WHERE group_id = %s
-            ORDER BY boss_name, kill_time DESC
+            ORDER BY boss_name, respawn_time DESC
         """
         cur.execute(query, (group_id,))
         rows = cur.fetchall()
@@ -106,24 +106,19 @@ def get_latest_boss_records(group_id):
         result = {}
         for row in rows:
             boss_name = row[0]
-            kt_raw = row[1]  # 資料庫原始時間 (通常是 UTC)
             
-            # --- 關鍵修復：時區轉換 ---
-            # 如果抓出來的時間沒有時區資訊，先給它 UTC，再轉成台北 TZ (GMT+8)
-            if kt_raw.tzinfo is None:
-                kt_tw = pytz.utc.localize(kt_raw).astimezone(TZ)
-            else:
-                kt_tw = kt_raw.astimezone(TZ)
+            # 處理死亡時間 (kt)
+            kt_raw = row[1]
+            kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
             
-            # 處理重生時間
+            # 處理重生時間 (rt)
             rt_raw = row[2]
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
-            # 轉換為 dict 格式，並補齊 KPI 結算需要的欄位
             result[boss_name] = [{
                 "date": kt_tw.strftime("%Y-%m-%d"),
-                "kill": kt_tw.strftime("%H:%M:%S"), # 這邊輸出的就會是正確的台北時間
-                "respawn": rt_tw.isoformat(),
+                "kill": kt_tw.strftime("%H:%M:%S"),
+                "respawn": rt_tw.isoformat(), # 這裡維持 iso 格式供後續計算
                 "note": row[3] if row[3] else "",
                 "user": row[4],
                 "source": row[5]
@@ -1920,51 +1915,41 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
             "user": "__SYSTEM__"
         })
 def handle_boss_skipped(event, group_id, boss_name, user_id, note):
-    """修正版：確保能正確從資料庫抓取最新重生點並加 CD"""
     cd = cd_map.get(boss_name)
     if cd is None: return
 
-    # 1. 抓取該群組所有王的最新紀錄
     latest_records = get_latest_boss_records(group_id)
     
-    # 2. 判斷基準時間 (Base Time)
     if boss_name in latest_records:
-        # 取得該王「原本預計重生」的時間
+        # 抓取該王目前顯示的「預計重生時間」
         last_respawn_iso = latest_records[boss_name][0]["respawn"]
-        # 轉換為帶有時區的 datetime
+        # 因為 get_latest 已經處理過時區，這裡直接轉回 datetime
         base_time = datetime.fromisoformat(last_respawn_iso)
-        if base_time.tzinfo is None:
-            base_time = base_time.replace(tzinfo=pytz.UTC).astimezone(TZ)
-        else:
-            base_time = base_time.astimezone(TZ)
     else:
-        # 如果資料庫完全沒紀錄，以現在時間為基準 (去秒數)
+        # 沒紀錄才用現在時間
         base_time = now_tw().replace(second=0, microsecond=0)
 
-    # 3. 【關鍵】計算新時間：基準時間 + CD
+    # 計算新時間
     new_respawn = base_time + timedelta(hours=cd)
     
-    # 4. 寫入資料庫
+    # 寫入資料庫
     save_boss_to_pg(
         group_id=group_id,
         boss_name=boss_name,
-        kill_time=base_time,    # 將原預計時間存為死亡時間
+        kill_time=base_time, 
         respawn_time=new_respawn,
         user_id=user_id,
         note=note,
-        source="skip"           # 標註來源為輪空
+        source="skip"
     )
 
-    # 5. 格式化時間用於顯示
+    # 回傳
     registrar = get_username(user_id)
-    kill_str = base_time.strftime("%H:%M")
-    resp_str = new_respawn.strftime("%H:%M")
+    kill_str = base_time.strftime("%H:%M")   # 這次輪空的基準點
+    resp_str = new_respawn.strftime("%H:%M") # 下一次出的時間
     
-    # 這裡的 True 代表使用輪空版 Flex 卡片
-    flex_msg = build_register_boss_flex(boss_name, kill_str, resp_str, registrar, note, True)
-    
-    # 同步回傳文字訊息方便紀錄
-    text_msg = f"⭕ 輪空登記：{boss_name}\n基準：{kill_str}\n下趟：{resp_str}\n備註：{note}"
+    flex_msg = build_register_boss_flex(boss_name, kill_str, resp_str, registrar, note, is_skip=True)
+    text_msg = f"⭕ 輪空登記：{boss_name}\n基準：{kill_str}\n下趟：{resp_str}"
     
     safe_reply(event, text_msg, flex_msg)
 def get_kpi_range(now):
