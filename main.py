@@ -452,29 +452,42 @@ def build_all_boss_quick_flex():
 
 def build_kill_list_flex(title, display_items):
     """
-    產生帶有擊殺按鈕的重生列表 Flex (僅顯示已登記的前 15 隻)
+    產生帶有擊殺按鈕的重生列表 Flex (加大王名字體)
     """
     rows = []
     now = now_tw()
 
     for dt, line_text in display_items:
+        # 拆分時間與王名 (格式: "HH:MM:SS BossName...")
         parts = line_text.split(" ", 1)
         time_str = parts[0]
         boss_info = parts[1] if len(parts) > 1 else ""
         
         # 判定顏色
         diff = (dt - now).total_seconds()
-        status_color = "#FF4B4B" if diff < 0 else ("#FFA500" if diff < 1800 else "#3FB63F")
+        status_color = "#FF4B4B" if diff < 0 else ("#FFA500" if diff < 1800 else "#62BE62")
 
-        # 取得純王名
+        # 取得純王名 (用於 6666 指令)
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
         rows.append({
             "type": "box",
             "layout": "horizontal",
             "contents": [
+                # 1. 重生時間 (保持 sm)
                 {"type": "text", "text": time_str, "size": "sm", "color": status_color, "flex": 3, "gravity": "center"},
-                {"type": "text", "text": boss_info, "size": "xs", "flex": 5, "gravity": "center", "wrap": True},
+                # 2. 王名與備註 (放大至 sm 並加粗)
+                {
+                    "type": "text", 
+                    "text": boss_info, 
+                    "size": "sm", 
+                    "weight": "bold", 
+                    "flex": 5, 
+                    "gravity": "center", 
+                    "wrap": True,
+                    "color": "#eeeeee"
+                },
+                # 3. 擊殺按鈕
                 {
                     "type": "box",
                     "layout": "vertical",
@@ -496,14 +509,15 @@ def build_kill_list_flex(title, display_items):
 
     bubble = {
         "type": "bubble",
+        "styles": {"body": {"backgroundColor": "#222222"}}, # 深色背景讓亮色字更清楚
         "header": {
-            "type": "box", "layout": "vertical", "backgroundColor": "#2c3e50",
-            "contents": [{"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}]
+            "type": "box", "layout": "vertical", "backgroundColor": "#1a1a1a",
+            "contents": [{"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "md", "align": "center"}]
         },
         "body": {
             "type": "box", 
             "layout": "vertical", 
-            "spacing": "sm", 
+            "spacing": "md", 
             "contents": rows if rows else [{"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm"}]
         }
     }
@@ -2919,7 +2933,7 @@ def handle_message(event):
     #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
     #        )
     # 新增功能： (帶按鈕的列表)
-    if msg == "打出":
+    if msg == "打王":
         now = now_tw()
         time_items = []
         
