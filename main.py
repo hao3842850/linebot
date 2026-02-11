@@ -452,31 +452,49 @@ def build_all_boss_quick_flex():
 
 def build_kill_list_flex(title, display_items):
     """
-    產生重生列表 Flex (王名加大至 md，背景維持預設)
+    優化版：高對比度、適配黑白主題的重生列表
     """
     rows = []
     now = now_tw()
 
     for dt, line_text in display_items:
-        # 拆分時間與王名 (格式: "HH:MM:SS BossName...")
         parts = line_text.split(" ", 1)
         time_str = parts[0]
         boss_info = parts[1] if len(parts) > 1 else ""
         
-        # 判定時間顏色
+        # 判定狀態色塊顏色
         diff = (dt - now).total_seconds()
-        status_color = "#FF4B4B" if diff < 0 else ("#FFA500" if diff < 1800 else "#00FF00")
+        if diff < 0:
+            bg_color = "#F44336"  # 質感紅 (已過)
+            status_text = "已重生"
+        elif diff < 1800:
+            bg_color = "#FF9800"  # 質感橘 (30分內)
+            status_text = "即將"
+        else:
+            bg_color = "#4CAF50"  # 質感綠 (尚未)
+            status_text = "等待"
 
-        # 取得純王名 (用於 6666 指令)
+        # 取得純王名
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
         rows.append({
             "type": "box",
             "layout": "horizontal",
             "contents": [
-                # 1. 重生時間 (保持 sm)
-                {"type": "text", "text": time_str, "size": "sm", "color": status_color, "flex": 3, "gravity": "center"},
-                # 2. 王名與備註 (加大到 md 並加粗)
+                # 1. 時間色塊標籤
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "flex": 3,
+                    "contents": [
+                        {"type": "text", "text": time_str, "size": "xs", "color": "#ffffff", "weight": "bold", "align": "center"},
+                        {"type": "text", "text": status_text, "size": "xxs", "color": "#ffffff", "align": "center", "opacity": "0.8"}
+                    ],
+                    "backgroundColor": bg_color,
+                    "cornerRadius": "sm",
+                    "paddingAll": "2px"
+                },
+                # 2. 王名 (加大 md，加粗，使用深灰色確保黑白主題皆清楚)
                 {
                     "type": "text", 
                     "text": boss_info, 
@@ -484,39 +502,42 @@ def build_kill_list_flex(title, display_items):
                     "weight": "bold", 
                     "flex": 6, 
                     "gravity": "center", 
-                    "wrap": True
+                    "wrap": True,
+                    "margin": "md",
+                    "color": "#333333" # 在白色主題顯眼，深色主題也會自動適配
                 },
-                # 3. 擊殺按鈕 (縮小一點 flex 給王名)
+                # 3. 擊殺按鈕 (使用高級深藍色)
                 {
                     "type": "box",
                     "layout": "vertical",
                     "flex": 2,
-                    "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center"}],
-                    "backgroundColor": "#FF4500",
-                    "cornerRadius": "sm",
-                    "paddingAll": "4px",
-                    "action": {
-                        "type": "message", 
-                        "label": "K", 
-                        "text": f"6666 {pure_name}"
-                    }
+                    "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
+                    "backgroundColor": "#17a2b8", # 質感青藍色
+                    "cornerRadius": "xxl", # 圓角按鈕
+                    "paddingAll": "6px",
+                    "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
                 }
             ],
-            "margin": "md",
+            "margin": "lg",
             "alignItems": "center"
         })
 
     bubble = {
         "type": "bubble",
         "header": {
-            "type": "box", "layout": "vertical", "backgroundColor": "#1a1a1a",
+            "type": "box", 
+            "layout": "vertical", 
+            "backgroundColor": "#343a40", # 深石板色標題
             "contents": [{"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}]
         },
         "body": {
             "type": "box", 
             "layout": "vertical", 
-            "spacing": "md", 
+            "spacing": "none", 
             "contents": rows if rows else [{"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm"}]
+        },
+        "styles": {
+            "footer": {"separator": True}
         }
     }
     return FlexSendMessage(alt_text=title, contents=bubble)
