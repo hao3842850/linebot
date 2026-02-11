@@ -520,36 +520,41 @@ def notify_boss_team_with_flex(group_id, boss_name):
         cur.close()
         conn.close()
 
-def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None):
+def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None, is_skip=False):
     map_list = BOSS_MAP.get(boss, [])
     map_text = "、".join(map_list) if map_list else "未知"
 
-    contents = [
-            # ===== 標題 (僅 BOSS 名稱變色) =====
-            {
-                "type": "text",
-                "text": "🔥 已登記 ", # 這行現在當作外殼
-                "weight": "bold",
-                "size": "lg",
-                "contents": [
-                    {
-                        "type": "span",
-                        "text": "🔥 已登記 "
-                    },
-                    {
-                        "type": "span",
-                        "text": boss,
-                        "color": "#FF6D18", # 只有 BOSS 名稱會變紅色
-                        "weight": "bold"
-                    }
-                ]
-            },
-            {
-                "type": "separator",
-                "margin": "md"
-            },
+    # 根據是否輪空設定顯示文字與顏色
+    header_prefix = "⭕ 輪空登記 " if is_skip else "🔥 已登記 "
+    boss_color = "#A020F0" if is_skip else "#FF6D18"  # 輪空用紫色，正常用橘紅
+    time_label = "🕒 輪空：" if is_skip else "🕒 死亡："
 
-        # ===== 資訊列 =====
+    contents = [
+        # ===== 標題 =====
+        {
+            "type": "text",
+            "text": header_prefix,
+            "weight": "bold",
+            "size": "lg",
+            "contents": [
+                {
+                    "type": "span",
+                    "text": header_prefix
+                },
+                {
+                    "type": "span",
+                    "text": boss,
+                    "color": boss_color,
+                    "weight": "bold"
+                }
+            ]
+        },
+        {
+            "type": "separator",
+            "margin": "md"
+        },
+
+        # ===== 資訊列：地圖 =====
         {
             "type": "box",
             "layout": "baseline",
@@ -569,13 +574,14 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
                 }
             ]
         },
+        # ===== 資訊列：時間 (死亡/基準) =====
         {
             "type": "box",
             "layout": "baseline",
             "contents": [
                 {
                     "type": "text",
-                    "text": "🕒 死亡：",
+                    "text": time_label,
                     "size": "sm",
                     "color": "#888888",
                     "flex": 2
@@ -588,6 +594,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
                 }
             ]
         },
+        # ===== 資訊列：重生 =====
         {
             "type": "box",
             "layout": "baseline",
@@ -606,10 +613,10 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
                     "flex": 6
                 }
             ]
-        },
+        }
     ]
 
-    # ===== 備註（同層級，不凸顯）=====
+    # ===== 備註 =====
     if note:
         contents.append({
             "type": "box",
@@ -646,8 +653,10 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
         }
     ])
 
+    alt_title = f"輪空登記 {boss}" if is_skip else f"已登記 {boss}"
+
     return FlexSendMessage(
-        alt_text=f"已登記 {boss}",
+        alt_text=alt_title,
         contents={
             "type": "bubble",
             "body": {
@@ -1943,8 +1952,8 @@ def handle_boss_skipped(event, group_id, boss_name, user_id, note):
 
     # 5. 回傳訊息給用戶
     registrar = get_username(user_id)
-    kill_str = base_time.strftime("%H:%M")   # 顯示基準時間
-    resp_str = new_respawn.strftime("%H:%M") # 顯示下一趟時間
+    kill_str = base_time.strftime("%H:%M:%S")   # 顯示基準時間
+    resp_str = new_respawn.strftime("%H:%M:%S") # 顯示下一趟時間
     
     text_msg = f"⭕ 登記輪空：{boss_name}\n基準點：{kill_str}\n下趟重生：{resp_str}\n備註：{note}"
     # 沿用您現有的 Flex 模板
