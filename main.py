@@ -452,7 +452,7 @@ def build_all_boss_quick_flex():
 
 def build_kill_list_flex(title, display_items):
     """
-    產生帶有擊殺按鈕的重生列表 Flex (加大王名字體)
+    產生重生列表 Flex (王名加大至 md，背景維持預設)
     """
     rows = []
     now = now_tw()
@@ -463,9 +463,9 @@ def build_kill_list_flex(title, display_items):
         time_str = parts[0]
         boss_info = parts[1] if len(parts) > 1 else ""
         
-        # 判定顏色
+        # 判定時間顏色
         diff = (dt - now).total_seconds()
-        status_color = "#FF4B4B" if diff < 0 else ("#FFA500" if diff < 1800 else "#62BE62")
+        status_color = "#FF4B4B" if diff < 0 else ("#FFA500" if diff < 1800 else "#00FF00")
 
         # 取得純王名 (用於 6666 指令)
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
@@ -476,18 +476,17 @@ def build_kill_list_flex(title, display_items):
             "contents": [
                 # 1. 重生時間 (保持 sm)
                 {"type": "text", "text": time_str, "size": "sm", "color": status_color, "flex": 3, "gravity": "center"},
-                # 2. 王名與備註 (放大至 sm 並加粗)
+                # 2. 王名與備註 (加大到 md 並加粗)
                 {
                     "type": "text", 
                     "text": boss_info, 
-                    "size": "sm", 
+                    "size": "md", 
                     "weight": "bold", 
-                    "flex": 5, 
+                    "flex": 6, 
                     "gravity": "center", 
-                    "wrap": True,
-                    "color": "#eeeeee"
+                    "wrap": True
                 },
-                # 3. 擊殺按鈕
+                # 3. 擊殺按鈕 (縮小一點 flex 給王名)
                 {
                     "type": "box",
                     "layout": "vertical",
@@ -509,10 +508,9 @@ def build_kill_list_flex(title, display_items):
 
     bubble = {
         "type": "bubble",
-        "styles": {"body": {"backgroundColor": "#222222"}}, # 深色背景讓亮色字更清楚
         "header": {
             "type": "box", "layout": "vertical", "backgroundColor": "#1a1a1a",
-            "contents": [{"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "md", "align": "center"}]
+            "contents": [{"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}]
         },
         "body": {
             "type": "box", 
