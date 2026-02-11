@@ -452,28 +452,22 @@ def build_all_boss_quick_flex():
 
 def build_kill_list_flex(title, display_items, unregistered):
     """
-    產生帶有擊殺按鈕的重生列表 Flex 訊息
+    產生帶有擊殺按鈕的重生列表 Flex (限制 15 隻)
     """
     rows = []
     now = now_tw()
 
-    # 處理已登記的王
+    # 1. 處理已登記的王 (傳進來的 display_items 已經是 15 隻)
     for dt, line_text in display_items:
-        # 從 line_text 簡單拆分時間與王名 (格式: "HH:MM:S BossName...")
         parts = line_text.split(" ", 1)
         time_str = parts[0]
         boss_info = parts[1] if len(parts) > 1 else ""
         
-        # 判定顏色 (紅色:已過, 橘色:30分內, 綠色:尚未)
+        # 判定顏色
         diff = (dt - now).total_seconds()
-        if diff < 0:
-            status_color = "#FF4B4B"  # 紅
-        elif diff < 1800:
-            status_color = "#FFA500"  # 橘
-        else:
-            status_color = "#00FF00"  # 綠
+        status_color = "#FF4B4B" if diff < 0 else ("#FFA500" if diff < 1800 else "#00FF00")
 
-        # 取得純王名(用於按鈕指令)
+        # 取得純王名 (處理括號與額外資訊)
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
         rows.append({
@@ -497,21 +491,13 @@ def build_kill_list_flex(title, display_items, unregistered):
             "alignItems": "center"
         })
 
-    # 處理未登記
+    # 2. 處理未登記區 (如果還有空間)
     if unregistered:
         rows.append({"type": "separator", "margin": "xl"})
         rows.append({"type": "text", "text": "— 未登記 —", "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center"})
-        unreg_box = []
-        for b in unregistered:
-            unreg_box.append({
-                "type": "button",
-                "action": {"type": "message", "label": b, "text": f"6666 {b}"},
-                "height": "sm",
-                "style": "link",
-                "color": "#4682B4"
-            })
-        # 每兩個王分一橫排(選配，這邊簡化處理)
-        for b in unregistered:
+        
+        # 未登記區只取前 5 隻，避免卡片過長
+        for b in unregistered[:5]:
             rows.append({
                 "type": "box",
                 "layout": "horizontal",
@@ -534,7 +520,7 @@ def build_kill_list_flex(title, display_items, unregistered):
     bubble = {
         "type": "bubble",
         "header": {
-            "type": "box", "layout": "vertical", "backgroundColor": "#1a1a1a",
+            "type": "box", "layout": "vertical", "backgroundColor": "#2c3e50",
             "contents": [{"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}]
         },
         "body": {"type": "box", "layout": "vertical", "spacing": "sm", "contents": rows}
@@ -2397,7 +2383,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 已將您移出打王組。"))
 
     # 在 handle_message 內判斷指令的地方
-    if text == "登記" or text == "打王":
+    if text == "登記" :
         flex = build_all_boss_quick_flex()
         line_bot_api.reply_message(event.reply_token, flex)
         return
@@ -2950,8 +2936,8 @@ def handle_message(event):
     #       time_items.append(
     #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
     #        )
-    # 新增功能：打出 (帶按鈕的列表)
-    if msg == "打出":
+    # 新增功能： (帶按鈕的列表)
+    if msg == "打王":
         now = now_tw()
         time_items = []
         unregistered = []
@@ -2968,6 +2954,7 @@ def handle_message(event):
             base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
             step = timedelta(hours=cd)
             
+            # 計算邏輯 (與原本「出」相同)
             if now < base_respawn:
                 display_time = base_respawn
                 passed_minutes = None
@@ -2995,11 +2982,14 @@ def handle_message(event):
             
             time_items.append((display_time, line))
 
+        # 排序並切片：僅取近 15 隻
         time_items.sort(key=lambda x: x[0])
-        title = "⚔️ 快速擊殺列表"
+        display_items = time_items[:15] 
         
-        # 呼叫新定義的 Flex 函式
-        flex_msg = build_kill_list_flex(title, time_items, unregistered)
+        title = f"⚔️ 重生列表 (近 {len(display_items)} 隻)"
+        
+        # 呼叫 Flex 函式
+        flex_msg = build_kill_list_flex(title, display_items, unregistered)
         
         line_bot_api.reply_message(event.reply_token, flex_msg)
         return
