@@ -450,6 +450,97 @@ def build_all_boss_quick_flex():
     # 務必檢查這裡的 FlexSendMessage 拼字與結構
     return FlexSendMessage(alt_text="快速登記選單", contents=bubble_content)
 
+def build_kill_list_flex(title, display_items, unregistered):
+    """
+    產生帶有擊殺按鈕的重生列表 Flex 訊息
+    """
+    rows = []
+    now = now_tw()
+
+    # 處理已登記的王
+    for dt, line_text in display_items:
+        # 從 line_text 簡單拆分時間與王名 (格式: "HH:MM:S BossName...")
+        parts = line_text.split(" ", 1)
+        time_str = parts[0]
+        boss_info = parts[1] if len(parts) > 1 else ""
+        
+        # 判定顏色 (紅色:已過, 橘色:30分內, 綠色:尚未)
+        diff = (dt - now).total_seconds()
+        if diff < 0:
+            status_color = "#FF4B4B"  # 紅
+        elif diff < 1800:
+            status_color = "#FFA500"  # 橘
+        else:
+            status_color = "#00FF00"  # 綠
+
+        # 取得純王名(用於按鈕指令)
+        pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
+
+        rows.append({
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                {"type": "text", "text": time_str, "size": "sm", "color": status_color, "flex": 3, "gravity": "center"},
+                {"type": "text", "text": boss_info, "size": "xs", "flex": 5, "gravity": "center", "wrap": True},
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "flex": 2,
+                    "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center"}],
+                    "backgroundColor": "#FF4500",
+                    "cornerRadius": "sm",
+                    "paddingAll": "4px",
+                    "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
+                }
+            ],
+            "margin": "md",
+            "alignItems": "center"
+        })
+
+    # 處理未登記
+    if unregistered:
+        rows.append({"type": "separator", "margin": "xl"})
+        rows.append({"type": "text", "text": "— 未登記 —", "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center"})
+        unreg_box = []
+        for b in unregistered:
+            unreg_box.append({
+                "type": "button",
+                "action": {"type": "message", "label": b, "text": f"6666 {b}"},
+                "height": "sm",
+                "style": "link",
+                "color": "#4682B4"
+            })
+        # 每兩個王分一橫排(選配，這邊簡化處理)
+        for b in unregistered:
+            rows.append({
+                "type": "box",
+                "layout": "horizontal",
+                "contents": [
+                    {"type": "text", "text": b, "size": "sm", "flex": 8, "gravity": "center"},
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "flex": 2,
+                        "contents": [{"type": "text", "text": "登記", "size": "xs", "color": "#ffffff", "align": "center"}],
+                        "backgroundColor": "#4682B4",
+                        "cornerRadius": "sm",
+                        "paddingAll": "4px",
+                        "action": {"type": "message", "text": f"6666 {b}"}
+                    }
+                ],
+                "margin": "sm"
+            })
+
+    bubble = {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#1a1a1a",
+            "contents": [{"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}]
+        },
+        "body": {"type": "box", "layout": "vertical", "spacing": "sm", "contents": rows}
+    }
+    return FlexSendMessage(alt_text=title, contents=bubble)
+
 def notify_boss_team_with_flex(group_id, boss_name):
     conn = get_pg_conn()
     cur = conn.cursor()
@@ -2229,7 +2320,7 @@ def handle_message(event):
             handle_boss_skipped(event, group_id, boss_name, user_id, note)
             return
         else:
-            
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❓ 找不到王名：{boss_input}"))
             return
 
     # 備份 (修正版：純粹輸出原始紀錄)
@@ -2859,7 +2950,59 @@ def handle_message(event):
     #       time_items.append(
     #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
     #        )
+    # 新增功能：打出 (帶按鈕的列表)
+    if msg == "打出":
+        now = now_tw()
+        time_items = []
+        unregistered = []
+        
+        group_id = getattr(event.source, 'group_id', 'default_group')
+        boss_db_from_pg = get_latest_boss_records(group_id) 
 
+        for boss, cd in cd_map.items():
+            if boss not in boss_db_from_pg or not boss_db_from_pg[boss]:
+                unregistered.append(boss)
+                continue
+            
+            rec = boss_db_from_pg[boss][-1]
+            base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+            step = timedelta(hours=cd)
+            
+            if now < base_respawn:
+                display_time = base_respawn
+                passed_minutes = None
+                missed = 0
+            else:
+                diff = now - base_respawn
+                rounds_passed = int(diff.total_seconds() // step.total_seconds())
+                current_respawn = base_respawn + rounds_passed * step
+                passed_minutes = int((now - current_respawn).total_seconds() // 60)
+                
+                if passed_minutes <= 30:
+                    display_time = current_respawn
+                    missed = rounds_passed           
+                else:
+                    display_time = current_respawn + step
+                    missed = rounds_passed + 1
+                    passed_minutes = None
+            
+            note = rec.get("note", "").strip()
+            line = f"{display_time.strftime('%H:%M:%S')} {boss}"
+            if note: line += f"（{note}）"
+            if passed_minutes is not None and passed_minutes <= 30:
+                line += f" <{passed_minutes}分未打>"
+            if missed > 0: line += f" #過{missed}"
+            
+            time_items.append((display_time, line))
+
+        time_items.sort(key=lambda x: x[0])
+        title = "⚔️ 快速擊殺列表"
+        
+        # 呼叫新定義的 Flex 函式
+        flex_msg = build_kill_list_flex(title, time_items, unregistered)
+        
+        line_bot_api.reply_message(event.reply_token, flex_msg)
+        return
 
     # ===== 登記王（支援多行 / 備份貼上 + KPI）=====
     restored_kpi = {}
