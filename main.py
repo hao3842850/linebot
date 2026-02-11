@@ -1,28 +1,30 @@
 # 天堂M 吃王小幫手
+# ===== 系統與基礎庫 =====
+import os
+import json
+import time
+import pytz
+import asyncio
+import requests
+import threading
+from threading import Lock
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
+# ===== 資料庫連結 =====
+import psycopg2
+# ===== Web 框架 =====
 from fastapi import FastAPI, Request, Header
+# ===== LINE SDK 導入 (核心修正區) =====
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    MemberJoinedEvent,
     MessageEvent,
     TextMessage,
     TextSendMessage,
-    FlexSendMessage
+    FlexSendMessage,
+    BubbleContainer,      
+    MemberJoinedEvent
 )
-from linebot.models import TextSendMessage, FlexSendMessage
-from datetime import datetime, timedelta, timezone
-import psycopg2
-from urllib.parse import urlparse
-import os
-import json
-import requests
-from datetime import datetime, timedelta
-import pytz
-import asyncio
-from threading import Lock
-import threading
-import time
-from datetime import timedelta
 # 基本設定
 db_lock = Lock()
 app = FastAPI()
@@ -159,30 +161,32 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
     try:
         cur = conn.cursor()
         
-        # 1. 先抓出目前該群組資料庫中所有王最新的紀錄清單
-        # 使用 DISTINCT ON 確保每隻王只會出現一筆最新的
+        # 修正：只抓出「重生時間在未來」或「近期內」的王名
+        # 避免因為幾天前的歷史紀錄導致今天開機補推失敗
         cur.execute("""
-            SELECT boss_name 
+            SELECT DISTINCT boss_name 
             FROM boss_time 
-            WHERE group_id = %s
+            WHERE group_id = %s 
+            AND respawn_time > CURRENT_TIMESTAMP - INTERVAL '12 hours'
         """, (group_id,))
         
-        # 取得所有已經有紀錄的王名集合
         recorded_bosses = {row[0] for row in cur.fetchall()}
         
-        # 2. 遍歷定義好的 cd_map，只處理不在 recorded_bosses 裡的王
+        # 遍歷 cd_map
         for boss, cd in cd_map.items():
             if boss in recorded_bosses:
-                # 只要有紀錄（不論時間點），就跳過，不覆蓋既有的狀態
-                continue
+                continue # 已有當前紀錄就跳過
             
-            # 沒紀錄的，才補上開機時間
+            # 沒紀錄的補上
             respawn = base_time + timedelta(hours=cd)
             insert_query = """
                 INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "伺服器開機補推", "boot"))
+            cur.execute(insert_query, (
+                group_id, boss, base_time, respawn, 
+                user_id, "伺服器開機", "boot"
+            ))
             
         conn.commit()
         cur.close()
@@ -190,7 +194,46 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
         print(f"Error during selective boot init: {e}")
     finally:
         conn.close()
-
+def update_system_config(group_id, key, value):
+    """
+    更新系統設定到資料庫 (例如：最後開機時間)
+    """
+    conn = get_pg_conn()
+    if not conn: return
+    
+    try:
+        cur = conn.cursor()
+        # 使用 ON CONFLICT 確保如果 key 已存在就更新，不存在就插入
+        # 注意：這需要您的資料庫中有一個系統設定表，或者您可以改存入 boss_time 表的一個特殊紀錄
+        query = """
+            INSERT INTO system_config (group_id, config_key, config_value, updated_at)
+            VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (group_id, config_key) 
+            DO UPDATE SET config_value = EXCLUDED.config_value, updated_at = CURRENT_TIMESTAMP
+        """
+        cur.execute(query, (group_id, key, value))
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        print(f"Error updating system config: {e}")
+    finally:
+        conn.close()
+def update_system_config(group_id, key, value):
+    conn = get_pg_conn()
+    if not conn: return
+    try:
+        cur = conn.cursor()
+        # 借用 boss_time 表存系統變數
+        cur.execute("""
+            INSERT INTO boss_time (group_id, boss_name, kill_time, note, source)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (group_id, "__SYSTEM_CONFIG__", value, key, "config"))
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        conn.close()
 def get_kpi_ranking(group_id):
     conn = get_pg_conn()
     if not conn: return "資料庫連線失敗", []
@@ -1840,21 +1883,7 @@ def get_next_fixed_time_fixed(boss_conf):
             if dt >= now:
                 return dt
     return None
-def init_cd_boss_with_given_time(db, group_id, base_time):
-    db.setdefault("boss", {})
-    db["boss"].setdefault(group_id, {})
-    boss_db = db["boss"][group_id]
-    for boss, cd in cd_map.items(): # 已有紀錄就跳過
-        if boss in boss_db and boss_db[boss]:
-            continue
-        respawn = base_time + timedelta(hours=cd)
-        boss_db.setdefault(boss, []).append({
-            "date": base_time.strftime("%Y-%m-%d"),
-            "kill": base_time.strftime("%H:%M:%S"),
-            "respawn": respawn.isoformat(),
-            "note": "開機",
-            "user": "__SYSTEM__"
-        })
+
 def get_kpi_range(now):
     """
     計算以『週三 05:00』為起點的 KPI 區間
@@ -2393,57 +2422,28 @@ def handle_message(event):
         base_time = parse_time(time_token)
         
         if not base_time:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
-            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ 格式錯誤"))
             return
-            
-        # 取得 group_id
-        group_id = getattr(event.source, 'group_id', 'default_group')
-        # 執行初始化邏輯
-        init_cd_boss_with_given_time(group_id, base_time, user)
+
+        # 取得當前使用者 ID
+        user_id = event.source.user_id
         
-        # 1. 取得 Flex 字典內容 (確保 build_boot_init_flex 回傳的是 dict)
+        # 執行步驟：只針對沒紀錄的王補推
+        # 這裡會用到你提供的定義
+        init_cd_boss_with_given_time(group_id, base_time, user_id)
+        
+        # 存入資料庫 Config (如果需要儲存最後一次開機時間)
+        update_system_config(group_id, "last_boot_time", base_time.strftime('%Y-%m-%d %H:%M:%S'))
+
+        # 回傳 Flex 訊息
         flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
-        
-        # 2. 關鍵修正：直接傳入字典，不要使用 BubbleContainer.new_from_json_dict
         line_bot_api.reply_message(
             event.reply_token,
             FlexSendMessage(
-                alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
-                contents=flex_contents  # 直接傳字典進去
+                alt_text="🔌 開機初始化補推完成",
+                contents=BubbleContainer.new_from_json_dict(flex_contents)
             )
         )
-        return
-    if text == "測試標記":
-        # 模擬一個標記測試
-        test_uid = user_id # 發話者自己的 ID
-        prefix = "測試標記中 "
-        
-        m_data = {
-            "mentionees": [{
-                "index": len(prefix),
-                "length": 1,
-                "userId": test_uid
-            }]
-        }
-        
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=f"{prefix} @", mention=m_data)
-        )
-    if msg == "檢查ID":
-        # 這是檢查你的資料庫到底存了什麼，這步非常重要
-        conn = get_pg_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT user_id, user_name FROM boss_team WHERE group_id = %s", (group_id,))
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        
-        info = "\n".join([f"ID: {r[0]} | 名稱: {r[1]}" for r in rows])
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"目前名單：\n{info}"))
     # clear
     if msg == "clear":
         db.setdefault("__WAIT__", {})
