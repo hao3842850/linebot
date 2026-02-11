@@ -29,6 +29,7 @@ alias_map = {
     "烏勒庫斯": ["烏勒庫斯", "烏", "23"],
     "奈克偌斯": ["奈克偌斯", "奈", "57"],
 }
+
 cd_map = {
     "四色": 2, "小紅": 2, "小綠": 2, "守護螞蟻": 3.5, "巨大蜈蚣": 2,
     "86左飛龍": 2, "86右飛龍": 2, "伊弗利特": 2, "大腳瑪幽": 3,
@@ -39,6 +40,7 @@ cd_map = {
     "賽尼斯的分身": 3, "貝里斯": 6, "烏勒庫斯": 6,
     "奈克偌斯": 4,
 }
+
 BOSS_MAP = {
     "四色": ["76"],
     "小紅": ["55"],
@@ -69,4 +71,17 @@ BOSS_MAP = {
     "烏勒庫斯": ["23"],
     "奈克偌斯": ["57"],
 }
+
 MAJOR_BOSSES = ["古代巨人", "不死鳥", "死亡騎士", "克特"]
+
+# 記得補上這個函式！
+def get_boss(name):
+    """
+    透過 alias_map 尋找標準的王名
+    """
+    if not name: return None
+    name = name.strip().lower()
+    for standard_name, aliases in alias_map.items():
+        if name == standard_name.lower() or name in [a.lower() for a in aliases]:
+            return standard_name
+    return None
