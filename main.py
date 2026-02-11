@@ -1920,44 +1920,51 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
             "user": "__SYSTEM__"
         })
 def handle_boss_skipped(event, group_id, boss_name, user_id, note):
-    """處理王輪空邏輯：抓取最後一次重生時間並累加 CD"""
-    # 1. 取得該王的 CD (需確保檔案中有 cd_map)
+    """修正版：確保能正確從資料庫抓取最新重生點並加 CD"""
     cd = cd_map.get(boss_name)
     if cd is None: return
 
-    # 2. 抓取目前該王在資料庫的最後一筆紀錄
+    # 1. 抓取該群組所有王的最新紀錄
     latest_records = get_latest_boss_records(group_id)
     
+    # 2. 判斷基準時間 (Base Time)
     if boss_name in latest_records:
-        # 取得最後一次紀錄的預計重生時間作為本次推算的基準
+        # 取得該王「原本預計重生」的時間
         last_respawn_iso = latest_records[boss_name][0]["respawn"]
-        base_time = datetime.fromisoformat(last_respawn_iso).astimezone(TZ)
+        # 轉換為帶有時區的 datetime
+        base_time = datetime.fromisoformat(last_respawn_iso)
+        if base_time.tzinfo is None:
+            base_time = base_time.replace(tzinfo=pytz.UTC).astimezone(TZ)
+        else:
+            base_time = base_time.astimezone(TZ)
     else:
-        # 如果完全沒紀錄，則以現在時間為基準
+        # 如果資料庫完全沒紀錄，以現在時間為基準 (去秒數)
         base_time = now_tw().replace(second=0, microsecond=0)
 
-    # 3. 計算下次重生 (基準時間 + CD)
+    # 3. 【關鍵】計算新時間：基準時間 + CD
     new_respawn = base_time + timedelta(hours=cd)
     
-    # 4. 寫入資料庫 (標記來源為 skip)
+    # 4. 寫入資料庫
     save_boss_to_pg(
         group_id=group_id,
         boss_name=boss_name,
-        kill_time=base_time, 
+        kill_time=base_time,    # 將原預計時間存為死亡時間
         respawn_time=new_respawn,
         user_id=user_id,
         note=note,
-        source="skip" 
+        source="skip"           # 標註來源為輪空
     )
 
-    # 5. 回傳訊息給用戶
+    # 5. 格式化時間用於顯示
     registrar = get_username(user_id)
-    kill_str = base_time.strftime("%H:%M:%S")   # 顯示基準時間
-    resp_str = new_respawn.strftime("%H:%M:%S") # 顯示下一趟時間
+    kill_str = base_time.strftime("%H:%M")
+    resp_str = new_respawn.strftime("%H:%M")
     
-    text_msg = f"⭕ 登記輪空：{boss_name}\n基準點：{kill_str}\n下趟重生：{resp_str}\n備註：{note}"
-    # 沿用您現有的 Flex 模板
-    flex_msg = build_register_boss_flex(boss_name, kill_str, resp_str, registrar, note)
+    # 這裡的 True 代表使用輪空版 Flex 卡片
+    flex_msg = build_register_boss_flex(boss_name, kill_str, resp_str, registrar, note, True)
+    
+    # 同步回傳文字訊息方便紀錄
+    text_msg = f"⭕ 輪空登記：{boss_name}\n基準：{kill_str}\n下趟：{resp_str}\n備註：{note}"
     
     safe_reply(event, text_msg, flex_msg)
 def get_kpi_range(now):
