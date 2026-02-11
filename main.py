@@ -1910,6 +1910,47 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
             "note": "開機",
             "user": "__SYSTEM__"
         })
+def handle_boss_skipped(event, group_id, boss_name, user_id, note):
+    """處理王輪空邏輯：抓取最後一次重生時間並累加 CD"""
+    # 1. 取得該王的 CD (需確保檔案中有 cd_map)
+    cd = cd_map.get(boss_name)
+    if cd is None: return
+
+    # 2. 抓取目前該王在資料庫的最後一筆紀錄
+    latest_records = get_latest_boss_records(group_id)
+    
+    if boss_name in latest_records:
+        # 取得最後一次紀錄的預計重生時間作為本次推算的基準
+        last_respawn_iso = latest_records[boss_name][0]["respawn"]
+        base_time = datetime.fromisoformat(last_respawn_iso).astimezone(TZ)
+    else:
+        # 如果完全沒紀錄，則以現在時間為基準
+        base_time = now_tw().replace(second=0, microsecond=0)
+
+    # 3. 計算下次重生 (基準時間 + CD)
+    new_respawn = base_time + timedelta(hours=cd)
+    
+    # 4. 寫入資料庫 (標記來源為 skip)
+    save_boss_to_pg(
+        group_id=group_id,
+        boss_name=boss_name,
+        kill_time=base_time, 
+        respawn_time=new_respawn,
+        user_id=user_id,
+        note=note,
+        source="skip" 
+    )
+
+    # 5. 回傳訊息給用戶
+    registrar = get_username(user_id)
+    kill_str = base_time.strftime("%H:%M")   # 顯示基準時間
+    resp_str = new_respawn.strftime("%H:%M") # 顯示下一趟時間
+    
+    text_msg = f"⭕ 登記輪空：{boss_name}\n基準點：{kill_str}\n下趟重生：{resp_str}\n備註：{note}"
+    # 沿用您現有的 Flex 模板
+    flex_msg = build_register_boss_flex(boss_name, kill_str, resp_str, registrar, note)
+    
+    safe_reply(event, text_msg, flex_msg)
 def get_kpi_range(now):
     """
     計算以『週三 05:00』為起點的 KPI 區間
@@ -2167,7 +2208,21 @@ def handle_message(event):
                 flex = build_shift_success_flex(user_name)
                 line_bot_api.reply_message(event.reply_token, flex)
                 return
-    
+    # --- 新增：處理輪空指令 (例如：四色 空) ---
+    if len(parts) >= 2 and ("空" in parts[1] or "輪空" in parts[1]):
+        boss_input = parts[0]
+        note = parts[1] # 取得用戶輸入的 "空"、"空1" 等作為備註
+            
+        # 轉換王名別名
+        boss_name = None
+        for real_name, aliases in alias_map.items():
+            if boss_input == real_name or boss_input in aliases:
+                boss_name = real_name
+                break
+            
+        if boss_name:
+            handle_boss_skipped(event, group_id, boss_name, user_id, note)
+            return # 處理完後結束，不跑下面的時間解析
     # 備份 (修正版：純粹輸出原始紀錄)
     if clean_msg == "備份" and "\n" not in msg:
         now = now_tw()
