@@ -86,18 +86,19 @@ def save_boss_to_pg(group_id, boss_name, kill_time, respawn_time, user_id, note,
         conn.close()
 
 def get_latest_boss_records(group_id):
-    """確保抓取重生時間最晚的一筆紀錄，用於銜接輪空時間"""
+    """修正版：改用 id 排序，確保最後一次登記的指令永遠優先 (解決無法覆蓋問題)"""
     conn = get_pg_conn()
     if not conn: return {}
     try:
         cur = conn.cursor()
-        # 關鍵：改用 respawn_time DESC，確保抓到最新的重生點
+        # 關鍵：ORDER BY boss_name, id DESC 
+        # 這樣最後寫入的那筆資料(id最大)會被當作該王的目前狀態
         query = """
             SELECT DISTINCT ON (boss_name) 
                    boss_name, kill_time, respawn_time, note, user_id, source
             FROM boss_time
             WHERE group_id = %s
-            ORDER BY boss_name, respawn_time DESC
+            ORDER BY boss_name, id DESC
         """
         cur.execute(query, (group_id,))
         rows = cur.fetchall()
@@ -106,17 +107,15 @@ def get_latest_boss_records(group_id):
         result = {}
         for row in rows:
             boss_name = row[0]
-            # 死亡時間處理
             kt_raw = row[1]
             kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
-            # 重生時間處理
             rt_raw = row[2]
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
             result[boss_name] = [{
                 "date": kt_tw.strftime("%Y-%m-%d"),
                 "kill": kt_tw.strftime("%H:%M:%S"),
-                "respawn": rt_tw.isoformat(), # 給 handle_boss_skipped 使用
+                "respawn": rt_tw.isoformat(), 
                 "note": row[3] if row[3] else "",
                 "user": row[4],
                 "source": row[5]
@@ -1913,48 +1912,43 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
             "user": "__SYSTEM__"
         })
 def handle_boss_skipped(event, group_id, boss_name, user_id, note):
-    """計算輪空：新重生 = 舊重生 + CD"""
     cd = cd_map.get(boss_name)
     if cd is None: return
 
+    # 這裡會抓到「最後一次」登記的紀錄 (不論是手動還是輪空)
     latest_records = get_latest_boss_records(group_id)
     
-    # 判斷基準點
     if boss_name in latest_records:
-        # 抓取目前資料庫裡這隻王最晚的重生時間
         last_respawn_iso = latest_records[boss_name][0]["respawn"]
         base_time = datetime.fromisoformat(last_respawn_iso)
-        # 確保時區正確
         if base_time.tzinfo is None:
             base_time = base_time.replace(tzinfo=pytz.UTC).astimezone(TZ)
         else:
             base_time = base_time.astimezone(TZ)
     else:
-        # 完全沒紀錄才用現在時間
         base_time = now_tw().replace(second=0, microsecond=0)
 
-    # 計算新時間
     new_respawn = base_time + timedelta(hours=cd)
     
-    # 寫入資料庫
     save_boss_to_pg(
         group_id=group_id,
         boss_name=boss_name,
-        kill_time=base_time, # 將「原本該出的時間」記錄為這次的死亡點
+        kill_time=base_time, 
         respawn_time=new_respawn,
         user_id=user_id,
         note=note,
-        source="skip"
+        source="skip" # 標記為輪空
     )
 
-    # 格式化回傳
     registrar = get_username(user_id)
-    kill_str = base_time.strftime("%H:%M")   # 原本預計出王的時間
-    resp_str = new_respawn.strftime("%H:%M") # 加上 CD 後的時間
+    # 統一顯示格式為 %H:%M:%S 確保與正常登記一致
+    kill_str = base_time.strftime("%H:%M:%S")
+    resp_str = new_respawn.strftime("%H:%M:%S")
     
-    # 呼叫帶有 is_skip=True 的 Flex
-    flex_msg = build_register_boss_flex(boss_name, kill_str, resp_str, registrar, note, True)
-    text_msg = f"⭕ 輪空登記：{boss_name}\n基準點：{kill_str}\n下趟重生：{resp_str}\n備註：{note}"
+    flex_msg = build_register_boss_flex(boss_name, kill_str, resp_str, registrar, note, is_skip=True)
+    text_msg = f"⭕ 輪空登記：{boss_name}\n基準點：{kill_str}\n下趟重生：{resp_str}"
+    
+    safe_reply(event, text_msg, flex_msg)
     
     safe_reply(event, text_msg, flex_msg)
 def get_kpi_range(now):
