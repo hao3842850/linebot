@@ -1678,7 +1678,7 @@ def build_shift_status_flex(group_id, current_uid, next_uid):
     bubble = {
         "type": "bubble",
         "header": {
-            "type": "box", "layout": "vertical", "backgroundColor": "#DA9921",
+            "type": "box", "layout": "vertical", "backgroundColor": "#1a237e",
             "contents": [{"type": "text", "text": "⚔️ 王表交接系統", "color": "#FFFFFF", "weight": "bold"}]
         },
         "body": {
@@ -1711,7 +1711,9 @@ def build_shift_success_flex(user_name):
                 "type": "box", "layout": "vertical", "paddingAll": "lg",
                 "contents": [
                     {"type": "text", "text": "✅ 接班登記成功", "weight": "bold", "color": "#2E7D32"},
-                    {"type": "text", "text": f"下一班人員：{user_name}", "margin": "md", "size": "sm"}
+                    {"type": "text", "text": f"下一班人員：{user_name}", "margin": "md", "size": "sm"},
+                    {"type": "separator", "margin": "md"},
+                    {"type": "text", "text": "💡 交班請輸入 @All 交班", "margin": "md", "size": "xs", "color": "#888888"}
                 ]
             }
         }
