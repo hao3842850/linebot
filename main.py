@@ -40,7 +40,6 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 # 工具函式
 def is_peak_time():
     return False # 暫時關閉，永遠允許 Flex 訊息
-
     #h = now_tw().hour
     #return 19 <= h <= 23
 
@@ -152,48 +151,31 @@ def get_latest_boss_records(group_id):
         conn.close()
 
 def init_cd_boss_with_given_time(group_id, base_time, user_id):
-    """
-    開機初始化：只針對『目前沒紀錄』的王補上開機時間。
-    """
     conn = get_pg_conn()
     if not conn: return
-    
     try:
         cur = conn.cursor()
-        
-        # 修正：只抓出「重生時間在未來」或「近期內」的王名
-        # 避免因為幾天前的歷史紀錄導致今天開機補推失敗
+        # 抓出「最近12小時內」已有紀錄的王，避免重複補推
         cur.execute("""
-            SELECT DISTINCT boss_name 
-            FROM boss_time 
-            WHERE group_id = %s 
-            AND respawn_time > CURRENT_TIMESTAMP - INTERVAL '12 hours'
+            SELECT DISTINCT boss_name FROM boss_time 
+            WHERE group_id = %s AND respawn_time > CURRENT_TIMESTAMP - INTERVAL '12 hours'
         """, (group_id,))
-        
         recorded_bosses = {row[0] for row in cur.fetchall()}
         
-        # 遍歷 cd_map
         for boss, cd in cd_map.items():
-            if boss in recorded_bosses:
-                continue # 已有當前紀錄就跳過
+            if boss in recorded_bosses: continue
             
-            # 沒紀錄的補上
             respawn = base_time + timedelta(hours=cd)
-            insert_query = """
+            cur.execute("""
                 INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """
-            cur.execute(insert_query, (
-                group_id, boss, base_time, respawn, 
-                user_id, "伺服器開機", "boot"
-            ))
-            
+            """, (group_id, boss, base_time, respawn, user_id, "伺服器開機補推", "boot"))
         conn.commit()
-        cur.close()
     except Exception as e:
-        print(f"Error during selective boot init: {e}")
+        print(f"Init Error: {e}")
     finally:
         conn.close()
+
 def update_system_config(group_id, key, value):
     """
     更新系統設定到資料庫 (例如：最後開機時間)
@@ -1708,6 +1690,16 @@ def build_roster_flex(rows):
     }
 
 # 王資料
+def get_boss(name):
+    """
+    透過 alias_map 尋找標準的王名
+    """
+    name = name.strip().lower()
+    for standard_name, aliases in alias_map.items():
+        # 轉換別名表為小寫進行比對
+        if name == standard_name or name in [a.lower() for a in aliases]:
+            return standard_name
+    return None
 alias_map = {
     "四色": ["四色", "76", "4", "四", "4色","c","C"],
     "小紅": ["小紅", "55", "紅", "R", "r"],
@@ -2035,39 +2027,22 @@ async def process_line_event(body: bytes, signature: str):
     except Exception as e:
         print("LINE 背景處理錯誤:", e)
 @handler.add(MemberJoinedEvent)
+
 def handle_member_joined(event):
-    # 只處理群組 / room
-    if event.source.type not in ["group", "room"]:
-        return
-    line_bot_api.reply_message(
-        event.reply_token,
-        build_join_roster_guide_flex()
-    )
+    if event.source.type in ["group", "room"]:
+        line_bot_api.reply_message(event.reply_token, build_join_roster_guide_flex())
+
 import re
+
 def sanitize_register_line(line: str) -> str:
-    """
-    清理備份 / 多行貼上的單行內容
-    回傳可解析的登記行，或空字串（代表跳過）
-    """
-    if not line:
-        return ""
+    """ 清理單行內容，過濾掉裝飾符號與標題 """
     line = line.strip()
-    if not line:
-        return ""
-    # 王表備份標題可忽略
-    if line.startswith("📦") or "王表備份" in line:
-        return ""
-    # 分隔線或裝飾
-    if line.startswith("—"):
-        return ""
-    # 🔥 移除「#過N」或「#過 N」
+    if not line or any(x in line for x in ["📦", "王表備份", "—"]): return ""
+    # 移除「#過N」或「#過 N」
     line = re.sub(r"\s*#\s*過\s*\d+", "", line)
     # 壓縮多餘空白
-    line = re.sub(r"\s{2,}", " ", line).strip()
-    # 忽略多行輸入
-    if "\n" in line:
-        return ""
-    return line
+    return re.sub(r"\s{2,}", " ", line).strip()
+
 def build_kpi_backup_text(kpi_db):
     lines = ["__KPI_START__"]
     for user_id, count in kpi_db.items():
@@ -2610,7 +2585,7 @@ def handle_message(event):
         return
     # 出
     is_force_full = (msg == "出出")
-    if msg in ("出", "出出"):
+    if msg in ("出", "出出", "tj"):
         now = now_tw()
         time_items = []
         unregistered = []
@@ -2623,8 +2598,15 @@ def handle_message(event):
                 unregistered.append(boss)
                 continue
             
+            # 從資料庫取出最近一筆紀錄
             rec = boss_db_from_pg[boss][-1]
-            base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+            
+            # 確保時區正確轉換
+            if isinstance(rec["respawn"], str):
+                base_respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
+            else:
+                base_respawn = rec["respawn"].astimezone(TZ)
+                
             step = timedelta(hours=cd)
             
             if now < base_respawn:
@@ -2633,10 +2615,12 @@ def handle_message(event):
                 missed = 0
             else:
                 diff = now - base_respawn
+                # 計算已經過了幾輪
                 rounds_passed = int(diff.total_seconds() // step.total_seconds())
                 current_respawn = base_respawn + rounds_passed * step
                 passed_minutes = int((now - current_respawn).total_seconds() // 60)
                 
+                # 判斷門檻：30分鐘內視為「未打」，超過則跳「下一輪」
                 if passed_minutes <= 30:
                     display_time = current_respawn
                     missed = rounds_passed           
@@ -2646,39 +2630,46 @@ def handle_message(event):
                     passed_minutes = None
             
             note = rec.get("note", "").strip()
-            line = f"{display_time.strftime('%H:%M:%S')} {boss}"
+            # 格式化輸出
+            time_str = display_time.strftime('%H:%M:%S')
+            
+            # 如果不是今天的王，加上日期標註 (例如跨日後看昨天的進度)
+            if display_time.date() > now.date():
+                time_str = f"明 {display_time.strftime('%H:%M')}"
+            
+            line = f"{time_str} {boss}"
             if note:
                 line += f"（{note}）"
             if passed_minutes is not None and passed_minutes <= 30:
                 line += f" <{passed_minutes}分未打>"
             if missed > 0:
                 line += f" #過{missed}"
+                
             time_items.append((display_time, line))
 
+        # 排序：時間越近的排在越上面
         time_items.sort(key=lambda x: x[0])
         
-        if is_force_full:
-            display_items = time_items
-            output = ["📢【即將重生列表｜完整】", ""]
-        elif is_peak_time():
+        # --- 輸出組合 ---
+        output = ["📢【即將重生列表】", ""]
+        
+        # 判斷是否需要截斷（熱門時段邏輯）
+        display_items = time_items
+        if is_peak_time() and not is_force_full:
             display_items = time_items[:14]
             output = ["📢【即將重生列表｜熱門】", ""]
-        else:
-            display_items = time_items
-            output = ["📢【即將重生列表】", ""]
 
         for _, line in display_items:
             output.append(line)
 
         if is_peak_time() and not is_force_full:
-            output.append("")
-            output.append("👉 輸入「出出」可查看完整列表")
+            output.append("\n👉 輸入「出出」查看完整清單")
 
         if unregistered:
-            output.append("")
-            output.append("— 未登記 —")
-            for b in unregistered:
-                output.append(b)
+            output.append("\n— 未登記 —")
+            # 簡單排序未登記的王名
+            unregistered.sort()
+            output.append("、".join(unregistered))
 
         line_bot_api.reply_message(
             event.reply_token,
