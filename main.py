@@ -170,36 +170,39 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
         conn.close()
 
 
-def clear_single_boss_records_from_pg(group_id, input_name):
+def clear_boss_by_nickname(group_id, input_name):
     """
-    支援簡稱清除：從 BOSS_MAP 抓取全名後，直接清除該王的所有紀錄
+    透過 BOSS_MAP 尋找全名並徹底清除該王的所有紀錄
     """
     target_full_name = None
     
-    # 1. 從 BOSS_MAP 抓取全名 (支援簡稱比對)
+    # 遍歷 BOSS_MAP 的所有 Key (正式王名)
+    # 假設 BOSS_MAP = {"四色": "地圖", "飛龍": "地圖2"}
     for full_name in BOSS_MAP.keys():
         if input_name == full_name or input_name in full_name:
             target_full_name = full_name
             break
     
-    # 如果在 BOSS_MAP 找不到，才直接用輸入的文字
-    boss_name = target_full_name if target_full_name else input_name
+    # 如果找不到對應的王，直接回傳失敗，不執行刪除
+    if not target_full_name:
+        return False, None
 
     conn = get_pg_conn()
-    if not conn: return False, boss_name
+    if not conn: return False, target_full_name
+    
     try:
         cur = conn.cursor()
-        # 2. 直接刪除該群組中，該王的所有紀錄 (不限最後一筆)
+        # 直接 DELETE 該群組中所有符合該王名的資料
         query = "DELETE FROM boss_time WHERE group_id = %s AND boss_name = %s"
-        cur.execute(query, (group_id, boss_name))
+        cur.execute(query, (group_id, target_full_name))
         conn.commit()
         
-        deleted_count = cur.rowcount # 取得總共刪除了幾筆
+        deleted_count = cur.rowcount # 看看刪除了幾筆
         cur.close()
-        return deleted_count > 0, boss_name
+        return deleted_count > 0, target_full_name
     except Exception as e:
-        print(f"SQL 清除單一王出錯: {e}")
-        return False, boss_name
+        print(f"SQL 清除出錯: {e}")
+        return False, target_full_name
     finally:
         conn.close()
 
@@ -2363,16 +2366,17 @@ def handle_message(event):
     # 處理「刪除 王名」指令
 
     if msg_text.startswith("刪 "):
-        # 提取輸入文字，例如「刪除 四」
+        # 取得輸入，例如「刪除 四」
         input_text = msg_text.replace("刪 ", "").strip()
         
-        # 執行清除邏輯 (會自動對應 BOSS_MAP 簡稱)
-        success, matched_name = clear_single_boss_records_from_pg(group_id, input_text)
+        # 執行清除
+        success, matched_name = clear_boss_by_nickname(group_id, input_text)
         
         if success:
-            # 回饋時顯示全名，確認已將該王的所有資料抹除
+            # 顯示全名確認已清除
             reply_txt = f"🗑 已成功清除【{matched_name}】的紀錄。"
         else:
+            # 如果失敗，回報找不到
             reply_txt = f"❌ 找不到「{input_text}」的紀錄。"
             
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_txt))
