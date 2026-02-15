@@ -648,6 +648,23 @@ def build_kill_list_flex(title, display_items):
             "spacing": "none", 
             "contents": rows if rows else [{"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm"}]
         },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "🔄 更新清單",
+                        "text": "打王"
+                    },
+                    "style": "primary",
+                    "color": "#343a40", # 使用與標題一致的深色系
+                    "height": "sm"
+                }
+            ]
+        },
         "styles": {
             "footer": {"separator": True}
         }
