@@ -1896,13 +1896,59 @@ def get_status_flex(status_text, expiry_date, days_left):
             "action": {
               "type": "uri",
               "label": "了解續約方案",
-              "uri": "https://line.me/your_customer_service_link"
+              "uri": "https://line.me/ti/p/wenhao0222"
             },
             "style": "link",
             "height": "sm"
           }
         ]
       }
+    }
+def get_delete_result_flex(success, name_input, final_name=None):
+    """回傳刪除操作結果的 Flex Message 內容"""
+    if success:
+        main_color = "#E63946"  # 成功刪除用紅色（代表移除）
+        title = "🗑 已成功清除"
+        description = f"【{final_name}】的紀錄已從資料庫中移除。"
+        icon_url = "https://cdn-icons-png.flaticon.com/512/1214/1214428.png" # 垃圾桶圖示
+    else:
+        main_color = "#AAAAAA"  # 失敗或找不到用灰色
+        title = "❌ 清除失敗"
+        description = f"資料庫不到「{name_input}」的資料，請確認簡稱是否正確。"
+        icon_url = "https://cdn-icons-png.flaticon.com/512/564/564619.png" # 驚嘆號圖示
+
+    return {
+        "type": "bubble",
+        "size": "sm", # 使用較小的尺寸，不佔空間
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "contents": [
+                {
+                    "type": "image",
+                    "url": icon_url,
+                    "size": "xxs",
+                    "aspectMode": "fit"
+                },
+                {
+                    "type": "text",
+                    "text": title,
+                    "weight": "bold",
+                    "size": "lg",
+                    "align": "center",
+                    "color": main_color
+                },
+                {
+                    "type": "text",
+                    "text": description,
+                    "size": "sm",
+                    "color": "#666666",
+                    "wrap": True,
+                    "align": "center"
+                }
+            ]
+        }
     }
 def build_roster_flex(rows):
     body_contents = []
@@ -2628,20 +2674,25 @@ def handle_message(event):
 
     #-------------------------------------------------------------刪除單一王---------------------------------------
     if msg_text.startswith("刪 "):
-        name_input = msg_text[2:].strip() # 抓取「刪除 」後面的簡稱，例如「4」或「四」
+        name_input = msg_text[2:].strip()
         if name_input:
             success, final_name = delete_boss_records_by_alias(group_id, name_input)
-            if success:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(text=f"🗑 已成功清除【{final_name}】的紀錄。")
-                )
-            else:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(text=f"❌ 找不到與「{name_input}」的紀錄。")
-                )
-            return 
+            
+            # 使用新定義的函式取得 Flex 內容
+            delete_flex_content = get_delete_result_flex(
+                success=success, 
+                name_input=name_input, 
+                final_name=final_name
+            )
+            
+            # 準備 alt_text
+            alt_text = f"🗑 清除成功：{final_name}" if success else "❌ 清除失敗"
+            
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(alt_text=alt_text, contents=delete_flex_content)
+            )
+            return
     
     #-------------------------------------------------------------競標---------------------------------------
     # 1. 發起：例如打「掉落 紅布」
