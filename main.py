@@ -1511,22 +1511,15 @@ def get_welcome_flex(notion_url):
             "type": "box",
             "layout": "vertical",
             "contents": [
-                {"type": "text", "text": "吃王小幫手", "weight": "bold", "color": "#FFFFFF", "size": "sm"}
+                {"type": "text", "text": "天堂M吃王小幫手", "weight": "bold", "color": "#FFFFFF", "size": "sm"}
             ],
             "backgroundColor": "#05B050"
-        },
-        "hero": {
-            "type": "image",
-            "url": "https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=1000&auto=format&fit=crop",
-            "size": "full",
-            "aspectRatio": "20:13",
-            "aspectMode": "cover"
         },
         "body": {
             "type": "box",
             "layout": "vertical",
             "contents": [
-                {"type": "text", "text": "感謝邀請！🍕", "weight": "bold", "size": "xl", "margin": "md"},
+                {"type": "text", "text": "感謝邀請！", "weight": "bold", "size": "xl", "margin": "md"},
                 {"type": "text", "text": "本群組已自動開啟 7 天試用期。", "size": "sm", "color": "#666666", "wrap": True},
                 {"type": "separator", "margin": "lg"},
                 {"type": "text", "text": "點擊下方按鈕查看如何快速上手：", "size": "sm", "color": "#999999", "margin": "md", "wrap": True}
@@ -1842,6 +1835,75 @@ def build_boss_cd_list_text():
             cd_text = f"{hours} 小時"
         lines.append(f"🔹 {boss}：{cd_text}")
     return "\n".join(lines)
+def get_status_flex(status_text, expiry_date, days_left):
+    """回傳群組狀態的 Flex Message 內容"""
+    # 根據剩餘天數決定顏色 (少於 3 天顯示紅色提醒)
+    status_color = "#E63946" if days_left < 3 else "#1DB954"
+    
+    return {
+      "type": "bubble",
+      "size": "mega",
+      "body": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+          {"type": "text", "text": "🛡️ 群組權限狀態", "weight": "bold", "color": "#1DB954", "size": "sm"},
+          {"type": "text", "text": "吃王小幫手服務中", "weight": "bold", "size": "xxl", "margin": "md"},
+          {"type": "separator", "margin": "lg", "backgroundColor": "#EEEEEE"},
+          {
+            "type": "box",
+            "layout": "vertical",
+            "margin": "lg",
+            "spacing": "sm",
+            "contents": [
+              {
+                "type": "box",
+                "layout": "baseline",
+                "spacing": "sm",
+                "contents": [
+                  {"type": "text", "text": "目前權限", "color": "#aaaaaa", "size": "sm", "flex": 2},
+                  {"type": "text", "text": status_text, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
+                ]
+              },
+              {
+                "type": "box",
+                "layout": "baseline",
+                "spacing": "sm",
+                "contents": [
+                  {"type": "text", "text": "到期日期", "color": "#aaaaaa", "size": "sm", "flex": 2},
+                  {"type": "text", "text": expiry_date, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}
+                ]
+              },
+              {
+                "type": "box",
+                "layout": "baseline",
+                "spacing": "sm",
+                "contents": [
+                  {"type": "text", "text": "剩餘天數", "color": "#aaaaaa", "size": "sm", "flex": 2},
+                  {"type": "text", "text": f"{days_left} 天", "wrap": True, "color": status_color, "size": "sm", "flex": 5, "weight": "bold"}
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "footer": {
+        "type": "box",
+        "layout": "vertical",
+        "contents": [
+          {
+            "type": "button",
+            "action": {
+              "type": "uri",
+              "label": "了解續約方案",
+              "uri": "https://line.me/your_customer_service_link"
+            },
+            "style": "link",
+            "height": "sm"
+          }
+        ]
+      }
+    }
 def build_roster_flex(rows):
     body_contents = []
 
@@ -2482,9 +2544,19 @@ def handle_message(event):
     if msg_text == "狀態":
         is_allowed, expiry, status_text = check_subscription(group_id)
         remain = expiry - now_tw()
-        days = remain.days
-        reply_msg = f"🛡️ 群組權限：{status_text}\n📅 到期日：{expiry.strftime('%Y-%m-%d')}\n⏳ 剩餘天數：{max(0, days)} 天"
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
+        days = max(0, remain.days)
+        
+        # 使用新定義的函式取得 Flex 內容
+        status_flex_content = get_status_flex(
+            status_text=status_text,
+            expiry_date=expiry.strftime('%Y-%m-%d'),
+            days_left=days
+        )
+        
+        line_bot_api.reply_message(
+            event.reply_token, 
+            FlexSendMessage(alt_text=f"權限狀態：{status_text}", contents=status_flex_content)
+        )
         return
     #-------------------------------------------------------------交班 未完成 交接也可以 換人 換手 ---------------------------------------
     if "@All交班" in msg_text_no_space:
