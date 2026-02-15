@@ -169,40 +169,41 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
     finally:
         conn.close()
 
-
-def clear_boss_by_nickname(group_id, input_name):
+def clear_boss_records_by_alias(group_id, input_name):
     """
-    透過 BOSS_MAP 尋找全名並徹底清除該王的所有紀錄
+    根據 alias_map 找到標準王名並徹底清除紀錄
     """
-    target_full_name = None
-    
-    # 遍歷 BOSS_MAP 的所有 Key (正式王名)
-    # 假設 BOSS_MAP = {"四色": "地圖", "飛龍": "地圖2"}
-    for full_name in BOSS_MAP.keys():
-        if input_name == full_name or input_name in full_name:
-            target_full_name = full_name
+    # 1. 查找 alias_map 取得標準名稱
+    # 遍歷 alias_map 的 key (簡稱)，找到對應的 value (標準王名)
+    target_boss_name = None
+    for alias, full_name in alias_map.items():
+        if input_name == alias:
+            target_boss_name = full_name
             break
     
-    # 如果找不到對應的王，直接回傳失敗，不執行刪除
-    if not target_full_name:
-        return False, None
+    # 如果簡稱表找不到，嘗試看看是不是直接輸入了全名
+    if not target_boss_name:
+        if input_name in alias_map.values():
+            target_boss_name = input_name
+        else:
+            return False, input_name
 
     conn = get_pg_conn()
-    if not conn: return False, target_full_name
+    if not conn: return False, target_boss_name
     
     try:
         cur = conn.cursor()
-        # 直接 DELETE 該群組中所有符合該王名的資料
+        # 直接 DELETE 該群組中所有符合該標準王名的資料
         query = "DELETE FROM boss_time WHERE group_id = %s AND boss_name = %s"
-        cur.execute(query, (group_id, target_full_name))
+        cur.execute(query, (group_id, target_boss_name))
         conn.commit()
         
-        deleted_count = cur.rowcount # 看看刪除了幾筆
+        deleted_count = cur.rowcount
         cur.close()
-        return deleted_count > 0, target_full_name
+        return deleted_count > 0, target_boss_name
     except Exception as e:
         print(f"SQL 清除出錯: {e}")
-        return False, target_full_name
+        return False, target_boss_name
     finally:
         conn.close()
 
@@ -2240,6 +2241,7 @@ def handle_member_joined(event):
         build_join_roster_guide_flex()
     )
 import re
+
 def sanitize_register_line(line: str) -> str:
     """
     清理備份 / 多行貼上的單行內容
@@ -2271,6 +2273,7 @@ def build_kpi_backup_text(kpi_db):
         lines.append(f"{name} {user_id} {count}")
     lines.append("__KPI_END__")
     return "\n".join(lines)
+#-------------------------------------------------------------****訊息判斷****---------------------------------------
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user = event.source.user_id
@@ -2289,11 +2292,9 @@ def handle_message(event):
     group_id = get_source_id(event)
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
-    boss_db = db["boss"][group_id]
-    clean_msg = msg.strip()
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
-    # --- 交班功能 (支援有空格或無空格) ---
+    #-------------------------------------------------------------交班 未完成 交接也可以 換人 換手 ---------------------------------------
     if "@All交班" in msg_text_no_space:
         with get_pg_conn() as conn:
             with conn.cursor() as cur:
@@ -2319,7 +2320,6 @@ def handle_message(event):
                 line_bot_api.reply_message(event.reply_token, flex)
                 return
 
-    # --- 接班功能修正版 ---
     elif raw_text == "接班":
         user_name = get_username(user_id)
         with get_pg_conn() as conn:
@@ -2337,7 +2337,8 @@ def handle_message(event):
                 flex = build_shift_success_flex(user_name)
                 line_bot_api.reply_message(event.reply_token, flex)
                 return
-    # 1. 先取得訊息並切分字串 (確保 parts 被定義)
+            
+    #-------------------------------------------------------------輪空登記 未完成 判斷重生30分鐘內輸入空才有效---------------------------------------
     msg_text = event.message.text.strip()
     parts = msg_text.split()
 
@@ -2360,108 +2361,25 @@ def handle_message(event):
         else:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❓ 找不到王名：{boss_input}"))
             return
-    # 範例邏輯範例
-    msg_text = event.message.text.strip()
 
-    # 處理「刪除 王名」指令
-
+    #-------------------------------------------------------------刪除單一王---------------------------------------
     if msg_text.startswith("刪 "):
-        # 取得輸入，例如「刪除 四」
+        # 提取輸入名稱，如「刪除 四」
         input_text = msg_text.replace("刪 ", "").strip()
-        
-        # 執行清除
-        success, matched_name = clear_boss_by_nickname(group_id, input_text)
+
+        # 執行根據 alias_map 的清除邏輯
+        success, matched_name = clear_boss_records_by_alias(group_id, input_text)
         
         if success:
-            # 顯示全名確認已清除
-            reply_txt = f"🗑 已成功清除【{matched_name}】的紀錄。"
+            # 回饋時顯示標準王名，讓使用者確認
+            reply_txt = f"🗑 成功清除【{matched_name}】的紀錄。"
         else:
-            # 如果失敗，回報找不到
             reply_txt = f"❌ 找不到「{input_text}」的紀錄。"
             
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_txt))
         return
     
-    # 備份 (修正版：純粹輸出原始紀錄)
-    if clean_msg == "備份" and "\n" not in msg:
-        now = now_tw()
-        output = ["📦【王表備份】", ""]
-
-        group_id = getattr(event.source, 'group_id', 'default_group')
-        # 抓取該群組所有王最新的一筆紀錄
-        boss_db_from_pg = get_latest_boss_records(group_id)
-
-        for boss, records in boss_db_from_pg.items():
-            if not records: continue
-            
-            # 取得最後一次登記的原始資料
-            last = records[0] 
-            kill_time = last.get("kill") # 格式 "14:30:00"
-            note = last.get("note", "").strip()
-
-            if not kill_time: continue
-
-            # 將 "14:30:00" 轉為 "1430" (最純粹的輸入格式)
-            hhmmss = kill_time.replace(":", "")[:6] 
-
-            # ===== 組輸出 (不帶 #過) =====
-            line = f"{hhmmss} {boss}"
-            if note:
-                line += f" {note}"
-
-            output.append(line)
-
-        reply = "\n".join(output)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-        return
-    
-    # 1. 加入打王組：輸入「+1」
-    if text == "+1":
-        user_name = get_username(user_id)
-        conn = get_pg_conn()
-        cur = conn.cursor()
-        try:
-            # 存入資料
-            cur.execute(
-                "INSERT INTO boss_team (group_id, user_id, user_name) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
-                (group_id, user_id, user_name)
-            )
-            conn.commit()
-
-            # 💡 增加步驟：抓取該群組目前所有成員名單
-            cur.execute("SELECT user_name FROM boss_team WHERE group_id = %s", (group_id,))
-            rows = cur.fetchall()
-            members = [r[0] for r in rows]
-            member_list_str = "、".join(members) # 用頓號隔開人名
-
-            line_bot_api.reply_message(
-                event.reply_token, 
-                TextSendMessage(text=f"✅ {user_name} 已加入打王組！\n\n目前成員：{member_list_str}")
-            )
-        except Exception as e:
-            print(f"Error: {e}")
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 系統忙碌中，請稍後再試"))
-        finally:
-            cur.close()
-            conn.close()
-
-    # 2. 退出打王組：輸入「-1」
-    elif text == "-1":
-        conn = get_pg_conn()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM boss_team WHERE group_id = %s AND user_id = %s", (group_id, user_id))
-        conn.commit()
-        cur.close()
-        conn.close()
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 已將您移出打王組。"))
-
-    # 在 handle_message 內判斷指令的地方
-    if text == "登記" :
-        flex = build_all_boss_quick_flex()
-        line_bot_api.reply_message(event.reply_token, flex)
-        return
-# --- 競標系統區塊 ---
-    
+    #-------------------------------------------------------------競標---------------------------------------
     # 1. 發起：例如打「掉落 紅布」
     if text.startswith("掉落 "):
         item_name = text.replace("掉落 ", "").strip()
@@ -2514,10 +2432,8 @@ def handle_message(event):
             
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
 
-    # 名冊功能
-
+    #-------------------------------------------------------------加入名冊---------------------------------------
     db.setdefault("__ROSTER_WAIT__", {})
-    # === 加入名冊 ===
     if msg.startswith("加入名冊"):
         parts = msg.split(" ", 2)
         if len(parts) < 3:
@@ -2558,7 +2474,6 @@ def handle_message(event):
             )
         )
         return
-
     # === 確認修改名冊 ===
     if msg == "確認修改":
         wait = db.get("__ROSTER_WAIT__", {}).get(user)
@@ -2572,7 +2487,8 @@ def handle_message(event):
             TextSendMessage("✅ 名冊已更新")
         )
         return
-    # === 查自己 ===
+    
+    #-------------------------------------------------------------查自己名冊 未完成 優化查詢畫面---------------------------------------
     if msg == "查自己":
         profile = get_roster_profile(user)
         if not profile:
@@ -2591,6 +2507,7 @@ def handle_message(event):
             )
         )
         return
+    #-------------------------------------------------------------刪除 名冊---------------------------------------
     if msg == "刪除名冊":
         profile = get_roster_profile(user)
         if not profile:
@@ -2607,7 +2524,6 @@ def handle_message(event):
             )
         )
         return
-    # === 刪除名冊 ===
     if msg == "確認刪除":
         roster_delete(user)
         line_bot_api.reply_message(
@@ -2618,7 +2534,6 @@ def handle_message(event):
             )
         )
         return
-    # === 取消（名冊）===
     if msg == "取消":
         if user in db.get("__ROSTER_WAIT__", {}):
             db["__ROSTER_WAIT__"].pop(user)
@@ -2628,7 +2543,7 @@ def handle_message(event):
                 TextSendMessage("❎ 已取消操作")
             )
             return
-    #-----查名冊
+    #-------------------------------------------------------------查名冊 (未完成) 用LINE名稱查 去掉@抓後面字---------------------------------------
     if text.startswith("查名冊"):
         parts = text.split(maxsplit=1)
 
@@ -2667,7 +2582,7 @@ def handle_message(event):
 
         line_bot_api.reply_message(event.reply_token, reply)
         return
-    # 王列表
+    #-------------------------------------------------------------王簡稱---------------------------------------
     if msg == "王列表":
         text = build_boss_list_text()
         line_bot_api.reply_message(
@@ -2675,7 +2590,7 @@ def handle_message(event):
             TextSendMessage(text)
         )
         return
-    # 王重生（CD 一覽）
+    #-------------------------------------------------------------王CD表---------------------------------------
     if msg == "王重生":
         text = build_boss_cd_list_text()
         line_bot_api.reply_message(
@@ -2683,7 +2598,7 @@ def handle_message(event):
             TextSendMessage(text)
         )
         return
-    # === 名冊（Flex）===
+    #-------------------------------------------------------------!!!!!!! 未完成 全部名冊!!!!!!!!---------------------------------------
     if msg.startswith("名冊"):
         parts = msg.split(maxsplit=1)
         if len(parts) == 2:
@@ -2699,7 +2614,7 @@ def handle_message(event):
         reply = build_roster_search_flex(keyword, result)
         line_bot_api.reply_message(event.reply_token, reply)
         return
-    # 開機 初始化 CD 王
+    #-------------------------------------------------------------紀錄開機時間---------------------------------------
     if msg.startswith("開機 "):
         parts = msg.split(" ", 1)
         if len(parts) < 2: return
@@ -2731,35 +2646,8 @@ def handle_message(event):
             )
         )
         return
-    if text == "測試標記":
-        # 模擬一個標記測試
-        test_uid = user_id # 發話者自己的 ID
-        prefix = "測試標記中 "
-        
-        m_data = {
-            "mentionees": [{
-                "index": len(prefix),
-                "length": 1,
-                "userId": test_uid
-            }]
-        }
-        
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=f"{prefix} @", mention=m_data)
-        )
-    if msg == "檢查ID":
-        # 這是檢查你的資料庫到底存了什麼，這步非常重要
-        conn = get_pg_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT user_id, user_name FROM boss_team WHERE group_id = %s", (group_id,))
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        
-        info = "\n".join([f"ID: {r[0]} | 名稱: {r[1]}" for r in rows])
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"目前名單：\n{info}"))
-    # clear
+
+    #-------------------------------------------------------------清除所有登記紀錄---------------------------------------
     if msg == "clear":
         db.setdefault("__WAIT__", {})
         db["__WAIT__"][group_id] = {
@@ -2834,7 +2722,7 @@ def handle_message(event):
             TextSendMessage("❎ 已取消清除")
         )
         return
-    # 查 王名
+    #-------------------------------------------------------------!!!!!!!   未完成 查詢王!!!!!!!---------------------------------------
     if msg.startswith("查 "):
         name = msg.split(" ", 1)[1]
         boss = get_boss(name)
@@ -2923,7 +2811,8 @@ def handle_message(event):
             FlexSendMessage(alt_text="本週 KPI 排行榜", contents=bubble)
         )
         return
-    # 出
+
+    #-------------------------------------------------------------重生列表---------------------------------------
     is_force_full = (msg == "出出")
     if msg in ("出", "出出"):
         now = now_tw()
@@ -3000,16 +2889,8 @@ def handle_message(event):
             TextSendMessage("\n".join(output))
         )
         return
-    # ===== 固定王(關閉) =====
-    #    for boss, conf in fixed_bosses.items():
-    #        t = get_next_fixed_time_fixed(conf)
-    #        if not t:
-    #           continue
-    #   
-    #       time_items.append(
-    #            (2, t, f"{t.strftime('%H:%M:%S')} {boss}")
-    #        )
-    # 新增功能： (帶按鈕的列表)
+
+    #-------------------------------------------------------------帶擊殺按鈕的王列表---------------------------------------
     if msg == "打王":
         now = now_tw()
         time_items = []
@@ -3065,7 +2946,7 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, flex_msg)
         return
 
-    # ===== 登記王（支援多行 / 備份貼上 + KPI）=====
+    #-------------------------------------------------------------登記王---------------------------------------
     restored_kpi = {}
     skip_kpi = False
     for line in lines:
