@@ -169,34 +169,16 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
     finally:
         conn.close()
 
-def delete_single_boss_record(group_id, boss_name):
-    """刪除指定群組中特定王的最後一筆紀錄（或所有紀錄，視需求而定）"""
-    conn = get_pg_conn()
-    if not conn: return False
-    try:
-        cur = conn.cursor()
-        # 這裡建議刪除該王在該群組的所有紀錄，讓它從「出」的清單中消失
-        query = "DELETE FROM boss_time WHERE group_id = %s AND boss_name = %s"
-        cur.execute(query, (group_id, boss_name))
-        conn.commit()
-        cur.close()
-        return True
-    except Exception as e:
-        print(f"SQL 刪除單一王出錯: {e}")
-        return False
-    finally:
-        conn.close()
 
-def delete_single_boss_from_pg(group_id, boss_name):
+def delete_last_boss_record(group_id, boss_name):
     """
-    從資料庫中刪除指定群組內特定王的最新一筆紀錄
+    從 PostgreSQL 刪除指定群組中，特定王名稱的最新一筆紀錄。
     """
     conn = get_pg_conn()
     if not conn: return False
     try:
         cur = conn.cursor()
-        # 這裡採取刪除該群組中該王「最後一次」登記的紀錄
-        # 如果您想刪除該王的所有歷史，可以拿掉 ORDER BY 與 LIMIT
+        # 使用子查詢找到該群組、該王名最新的一筆 ID 並刪除
         query = """
             DELETE FROM boss_time 
             WHERE id = (
@@ -208,11 +190,11 @@ def delete_single_boss_from_pg(group_id, boss_name):
         """
         cur.execute(query, (group_id, boss_name))
         conn.commit()
-        count = cur.rowcount
+        deleted_rows = cur.rowcount
         cur.close()
-        return count > 0
+        return deleted_rows > 0
     except Exception as e:
-        print(f"SQL 單一刪除出錯: {e}")
+        print(f"SQL 刪除單一王出錯: {e}")
         return False
     finally:
         conn.close()
@@ -2375,21 +2357,19 @@ def handle_message(event):
     msg_text = event.message.text.strip()
 
     # 處理「刪除 王名」指令
-    if msg_text.startswith("刪 "):
-        # 取得王名，例如 "刪除 飛龍" -> "飛龍"
-        boss_to_delete = msg_text.replace("刪 ", "").strip()
-        
-        # 執行刪除
-        success = delete_single_boss_from_pg(group_id, boss_to_delete)
-        
-        if success:
-            reply_txt = f"🗑 已成功刪除【{boss_to_delete}】的登記紀錄。"
-        else:
-            reply_txt = f"❌ 找不到【{boss_to_delete}】的登記紀錄，或刪除失敗。"
-            
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_txt))
-        return
+    # --- 在 handle_message 內尋找適合位置加入 ---
 
+    if msg_text.startswith("刪 "):
+        # 取得指令後方的王名 (例如: "刪除 飛龍" -> "飛龍")
+        boss_to_del = msg_text.replace("刪 ", "").strip()
+        # 執行刪除邏輯
+        if delete_last_boss_record(group_id, boss_to_del):
+            reply_msg = f"🗑 已成功刪除【{boss_to_del}】的最後一筆登記紀錄。"
+        else:
+            reply_msg = f"❌ 找不到【{boss_to_del}】在該群組的登記紀錄。"
+            
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
+        return
     # 備份 (修正版：純粹輸出原始紀錄)
     if clean_msg == "備份" and "\n" not in msg:
         now = now_tw()
