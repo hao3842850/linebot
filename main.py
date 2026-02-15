@@ -1502,6 +1502,53 @@ def build_kpi_flex(title, period_text, ranking):
             ]
         }
     }
+def get_welcome_flex(notion_url):
+    """回傳歡迎訊息的 Flex Message 內容"""
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "吃王小幫手", "weight": "bold", "color": "#FFFFFF", "size": "sm"}
+            ],
+            "backgroundColor": "#05B050"
+        },
+        "hero": {
+            "type": "image",
+            "url": "https://images.unsplash.com/photo-1513104890138-7c749659a591?q=80&w=1000&auto=format&fit=crop",
+            "size": "full",
+            "aspectRatio": "20:13",
+            "aspectMode": "cover"
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "感謝邀請！🍕", "weight": "bold", "size": "xl", "margin": "md"},
+                {"type": "text", "text": "本群組已自動開啟 7 天試用期。", "size": "sm", "color": "#666666", "wrap": True},
+                {"type": "separator", "margin": "lg"},
+                {"type": "text", "text": "點擊下方按鈕查看如何快速上手：", "size": "sm", "color": "#999999", "margin": "md", "wrap": True}
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "uri",
+                        "label": "📖 完整使用教學",
+                        "uri": notion_url
+                    },
+                    "style": "primary",
+                    "color": "#05B050"
+                }
+            ]
+        }
+    }
 def build_roster_added_flex(clan, game_name):
     return {
         "type": "bubble",
@@ -2336,26 +2383,23 @@ def handle_join(event):
     """當機器人被邀請加入群組時觸發"""
     group_id = get_source_id(event)
     
-    # 1. 執行現有的訂閱檢查 (自動為新群組開啟 7 天試用)
+    # 執行訂閱檢查
     check_subscription(group_id)
     
-    # 2. 準備訊息內容
     notion_url = "https://erratic-penguin-857.notion.site/M-3069463a3aa78018be13fe885278b1cc?source=copy_link"
     
-    # 使用你現有的引導卡片函式
-    welcome_flex = build_join_roster_guide_flex()
+    # 使用剛才定義的單一函式取得內容
+    flex_content = get_welcome_flex(notion_url)
     
-    # 3. 發送組合訊息
     try:
         line_bot_api.reply_message(
             event.reply_token,
             [
-                TextSendMessage(text=f"感謝邀請！我是吃王小幫手。\n\n📖 完整使用教學：\n{notion_url}"),
-                welcome_flex
+                FlexSendMessage(alt_text="小幫手報到！", contents=flex_content)
             ]
         )
     except Exception as e:
-        print(f"發送歡迎訊息失敗: {e}")
+        print(f"Error: {e}")
 @handler.add(MemberJoinedEvent)
 def handle_member_joined(event):
     # 只處理群組 / room
