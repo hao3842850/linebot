@@ -171,23 +171,21 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
 
 def delete_boss_records_by_alias(group_id, input_text):
     """
-    對齊 alias_map 的刪除邏輯：直接清除該王所有紀錄
+    依照 alias_map 邏輯：根據簡稱找到標準名稱，並徹底清除資料庫紀錄
     """
     target_boss = None
     
-    # 1. 比對 alias_map 找出正式名稱
-    # 假設你的 alias_map = {"四": "四色", "飛": "飛龍"}
+    # 1. 查找 alias_map 取得標準名稱 (例如：輸入 "四" 得到 "四色")
     for alias, full_name in alias_map.items():
         if input_text == alias:
             target_boss = full_name
             break
             
-    # 如果簡稱表沒對到，看看是不是直接輸入全名 (例如: 刪除 四色)
+    # 2. 如果 alias_map 沒對到，檢查是否直接輸入了標準名稱
     if not target_boss:
         if input_text in alias_map.values():
             target_boss = input_text
-
-    # 如果還是找不到，表示這隻王不在你的名單內
+            
     if not target_boss:
         return False, None
 
@@ -196,16 +194,16 @@ def delete_boss_records_by_alias(group_id, input_text):
     
     try:
         cur = conn.cursor()
-        # 直接清除該群組中該王的所有紀錄
+        # 關鍵：使用 DELETE 徹底清除該群組中該王的所有紀錄
         query = "DELETE FROM boss_time WHERE group_id = %s AND boss_name = %s"
         cur.execute(query, (group_id, target_boss))
         conn.commit()
         
-        count = cur.rowcount
+        deleted_count = cur.rowcount
         cur.close()
-        return count > 0, target_boss
+        return deleted_count > 0, target_boss
     except Exception as e:
-        print(f"SQL 刪除失敗: {e}")
+        print(f"SQL 清除出錯: {e}")
         return False, target_boss
     finally:
         conn.close()
@@ -2367,21 +2365,22 @@ def handle_message(event):
 
     #-------------------------------------------------------------刪除單一王---------------------------------------
     if msg_text.startswith("刪 "):
-        # 取得「刪除 」後面的字
-        name_to_del = msg_text[2:].strip()
+        name_input = msg_text[2:].strip() # 取得「刪除 」之後的文字
         
-        if name_to_del:
-            success, real_name = delete_boss_records_by_alias(group_id, name_to_del)
+        if name_input:
+            success, final_name = delete_boss_records_by_alias(group_id, name_input)
             
             if success:
+                # 刪除成功，回覆標準王名
                 line_bot_api.reply_message(
                     event.reply_token,
-                    TextSendMessage(text=f"🗑 已成功清除【{real_name}】的紀錄。")
+                    TextSendMessage(text=f"🗑 已成功清除【{final_name}】的紀錄。")
                 )
             else:
+                # 找不到對應或資料庫本來就沒紀錄
                 line_bot_api.reply_message(
                     event.reply_token,
-                    TextSendMessage(text=f"❌ 找不到「{name_to_del}」的紀錄。")
+                    TextSendMessage(text=f"❌ 找不到「{name_input}」的紀錄。")
                 )
             return 
     
