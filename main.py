@@ -27,7 +27,64 @@ def is_peak_time():
 
     #h = now_tw().hour
     #return 19 <= h <= 23
+def check_subscription(group_id):
+    """檢查權限：回傳 (是否允許, 到期時間物件, 狀態文字)"""
+    conn = get_pg_conn()
+    if not conn: return True, None, "DB_ERROR" 
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT status, expiry_date FROM subscriptions WHERE group_id = %s", (group_id,))
+        row = cur.fetchone()
+        now = now_tw()
+        
+        if not row:
+            # 【自動試用期設定】這裡設定為 7 天
+            expiry = now + timedelta(days=7)
+            cur.execute(
+                "INSERT INTO subscriptions (group_id, status, expiry_date) VALUES (%s, %s, %s)",
+                (group_id, 'trial', expiry)
+            )
+            conn.commit()
+            return True, expiry, "試用中"
 
+        status, expiry_date = row
+        if expiry_date.tzinfo is None: expiry_date = TZ.localize(expiry_date)
+
+        # 檢查是否到期
+        if now > expiry_date:
+            return False, expiry_date, "已過期"
+        return True, expiry_date, "使用中"
+    finally:
+        cur.close()
+        conn.close()
+
+def build_subscription_flex(status, expiry_date):
+    """建立訂閱到期的卡片回覆"""
+    expiry_str = expiry_date.strftime('%Y-%m-%d %H:%M')
+    bubble = {
+      "type": "bubble",
+      "header": {
+        "type": "box", "layout": "vertical", "backgroundColor": "#222222",
+        "contents": [{"type": "text", "text": "🔔 系統權限通知", "color": "#FFD700", "weight": "bold", "size": "lg"}]
+      },
+      "body": {
+        "type": "box", "layout": "vertical", "spacing": "md",
+        "contents": [
+          {"type": "text", "text": f"目前狀態：{status}", "weight": "bold", "size": "md"},
+          {"type": "text", "text": f"有效期限至：\n{expiry_str}", "size": "sm", "color": "#aaaaaa", "wrap": True},
+          {"type": "separator", "margin": "lg"},
+          {"type": "text", "text": "⚠️ 試用期已結束，功能已暫時鎖定。請聯絡管理員開通正式版以繼續使用。", "wrap": True, "size": "xs", "color": "#ff4444"}
+        ]
+      },
+      "footer": {
+        "type": "box", "layout": "vertical",
+        "contents": [
+          {"type": "button", "style": "primary", "color": "#FFD700", 
+           "action": {"type": "uri", "label": "聯絡開發者", "uri": "https://line.me/ti/p/您的LINE_ID"}}
+        ]
+      }
+    }
+    return FlexSendMessage(alt_text="訂閱到期通知", contents=bubble)
 def safe_reply(event, text_msg, flex_msg=None):
     try:
         if is_peak_time() or flex_msg is None:
@@ -2290,6 +2347,18 @@ def handle_message(event):
     db["boss"].setdefault(group_id, {})
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
+    group_id = getattr(event.source, 'group_id', event.source.user_id)
+    msg_text = event.message.text.strip()
+
+#-------------------------------------------------------------訂閱制---------------------------------------
+    is_allowed, expiry, status_text = check_subscription(group_id)
+    
+    if not is_allowed:
+        # 如果過期了，只有輸入「狀態」或「ID」能過，其他指令一律彈出卡片
+        if msg_text not in ["狀態", "ID"]:
+            flex_msg = build_subscription_flex(status_text, expiry)
+            line_bot_api.reply_message(event.reply_token, flex_msg)
+            return
     #-------------------------------------------------------------交班 未完成 交接也可以 換人 換手 ---------------------------------------
     if "@All交班" in msg_text_no_space:
         with get_pg_conn() as conn:
