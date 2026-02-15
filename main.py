@@ -169,41 +169,44 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
     finally:
         conn.close()
 
-def clear_boss_records_by_alias(group_id, input_name):
+def delete_boss_records_by_alias(group_id, input_text):
     """
-    根據 alias_map 找到標準王名並徹底清除紀錄
+    對齊 alias_map 的刪除邏輯：直接清除該王所有紀錄
     """
-    # 1. 查找 alias_map 取得標準名稱
-    # 遍歷 alias_map 的 key (簡稱)，找到對應的 value (標準王名)
-    target_boss_name = None
-    for alias, full_name in alias_map.items():
-        if input_name == alias:
-            target_boss_name = full_name
-            break
+    target_boss = None
     
-    # 如果簡稱表找不到，嘗試看看是不是直接輸入了全名
-    if not target_boss_name:
-        if input_name in alias_map.values():
-            target_boss_name = input_name
-        else:
-            return False, input_name
+    # 1. 比對 alias_map 找出正式名稱
+    # 假設你的 alias_map = {"四": "四色", "飛": "飛龍"}
+    for alias, full_name in alias_map.items():
+        if input_text == alias:
+            target_boss = full_name
+            break
+            
+    # 如果簡稱表沒對到，看看是不是直接輸入全名 (例如: 刪除 四色)
+    if not target_boss:
+        if input_text in alias_map.values():
+            target_boss = input_text
+
+    # 如果還是找不到，表示這隻王不在你的名單內
+    if not target_boss:
+        return False, None
 
     conn = get_pg_conn()
-    if not conn: return False, target_boss_name
+    if not conn: return False, target_boss
     
     try:
         cur = conn.cursor()
-        # 直接 DELETE 該群組中所有符合該標準王名的資料
+        # 直接清除該群組中該王的所有紀錄
         query = "DELETE FROM boss_time WHERE group_id = %s AND boss_name = %s"
-        cur.execute(query, (group_id, target_boss_name))
+        cur.execute(query, (group_id, target_boss))
         conn.commit()
         
-        deleted_count = cur.rowcount
+        count = cur.rowcount
         cur.close()
-        return deleted_count > 0, target_boss_name
+        return count > 0, target_boss
     except Exception as e:
-        print(f"SQL 清除出錯: {e}")
-        return False, target_boss_name
+        print(f"SQL 刪除失敗: {e}")
+        return False, target_boss
     finally:
         conn.close()
 
@@ -2364,20 +2367,23 @@ def handle_message(event):
 
     #-------------------------------------------------------------刪除單一王---------------------------------------
     if msg_text.startswith("刪 "):
-        # 提取輸入名稱，如「刪除 四」
-        input_text = msg_text.replace("刪 ", "").strip()
-
-        # 執行根據 alias_map 的清除邏輯
-        success, matched_name = clear_boss_records_by_alias(group_id, input_text)
+        # 取得「刪除 」後面的字
+        name_to_del = msg_text[3:].strip()
         
-        if success:
-            # 回饋時顯示標準王名，讓使用者確認
-            reply_txt = f"🗑 成功清除【{matched_name}】的紀錄。"
-        else:
-            reply_txt = f"❌ 找不到「{input_text}」的紀錄。"
+        if name_to_del:
+            success, real_name = delete_boss_records_by_alias(group_id, name_to_del)
             
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_txt))
-        return
+            if success:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=f"🗑 已成功清除【{real_name}】的紀錄。")
+                )
+            else:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=f"❌ 找不到「{name_to_del}」的紀錄。")
+                )
+            return 
     
     #-------------------------------------------------------------競標---------------------------------------
     # 1. 發起：例如打「掉落 紅布」
