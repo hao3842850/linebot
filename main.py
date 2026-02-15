@@ -1905,21 +1905,21 @@ def get_status_flex(status_text, expiry_date, days_left):
       }
     }
 def get_delete_result_flex(success, name_input, final_name=None):
-    """回傳刪除操作結果的 Flex Message 內容"""
+    """回傳刪除操作結果的 Flex Message 內容 (已修正 size 報錯)"""
     if success:
-        main_color = "#E63946"  # 成功刪除用紅色（代表移除）
+        main_color = "#E63946"
         title = "🗑 已成功清除"
-        description = f"【{final_name}】的紀錄已從資料庫中移除。"
-        icon_url = "https://cdn-icons-png.flaticon.com/512/1214/1214428.png" # 垃圾桶圖示
+        description = f"【{final_name}】的相關紀錄已從系統中移除。"
+        icon_url = "https://cdn-icons-png.flaticon.com/512/1214/1214428.png"
     else:
-        main_color = "#AAAAAA"  # 失敗或找不到用灰色
-        title = "❌ 清除失敗"
-        description = f"資料庫不到「{name_input}」的資料，請確認簡稱是否正確。"
-        icon_url = "https://cdn-icons-png.flaticon.com/512/564/564619.png" # 驚嘆號圖示
+        main_color = "#AAAAAA"
+        title = "❌ 找不到紀錄"
+        description = f"系統中找不到與「{name_input}」相符的資料。"
+        icon_url = "https://cdn-icons-png.flaticon.com/512/564/564619.png"
 
     return {
         "type": "bubble",
-        "size": "sm", # 使用較小的尺寸，不佔空間
+        "size": "kilo",  # 修正處：確保使用 kilo, mega 等標準值，或直接移除此行讓它預設
         "body": {
             "type": "box",
             "layout": "vertical",
@@ -1928,14 +1928,14 @@ def get_delete_result_flex(success, name_input, final_name=None):
                 {
                     "type": "image",
                     "url": icon_url,
-                    "size": "xxs",
+                    "size": "xxs", # 圖片的 size 是合法的
                     "aspectMode": "fit"
                 },
                 {
                     "type": "text",
                     "text": title,
                     "weight": "bold",
-                    "size": "lg",
+                    "size": "lg", # 文字的 size 是合法的
                     "align": "center",
                     "color": main_color
                 },
