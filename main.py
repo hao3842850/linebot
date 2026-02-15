@@ -170,17 +170,18 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
         conn.close()
 
 def delete_boss_records_by_alias(group_id, input_text):
-    # 這裡直接對齊您程式碼中的 alias_map
+    """
+    根據新的 alias_map 結構：{"全名": ["簡稱1", "簡稱2"]}
+    尋找對應的全名並徹底清除紀錄。
+    """
     target_boss = None
-    for alias, full_name in alias_map.items():
-        if input_text == alias:
+    
+    # 遍歷 alias_map 進行匹配
+    for full_name, aliases in alias_map.items():
+        # 如果輸入的字在簡稱清單中，或者剛好就是全名
+        if input_text in aliases or input_text == full_name:
             target_boss = full_name
             break
-            
-    if not target_boss:
-        # 如果 alias_map 找不到，再檢查是不是輸入全名
-        if input_text in alias_map.values():
-            target_boss = input_text
             
     if not target_boss:
         return False, None
@@ -189,7 +190,7 @@ def delete_boss_records_by_alias(group_id, input_text):
     if not conn: return False, target_boss
     try:
         cur = conn.cursor()
-        # 執行直接清除 (DELETE)，移除該王的所有紀錄
+        # 執行 DELETE 徹底清除該群組中該王的所有紀錄
         query = "DELETE FROM boss_time WHERE group_id = %s AND boss_name = %s"
         cur.execute(query, (group_id, target_boss))
         conn.commit()
@@ -197,7 +198,7 @@ def delete_boss_records_by_alias(group_id, input_text):
         cur.close()
         return count > 0, target_boss
     except Exception as e:
-        print(f"SQL 刪除失敗: {e}")
+        print(f"SQL 刪除出錯: {e}")
         return False, target_boss
     finally:
         conn.close()
@@ -2359,20 +2360,20 @@ def handle_message(event):
 
     #-------------------------------------------------------------刪除單一王---------------------------------------
     if msg_text.startswith("刪 "):
-        name_input = msg_text[2:].strip() # 抓取「刪除 」後面的文字
+        name_input = msg_text[2:].strip() # 抓取「刪除 」後面的簡稱，例如「4」或「四」
         if name_input:
             success, final_name = delete_boss_records_by_alias(group_id, name_input)
             if success:
                 line_bot_api.reply_message(
                     event.reply_token,
-                    TextSendMessage(text=f"🗑 已成功清除【{final_name}】的所有登記紀錄。")
+                    TextSendMessage(text=f"🗑 已成功清除【{final_name}】的紀錄。")
                 )
             else:
                 line_bot_api.reply_message(
                     event.reply_token,
-                    TextSendMessage(text=f"❌ 找不到與「{name_input}」對應的王名或該王目前無紀錄。")
+                    TextSendMessage(text=f"❌ 找不到與「{name_input}」的紀錄。")
                 )
-            return # 務必 return，否則會跑進後面的登記邏輯
+            return 
     
     #-------------------------------------------------------------競標---------------------------------------
     # 1. 發起：例如打「掉落 紅布」
