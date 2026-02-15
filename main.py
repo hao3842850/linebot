@@ -2368,7 +2368,7 @@ def handle_message(event):
     #-------------------------------------------------------------刪除單一王---------------------------------------
     if msg_text.startswith("刪 "):
         # 取得「刪除 」後面的字
-        name_to_del = msg_text[3:].strip()
+        name_to_del = msg_text[2:].strip()
         
         if name_to_del:
             success, real_name = delete_boss_records_by_alias(group_id, name_to_del)
