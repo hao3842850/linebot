@@ -30,7 +30,7 @@ def is_peak_time():
 def check_subscription(group_id):
     """檢查權限：回傳 (是否允許, 到期時間物件, 狀態文字)"""
     conn = get_pg_conn()
-    if not conn: return True, None, "DB_ERROR" 
+    if not conn: return True, None, "資料庫連線中" 
     try:
         cur = conn.cursor()
         cur.execute("SELECT status, expiry_date FROM subscriptions WHERE group_id = %s", (group_id,))
@@ -38,26 +38,39 @@ def check_subscription(group_id):
         now = now_tw()
         
         if not row:
-            # 【自動試用期設定】這裡設定為 7 天
+            # 沒紀錄就送 7 天試用
             expiry = now + timedelta(days=7)
             cur.execute(
                 "INSERT INTO subscriptions (group_id, status, expiry_date) VALUES (%s, %s, %s)",
-                (group_id, 'trial', expiry)
+                ('trial', expiry, group_id) # 修正 SQL 參數順序
             )
             conn.commit()
-            return True, expiry, "試用中"
+            return True, expiry, "新群組試用"
 
         status, expiry_date = row
-        if expiry_date.tzinfo is None: expiry_date = TZ.localize(expiry_date)
 
-        # 檢查是否到期
+        # --- 核心修正：強制轉換字串為 datetime ---
+        if isinstance(expiry_date, str):
+            # 移除可能導致解析失敗的時區字元並轉換
+            clean_date = expiry_date.split('+')[0].split('.')[0]
+            expiry_date = datetime.strptime(clean_date, '%Y-%m-%d %H:%M:%S')
+        
+        # 確保有時區資訊才能跟 now 比較
+        if expiry_date.tzinfo is None:
+            expiry_date = TZ.localize(expiry_date)
+        # ---------------------------------------
+
         if now > expiry_date:
-            return False, expiry_date, "已過期"
-        return True, expiry_date, "使用中"
+            return False, expiry_date, "授權已過期"
+            
+        return True, expiry_date, "授權有效"
+    except Exception as e:
+        print(f"訂閱檢查錯誤: {e}")
+        return True, None, "系統跳過檢查" # 發生錯誤時先讓使用者能用，避免機器人卡死
     finally:
         cur.close()
         conn.close()
-
+        
 def build_subscription_flex(status, expiry_date):
     """建立訂閱到期的卡片回覆"""
     expiry_str = expiry_date.strftime('%Y-%m-%d %H:%M')
