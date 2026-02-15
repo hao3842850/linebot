@@ -172,24 +172,24 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
 
 def delete_single_boss_from_pg(group_id, input_name):
     """
-    支援簡稱刪除：將輸入的名稱轉換為全名後，刪除最新一筆紀錄
+    支援簡稱刪除：先尋找匹配的王名，再執行資料庫刪除
     """
-    # 1. 尋找全名 (假設您的簡稱邏輯與登記時一致)
-    # 這裡我們遍歷 cd_map 來尋找匹配的王名
+    # --- 新增：簡稱轉換邏輯 ---
     target_full_name = None
+    # 遍歷現有的 cd_map 鍵值 (完整王名)
     for full_name in cd_map.keys():
-        if input_name == full_name or input_name in full_name: # 支援精準或部分匹配
+        if input_name == full_name or input_name in full_name:
             target_full_name = full_name
             break
     
-    # 如果找不到對應的王名，就用使用者輸入的原文字試試看
+    # 如果在 cd_map 找不到對應，就用原本輸入的名稱去試 (防呆)
     boss_name = target_full_name if target_full_name else input_name
 
     conn = get_pg_conn()
-    if not conn: return False
+    if not conn: return False, boss_name
     try:
         cur = conn.cursor()
-        # 刪除該群組中該王名最新的一筆 ID
+        # 刪除該群組中，該王名最新的一筆 ID
         query = """
             DELETE FROM boss_time 
             WHERE id = (
@@ -203,7 +203,7 @@ def delete_single_boss_from_pg(group_id, input_name):
         conn.commit()
         count = cur.rowcount
         cur.close()
-        return count > 0, boss_name # 回傳是否成功與最終確定的王名
+        return count > 0, boss_name # 回傳是否成功與實際刪除的名稱
     except Exception as e:
         print(f"SQL 單一刪除出錯: {e}")
         return False, boss_name
@@ -2368,20 +2368,16 @@ def handle_message(event):
     msg_text = event.message.text.strip()
 
     # 處理「刪除 王名」指令
-    # --- 放在 handle_message 的指令判斷區塊中 ---
 
-    if msg_text.startswith("刪除 "):
-        # 提取輸入，例如 "刪除 四色"
-        input_name = msg_text.replace("刪除 ", "").strip()
+    if msg_text.startswith("刪 "):
+        # 取得輸入名稱，如 "刪除 四"
+        input_name = msg_text.replace("刪 ", "").strip()
         
-        if not input_name:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 請輸入要刪除的王名。"))
-            return
-
-        # 執行刪除 (現在會自動轉換簡稱)
+        # 執行支援簡稱的刪除邏輯
         success, final_name = delete_single_boss_from_pg(group_id, input_name)
         
         if success:
+            # 提示完整名稱，例如：已成功刪除【四色】的最後一筆...
             reply_txt = f"🗑 已成功刪除【{final_name}】的紀錄。"
         else:
             reply_txt = f"❌ 找不到「{input_name}」的紀錄。"
