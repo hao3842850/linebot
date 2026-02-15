@@ -2359,6 +2359,14 @@ def handle_message(event):
             flex_msg = build_subscription_flex(status_text, expiry)
             line_bot_api.reply_message(event.reply_token, flex_msg)
             return
+        
+    if msg_text == "狀態":
+        is_allowed, expiry, status_text = check_subscription(group_id)
+        remain = expiry - now_tw()
+        days = remain.days
+        reply_msg = f"🛡️ 群組權限：{status_text}\n📅 到期日：{expiry.strftime('%Y-%m-%d')}\n⏳ 剩餘天數：{max(0, days)} 天"
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_msg))
+        return
     #-------------------------------------------------------------交班 未完成 交接也可以 換人 換手 ---------------------------------------
     if "@All交班" in msg_text_no_space:
         with get_pg_conn() as conn:
