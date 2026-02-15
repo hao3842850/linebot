@@ -1848,7 +1848,7 @@ def get_status_flex(status_text, expiry_date, days_left):
         "layout": "vertical",
         "contents": [
           {"type": "text", "text": "🛡️ 群組權限狀態", "weight": "bold", "color": "#1DB954", "size": "sm"},
-          {"type": "text", "text": "吃王小幫手服務中", "weight": "bold", "size": "xxl", "margin": "md"},
+          {"type": "text", "text": "🟢 服務中", "weight": "bold", "size": "xxl", "margin": "md"},
           {"type": "separator", "margin": "lg", "backgroundColor": "#EEEEEE"},
           {
             "type": "box",
