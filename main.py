@@ -7,7 +7,10 @@ from threading import Lock
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import (MemberJoinedEvent, MessageEvent, TextMessage, TextSendMessage, FlexSendMessage)
+from linebot.models import (
+    JoinEvent,  
+    MemberJoinedEvent, MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
+)
 
 # 基本設定
 db_lock = Lock()
@@ -101,6 +104,8 @@ def build_subscription_flex(status, expiry_date):
       }
     }
     return FlexSendMessage(alt_text="訂閱到期通知", contents=bubble)
+
+
 def safe_reply(event, text_msg, flex_msg=None):
     try:
         if is_peak_time() or flex_msg is None:
@@ -2326,6 +2331,31 @@ async def process_line_event(body: bytes, signature: str):
         handler.handle(body.decode("utf-8"), signature)
     except Exception as e:
         print("LINE 背景處理錯誤:", e)
+@handler.add(JoinEvent)
+def handle_join(event):
+    """當機器人被邀請加入群組時觸發"""
+    group_id = get_source_id(event)
+    
+    # 1. 執行現有的訂閱檢查 (自動為新群組開啟 7 天試用)
+    check_subscription(group_id)
+    
+    # 2. 準備訊息內容
+    notion_url = "https://erratic-penguin-857.notion.site/M-3069463a3aa78018be13fe885278b1cc?source=copy_link"
+    
+    # 使用你現有的引導卡片函式
+    welcome_flex = build_join_roster_guide_flex()
+    
+    # 3. 發送組合訊息
+    try:
+        line_bot_api.reply_message(
+            event.reply_token,
+            [
+                TextSendMessage(text=f"感謝邀請！我是吃王小幫手。\n\n📖 完整使用教學：\n{notion_url}"),
+                welcome_flex
+            ]
+        )
+    except Exception as e:
+        print(f"發送歡迎訊息失敗: {e}")
 @handler.add(MemberJoinedEvent)
 def handle_member_joined(event):
     # 只處理群組 / room
