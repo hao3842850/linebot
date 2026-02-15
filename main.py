@@ -187,6 +187,36 @@ def delete_single_boss_record(group_id, boss_name):
     finally:
         conn.close()
 
+def delete_single_boss_from_pg(group_id, boss_name):
+    """
+    從資料庫中刪除指定群組內特定王的最新一筆紀錄
+    """
+    conn = get_pg_conn()
+    if not conn: return False
+    try:
+        cur = conn.cursor()
+        # 這裡採取刪除該群組中該王「最後一次」登記的紀錄
+        # 如果您想刪除該王的所有歷史，可以拿掉 ORDER BY 與 LIMIT
+        query = """
+            DELETE FROM boss_time 
+            WHERE id = (
+                SELECT id FROM boss_time 
+                WHERE group_id = %s AND boss_name = %s 
+                ORDER BY kill_time DESC 
+                LIMIT 1
+            )
+        """
+        cur.execute(query, (group_id, boss_name))
+        conn.commit()
+        count = cur.rowcount
+        cur.close()
+        return count > 0
+    except Exception as e:
+        print(f"SQL 單一刪除出錯: {e}")
+        return False
+    finally:
+        conn.close()
+
 def get_kpi_ranking(group_id):
     conn = get_pg_conn()
     if not conn: return "資料庫連線失敗", []
@@ -2344,20 +2374,21 @@ def handle_message(event):
     # 範例邏輯範例
     msg_text = event.message.text.strip()
 
+    # 處理「刪除 王名」指令
     if msg_text.startswith("刪 "):
-        boss_to_del = msg_text.replace("刪 ", "").strip()
+        # 取得王名，例如 "刪除 飛龍" -> "飛龍"
+        boss_to_delete = msg_text.replace("刪 ", "").strip()
         
-        # 呼叫剛寫好的刪除函式
-        if delete_single_boss_record(group_id, boss_to_del):
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=f"🗑 已成功刪除【{boss_to_del}】的登記紀錄。")
-            )
+        # 執行刪除
+        success = delete_single_boss_from_pg(group_id, boss_to_delete)
+        
+        if success:
+            reply_txt = f"🗑 已成功刪除【{boss_to_delete}】的登記紀錄。"
         else:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=f"❌ 刪除失敗，請檢查資料庫連線或王名是否正確。")
-            )
+            reply_txt = f"❌ 找不到【{boss_to_delete}】的登記紀錄，或刪除失敗。"
+            
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_txt))
+        return
 
     # 備份 (修正版：純粹輸出原始紀錄)
     if clean_msg == "備份" and "\n" not in msg:
