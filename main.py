@@ -170,42 +170,35 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
         conn.close()
 
 
-def delete_single_boss_from_pg(group_id, input_name):
+def clear_single_boss_records_from_pg(group_id, input_name):
     """
-    支援簡稱刪除：先尋找匹配的王名，再執行資料庫刪除
+    支援簡稱清除：從 BOSS_MAP 抓取全名後，直接清除該王的所有紀錄
     """
-    # --- 新增：簡稱轉換邏輯 ---
     target_full_name = None
-    # 遍歷現有的 cd_map 鍵值 (完整王名)
-    for full_name in cd_map.keys():
+    
+    # 1. 從 BOSS_MAP 抓取全名 (支援簡稱比對)
+    for full_name in BOSS_MAP.keys():
         if input_name == full_name or input_name in full_name:
             target_full_name = full_name
             break
     
-    # 如果在 cd_map 找不到對應，就用原本輸入的名稱去試 (防呆)
+    # 如果在 BOSS_MAP 找不到，才直接用輸入的文字
     boss_name = target_full_name if target_full_name else input_name
 
     conn = get_pg_conn()
     if not conn: return False, boss_name
     try:
         cur = conn.cursor()
-        # 刪除該群組中，該王名最新的一筆 ID
-        query = """
-            DELETE FROM boss_time 
-            WHERE id = (
-                SELECT id FROM boss_time 
-                WHERE group_id = %s AND boss_name = %s 
-                ORDER BY kill_time DESC 
-                LIMIT 1
-            )
-        """
+        # 2. 直接刪除該群組中，該王的所有紀錄 (不限最後一筆)
+        query = "DELETE FROM boss_time WHERE group_id = %s AND boss_name = %s"
         cur.execute(query, (group_id, boss_name))
         conn.commit()
-        count = cur.rowcount
+        
+        deleted_count = cur.rowcount # 取得總共刪除了幾筆
         cur.close()
-        return count > 0, boss_name # 回傳是否成功與實際刪除的名稱
+        return deleted_count > 0, boss_name
     except Exception as e:
-        print(f"SQL 單一刪除出錯: {e}")
+        print(f"SQL 清除單一王出錯: {e}")
         return False, boss_name
     finally:
         conn.close()
@@ -2370,17 +2363,17 @@ def handle_message(event):
     # 處理「刪除 王名」指令
 
     if msg_text.startswith("刪 "):
-        # 取得輸入名稱，如 "刪除 四"
-        input_name = msg_text.replace("刪 ", "").strip()
+        # 提取輸入文字，例如「刪除 四」
+        input_text = msg_text.replace("刪 ", "").strip()
         
-        # 執行支援簡稱的刪除邏輯
-        success, final_name = delete_single_boss_from_pg(group_id, input_name)
+        # 執行清除邏輯 (會自動對應 BOSS_MAP 簡稱)
+        success, matched_name = clear_single_boss_records_from_pg(group_id, input_text)
         
         if success:
-            # 提示完整名稱，例如：已成功刪除【四色】的最後一筆...
-            reply_txt = f"🗑 已成功刪除【{final_name}】的紀錄。"
+            # 回饋時顯示全名，確認已將該王的所有資料抹除
+            reply_txt = f"🗑 已成功清除【{matched_name}】的紀錄。"
         else:
-            reply_txt = f"❌ 找不到「{input_name}」的紀錄。"
+            reply_txt = f"❌ 找不到「{input_text}」的紀錄。"
             
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_txt))
         return
