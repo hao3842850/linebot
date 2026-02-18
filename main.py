@@ -168,8 +168,7 @@ def get_latest_boss_records(group_id):
     if not conn: return {}
     try:
         cur = conn.cursor()
-        # 關鍵修正：DISTINCT ON (boss_name) 搭配 ORDER BY id DESC
-        # 這會讓最後一次的 INSERT 紀錄（不論是手動還是輪空）優先顯示
+        # 關鍵修正：ORDER BY boss_name, id DESC 確保「最後一次動作」優先
         query = """
             SELECT DISTINCT ON (boss_name) 
                    boss_name, kill_time, respawn_time, note, user_id, source
@@ -186,7 +185,7 @@ def get_latest_boss_records(group_id):
             boss_name = row[0]
             kt_raw, rt_raw = row[1], row[2]
             
-            # 確保取出時間為台灣時區
+            # 強制時區校正，解決 08:06 vs 02:10 問題
             kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
             rt_tw = rt_raw.astimezone(TZ) if rt_raw.tzinfo else pytz.utc.localize(rt_raw).astimezone(TZ)
 
@@ -200,7 +199,7 @@ def get_latest_boss_records(group_id):
             }]
         return result
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error fetching boss records: {e}")
         return {}
     finally:
         conn.close()
@@ -210,7 +209,7 @@ def get_last_boss_record(group_id, boss_name):
     if not conn: return None
     try:
         cur = conn.cursor()
-        # 關鍵：按 id 排序取最後一筆，這能讓手動登記蓋過輪空
+        # 以 id 排序，最後登記的優先
         cur.execute("""
             SELECT respawn_time FROM boss_time 
             WHERE group_id = %s AND boss_name = %s 
@@ -222,7 +221,7 @@ def get_last_boss_record(group_id, boss_name):
         
         if row and row[0]:
             res_time = row[0]
-            # 強制處理 08:06 變 02:10 的問題 (UTC 轉 台灣)
+            # 強制時區對齊
             if res_time.tzinfo is None:
                 return pytz.utc.localize(res_time).astimezone(TZ)
             return res_time.astimezone(TZ)
@@ -231,6 +230,7 @@ def get_last_boss_record(group_id, boss_name):
     return None
 
 def handle_boss_skipped(event, group_id, boss_name, user_id, user_note):
+    # 1. 抓取基準點 (已改為 id 優先)
     last_respawn = get_last_boss_record(group_id, boss_name)
     
     if not last_respawn:
@@ -240,30 +240,37 @@ def handle_boss_skipped(event, group_id, boss_name, user_id, user_note):
     now = datetime.now(TZ)
     time_diff = (now - last_respawn).total_seconds() / 60
 
-    # 重生後 30 分鐘內才可登記
+    # 2. 判定 30 分鐘內
     if -5 <= time_diff <= 30:
         cd = cd_map.get(boss_name)
         if not cd: return
 
         # 推算下一口
-        new_kill_time = last_respawn
         new_respawn_time = last_respawn + timedelta(hours=cd)
         
-        # 儲存 (由資料庫 id 決定它是最新的)
-        save_boss_to_pg(group_id, boss_name, new_kill_time, new_respawn_time, user_id, user_note, source="skip")
+        # 3. 儲存：存入時 source 標記為 skip
+        save_boss_to_pg(
+            group_id=group_id,
+            boss_name=boss_name,
+            kill_time=last_respawn,
+            respawn_time=new_respawn_time,
+            user_id=user_id,
+            note=user_note, # 保留使用者輸入的「空2」等字串
+            source="skip"
+        )
 
         registrar = get_username(user_id)
         flex_msg = build_register_boss_flex(
-            boss_name, new_kill_time.strftime("%H:%M"), 
+            boss_name, last_respawn.strftime("%H:%M"), 
             new_respawn_time.strftime("%H:%M"), registrar, user_note, is_skip=True
         )
-        safe_reply(event, f"✅ {boss_name} {user_note} 成功", flex_msg)
+        safe_reply(event, f"✅ {boss_name} 輪空成功", flex_msg)
     else:
-        # 回報失敗卡片 (紅色)
+        # 4. 失敗：發送紅色 Flex 卡片
         error_flex = build_error_flex(
             "⚠ 輪空登記失敗", boss_name,
             last_respawn.strftime('%H:%M'), now.strftime('%H:%M'),
-            int(time_diff), "💡 請在重生後 30 分鐘內登記，或手動輸入時間覆蓋。"
+            int(time_diff), "💡 請在重生後 30 分鐘內登記，或直接輸入時間覆蓋。"
         )
         line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="失敗", contents=error_flex))
 
