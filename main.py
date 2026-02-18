@@ -205,6 +205,79 @@ def get_latest_boss_records(group_id):
     finally:
         conn.close()
 
+def get_last_boss_record(group_id, boss_name):
+    conn = get_pg_conn()
+    if not conn: return None
+    try:
+        cur = conn.cursor()
+        # 撈取該群組、該王名最新的重生時間
+        cur.execute("""
+            SELECT respawn_time FROM boss_time 
+            WHERE group_id = %s AND boss_name = %s 
+            ORDER BY respawn_time DESC LIMIT 1
+        """, (group_id, boss_name))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return row[0] if row else None
+    except Exception as e:
+        print(f"Query error: {e}")
+        return None
+
+def handle_boss_skipped(event, group_id, boss_name, user_id, user_note):
+    # 1. 取得該王最後一次紀錄的重生時間
+    last_respawn = get_last_boss_record(group_id, boss_name)
+    
+    if not last_respawn:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 查無【{boss_name}】紀錄，請先手動登記一次。"))
+        return
+
+    # 處理時區
+    if last_respawn.tzinfo is None:
+        last_respawn = TZ.localize(last_respawn)
+    
+    now = datetime.now(TZ)
+    time_diff = (now - last_respawn).total_seconds() / 60
+
+    # 2. 判定條件：重生時間後的 30 分鐘內
+    if -5 <= time_diff <= 30:
+        cd = cd_map.get(boss_name)
+        if not cd: return
+
+        # 固定跳過一口：本次死亡 = 上次重生；下次重生 = 上次重生 + 1個CD
+        new_kill_time = last_respawn
+        new_respawn_time = last_respawn + timedelta(hours=cd)
+        
+        # 3. 儲存至資料庫 (備註使用使用者輸入的字串)
+        save_boss_to_pg(
+            group_id=group_id,
+            boss_name=boss_name,
+            kill_time=new_kill_time,
+            respawn_time=new_respawn_time,
+            user_id=user_id,
+            note=user_note, # 這裡會存入例如 "空2"
+            source="skip"
+        )
+
+        # 4. 推送 Flex Message
+        registrar = get_username(user_id)
+        flex_msg = build_register_boss_flex(
+            boss_name, 
+            new_kill_time.strftime("%H:%M"), 
+            new_respawn_time.strftime("%H:%M"), 
+            registrar, 
+            user_note, # Flex 訊息上也顯示該備註
+            is_skip=True
+        )
+        safe_reply(event, f"✅ {boss_name} 輪空登記成功", flex_msg)
+    else:
+        # 時間不符提醒
+        error_msg = (
+            f"⚠ 輪空登記失敗\n"
+            f"【{boss_name}】重生時間為 {last_respawn.strftime('%H:%M')}\n"
+            f"目前時間已超過 30 分鐘，請手動輸入時間登記。"
+        )
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=error_msg))
 def init_cd_boss_with_given_time(group_id, base_time, user_id):
     """
     開機初始化：只針對『目前沒紀錄』的王補上開機時間。
@@ -368,119 +441,6 @@ def get_all_records_for_kpi(group_id, start_time, end_time):
     finally:
         conn.close()
     return records
-def background_check():
-    while True:
-        try:
-            conn = get_pg_conn()
-            cur = conn.cursor()
-            now = now_tw()
-            
-            # 撈取所有還沒重生的紀錄
-            cur.execute("SELECT group_id, boss_name, respawn_time FROM boss_time")
-            rows = cur.fetchall()
-            
-            for row in rows:
-                group_id, boss_name, respawn_time = row
-                
-                # 確保時區一致
-                if respawn_time.tzinfo is None:
-                    respawn_time = TZ.localize(respawn_time)
-                
-                # 計算距離重生的秒數
-                time_diff = (respawn_time - now).total_seconds()
-
-                # 判斷是否在 5 分鐘左右 (270~330 秒)
-                if 270 <= time_diff < 330:
-                    # 【核心修改】：只針對大王清單內的王進行處理
-                    if boss_name in MAJOR_BOSSES:
-                        # 執行標記通知
-                        notify_boss_team(group_id, boss_name)
-                    # 一般王直接跳過，不做任何動作 (不用發送普通推播)
-            
-            cur.close()
-            conn.close()
-        except Exception as e:
-            print(f"背景檢查發生錯誤: {e}")
-        
-        # 每 60 秒檢查一次
-        time.sleep(60)
-
-# 啟動背景執行緒 (放在檔案最下方)
-t = threading.Thread(target=background_check)
-t.daemon = True
-t.start()
-
-# 1. 定義需要 @標記 的大王清單 (名稱需與 cd_map 一致)
-MAJOR_BOSSES = ["古代巨人", "不死鳥", "死亡騎士", "克特"]
-
-def notify_boss_team(group_id, boss_name):
-    conn = get_pg_conn()
-    cur = conn.cursor()
-    try:
-        # 1. 抓取成員
-        cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
-        rows = cur.fetchall()
-        
-        # 2. 基礎訊息文字
-        base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
-        
-        if rows:
-            user_ids = [r[0] for r in rows]
-            text_prefix = "📢 打王組集合！ "
-            mentionees = []
-            
-            # 3. 嚴格計算每個人的 Index 位址
-            for i, uid in enumerate(user_ids[:50]):
-                mentionees.append({
-                    "index": len(text_prefix) + i,
-                    "length": 1,
-                    "userId": str(uid)
-                })
-
-            # 組合最終文字：前綴 + 空格預留位 + 訊息內容
-            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
-
-            # 4. 手動建構 Payload (不依賴 SDK 類別)
-            payload = {
-                "to": group_id,
-                "messages": [
-                    {
-                        "type": "text",
-                        "text": full_text,
-                        "mention": {
-                            "mentionees": mentionees
-                        }
-                    }
-                ]
-            }
-
-            # 5. 直接發送 Post 請求到 LINE API
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
-            }
-            
-            response = requests.post(
-                "https://api.line.me/v2/bot/message/push",
-                headers=headers,
-                data=json.dumps(payload)
-            )
-            
-            if response.status_code != 200:
-                print(f"LINE API 報錯: {response.text}")
-        else:
-            # 沒人時發送普通訊息
-            line_bot_api.push_message(group_id, TextSendMessage(text=f"⏰ {base_msg}"))
-            
-    except Exception as e:
-        print(f"通知過程發生錯誤: {e}")
-    finally:
-        cur.close()
-        conn.close()
-
-
-
-        
 
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -671,67 +631,7 @@ def build_kill_list_flex(title, display_items):
     }
     return FlexSendMessage(alt_text=title, contents=bubble)
 
-def notify_boss_team_with_flex(group_id, boss_name):
-    conn = get_pg_conn()
-    cur = conn.cursor()
-    try:
-        # 1. 抓取打王組成員
-        cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
-        rows = cur.fetchall()
-        
-        base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
-        full_text = f"⏰ 提醒：{base_msg}"
-        mention_payload = None  # 用來存標記資料的變數
 
-        # 2. 手動建構標記 (使用字典而非類別)
-        if rows:
-            user_ids = [r[0] for r in rows]
-            text_prefix = "📢 打王組集合！ "
-            mentionees = []
-            
-            # 手動計算每個人的標記位置
-            for i, uid in enumerate(user_ids[:50]): # LINE 限制上限 50 人
-                mentionees.append({
-                    "index": len(text_prefix) + i,
-                    "length": 1,
-                    "userId": uid
-                })
-            
-            # 組合最終文字：前綴 + 空格(標記位) + 訊息
-            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
-            # 這就是 LINE API 需要的標記字典格式
-            mention_payload = {"mentionees": mentionees}
-
-        # 3. 定義 bubble (卡片內容)
-        bubble = {
-            "type": "bubble",
-            "size": "sm",
-            "header": {
-                "type": "box", "layout": "vertical", "backgroundColor": "#E74C3C",
-                "contents": [{"type": "text", "text": "⚔️ 大王警告", "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}]
-            },
-            "body": {
-                "type": "box", "layout": "vertical", 
-                "contents": [
-                    {"type": "text", "text": f"{boss_name}", "weight": "bold", "size": "xl", "align": "center", "margin": "md"},
-                    {"type": "text", "text": "準備重生", "size": "sm", "color": "#aaaaaa", "align": "center"}
-                ]
-            }
-        }
-
-        # 4. 發送訊息 (直接將字典丟入 mention 參數)
-        messages = [
-            TextSendMessage(text=full_text, mention=mention_payload),
-            FlexSendMessage(alt_text=f"警報: {boss_name}", contents=bubble)
-        ]
-        
-        line_bot_api.push_message(group_id, messages)
-            
-    except Exception as e:
-        print(f"通知出錯: {e}")
-    finally:
-        cur.close()
-        conn.close()
 
 def build_subscription_flex(status, expiry_str):
     bubble = {
@@ -2313,46 +2213,59 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
             "note": "開機",
             "user": "__SYSTEM__"
         })
-def handle_boss_skipped(event, group_id, boss_name, user_id, note):
-    cd = cd_map.get(boss_name)
-    if cd is None: return
-
-    # 這裡會抓到「最後一次」登記的紀錄 (不論是手動還是輪空)
-    latest_records = get_latest_boss_records(group_id)
+def handle_boss_skipped(event, group_id, boss_name, user_id, note, skip_count=1):
+    # 1. 取得最後一次紀錄
+    last_respawn = get_last_boss_record(group_id, boss_name) # 此函式需實作，見步驟 3
     
-    if boss_name in latest_records:
-        last_respawn_iso = latest_records[boss_name][0]["respawn"]
-        base_time = datetime.fromisoformat(last_respawn_iso)
-        if base_time.tzinfo is None:
-            base_time = base_time.replace(tzinfo=pytz.UTC).astimezone(TZ)
-        else:
-            base_time = base_time.astimezone(TZ)
+    if not last_respawn:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 查無【{boss_name}】的紀錄，請先手動登記一次。"))
+        return
+
+    # 確保 last_respawn 有時區資訊
+    if last_respawn.tzinfo is None:
+        last_respawn = TZ.localize(last_respawn)
+
+    now = datetime.now(TZ)
+    # 計算時間差 (分鐘)
+    time_diff = (now - last_respawn).total_seconds() / 60
+
+    # 2. 判斷是否在重生時間後的 30 分鐘內 (允許提早 5 分鐘登記)
+    if -5 <= time_diff <= 30:
+        cd = cd_map.get(boss_name)
+        if not cd: return
+
+        # 計算新時間：以「上次重生時間」為基準，往後推 (CD * 次數)
+        new_kill_time = last_respawn 
+        new_respawn_time = last_respawn + timedelta(hours=cd * skip_count)
+        
+        # 3. 寫入資料庫
+        save_boss_to_pg(
+            group_id=group_id,
+            boss_name=boss_name,
+            kill_time=new_kill_time,
+            respawn_time=new_respawn_time,
+            user_id=user_id,
+            note=f"【輪空{skip_count}次】{note}",
+            source="skip"
+        )
+
+        # 4. 回傳 Flex Message
+        registrar = get_username(user_id)
+        kill_str = new_kill_time.strftime("%H:%M")
+        resp_str = new_respawn_time.strftime("%H:%M")
+        
+        flex_msg = build_register_boss_flex(
+            boss_name, kill_str, resp_str, registrar, note, is_skip=True
+        )
+        safe_reply(event, f"✅ {boss_name} 輪空登記成功", flex_msg)
     else:
-        base_time = now_tw().replace(second=0, microsecond=0)
-
-    new_respawn = base_time + timedelta(hours=cd)
-    
-    save_boss_to_pg(
-        group_id=group_id,
-        boss_name=boss_name,
-        kill_time=base_time, 
-        respawn_time=new_respawn,
-        user_id=user_id,
-        note=note,
-        source="skip" # 標記為輪空
-    )
-
-    registrar = get_username(user_id)
-    # 統一顯示格式為 %H:%M:%S 確保與正常登記一致
-    kill_str = base_time.strftime("%H:%M:%S")
-    resp_str = new_respawn.strftime("%H:%M:%S")
-    
-    flex_msg = build_register_boss_flex(boss_name, kill_str, resp_str, registrar, note, is_skip=True)
-    text_msg = f"⭕ 輪空登記：{boss_name}\n基準點：{kill_str}\n下趟重生：{resp_str}"
-    
-    safe_reply(event, text_msg, flex_msg)
-    
-    safe_reply(event, text_msg, flex_msg)
+        # 不符合時間限制的提示
+        error_text = (
+            f"⚠ 輪空登記失敗\n"
+            f"【{boss_name}】上次預計重生：{last_respawn.strftime('%H:%M')}\n"
+            f"限制於重生後 30 分鐘內登記，目前已過 {int(time_diff)} 分鐘。"
+        )
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=error_text))
 def get_kpi_range(now):
     """
     計算以『週三 05:00』為起點的 KPI 區間
@@ -2665,16 +2578,16 @@ def handle_message(event):
                 line_bot_api.reply_message(event.reply_token, flex)
                 return
             
-    #-------------------------------------------------------------輪空登記 未完成 判斷重生30分鐘內輸入空才有效---------------------------------------
+    #-------------------------------------------------------------輪空登記---------------------------------------
     msg_text = event.message.text.strip()
     parts = msg_text.split()
 
-    # 2. 判斷是否為輪空指令 (例如：四色 空)
+    # 判斷格式：[王名] [包含"空"或"輪空"的字串]
     if len(parts) >= 2 and ("空" in parts[1] or "輪空" in parts[1]):
         boss_input = parts[0]
-        note = parts[1]
+        user_note = parts[1] # 取得使用者輸入的字串，例如 "空2"
         
-        # 轉換王名別名
+        # 轉換王名
         boss_name = None
         for real_name, aliases in alias_map.items():
             if boss_input == real_name or boss_input in aliases:
@@ -2682,8 +2595,8 @@ def handle_message(event):
                 break
         
         if boss_name:
-            # 呼叫處理函式
-            handle_boss_skipped(event, group_id, boss_name, user_id, note)
+            # 將 user_note 傳入處理函式
+            handle_boss_skipped(event, group_id, boss_name, user_id, user_note)
             return
         else:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❓ 找不到王名：{boss_input}"))
