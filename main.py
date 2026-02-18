@@ -232,30 +232,36 @@ def handle_boss_skipped(event, group_id, boss_name, user_id, user_note):
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 查無【{boss_name}】紀錄，請先手動登記一次。"))
         return
 
-    # 處理時區
+    # --- 強制時區校正 ---
+    now = datetime.now(TZ)
+    # 確保從資料庫取出的時間被正確識別為 TZ 時區
     if last_respawn.tzinfo is None:
         last_respawn = TZ.localize(last_respawn)
-    
-    now = datetime.now(TZ)
+    else:
+        last_respawn = last_respawn.astimezone(TZ)
+    # ------------------
+
+    # 計算現在與「預計重生時間」的差距 (分鐘)
+    # 正數表示已重生多久，負數表示距離重生還有多久
     time_diff = (now - last_respawn).total_seconds() / 60
 
-    # 2. 判定條件：重生時間後的 30 分鐘內
+    # 2. 判定條件：重生時間的前 5 分鐘到後 30 分鐘內
     if -5 <= time_diff <= 30:
         cd = cd_map.get(boss_name)
         if not cd: return
 
-        # 固定跳過一口：本次死亡 = 上次重生；下次重生 = 上次重生 + 1個CD
+        # 固定跳過一口邏輯
         new_kill_time = last_respawn
         new_respawn_time = last_respawn + timedelta(hours=cd)
         
-        # 3. 儲存至資料庫 (備註使用使用者輸入的字串)
+        # 3. 儲存至資料庫
         save_boss_to_pg(
             group_id=group_id,
             boss_name=boss_name,
             kill_time=new_kill_time,
             respawn_time=new_respawn_time,
             user_id=user_id,
-            note=user_note, # 這裡會存入例如 "空2"
+            note=user_note, # 這裡會存入使用者輸入的完整字串，如 "空2"
             source="skip"
         )
 
@@ -266,18 +272,33 @@ def handle_boss_skipped(event, group_id, boss_name, user_id, user_note):
             new_kill_time.strftime("%H:%M"), 
             new_respawn_time.strftime("%H:%M"), 
             registrar, 
-            user_note, # Flex 訊息上也顯示該備註
+            user_note, 
             is_skip=True
         )
         safe_reply(event, f"✅ {boss_name} 輪空登記成功", flex_msg)
     else:
-        # 時間不符提醒
-        error_msg = (
-            f"⚠ 輪空登記失敗\n"
-            f"【{boss_name}】重生時間為 {last_respawn.strftime('%H:%M')}\n"
-            f"目前時間已超過 30 分鐘，請手動輸入時間登記。"
+        # 1. 準備卡片資料
+        last_resp_str = last_respawn.strftime('%H:%M')
+        now_time_str = now.strftime('%H:%M')
+        diff_val = int(time_diff)
+        
+        # 2. 建立 Flex 內容
+        error_flex_content = build_error_flex(
+            "⚠ 輪空登記失敗",
+            boss_name,
+            last_resp_str,
+            now_time_str,
+            diff_val,
+            "💡 請在重生後 30 分鐘內登記，若已超過請手動輸入時間。"
         )
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=error_msg))
+        
+        # 3. 發送 Flex 訊息
+        # 這裡 text 用作通知列顯示的文字
+        alt_text = f"⚠ {boss_name} 輪空失敗"
+        line_bot_api.reply_message(
+            event.reply_token,
+            FlexSendMessage(alt_text=alt_text, contents=error_flex_content)
+        )
 def init_cd_boss_with_given_time(group_id, base_time, user_id):
     """
     開機初始化：只針對『目前沒紀錄』的王補上開機時間。
@@ -658,6 +679,46 @@ def build_subscription_flex(status, expiry_str):
       }
     }
     return FlexSendMessage(alt_text="服務到期通知", contents=bubble)
+
+def build_error_flex(title, boss_name, last_resp, now_time, diff, footer_text):
+    """製作輪空失敗的錯誤提示卡片"""
+    return {
+        "type": "bubble",
+        "size": "thin",
+        "styles": {"header": {"backgroundColor": "#ff4b4b"}}, # 紅色標頭
+        "header": {
+            "type": "box", "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": title, "weight": "bold", "color": "#ffffff", "size": "sm"}
+            ]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "md",
+            "contents": [
+                {"type": "text", "text": f"【{boss_name}】", "weight": "bold", "size": "md", "align": "center"},
+                {"type": "separator"},
+                {
+                    "type": "box", "layout": "vertical", "spacing": "sm",
+                    "contents": [
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "預計重生", "color": "#aaaaaa", "size": "sm", "flex": 2},
+                            {"type": "text", "text": last_resp, "wrap": True, "color": "#666666", "size": "sm", "flex": 4}
+                        ]},
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "現在時間", "color": "#aaaaaa", "size": "sm", "flex": 2},
+                            {"type": "text", "text": now_time, "wrap": True, "color": "#666666", "size": "sm", "flex": 4}
+                        ]},
+                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
+                            {"type": "text", "text": "時間差距", "color": "#aaaaaa", "size": "sm", "flex": 2},
+                            {"type": "text", "text": f"{diff} 分鐘", "wrap": True, "color": "#ff4b4b", "size": "sm", "flex": 4, "weight": "bold"}
+                        ]}
+                    ]
+                },
+                {"type": "separator"},
+                {"type": "text", "text": footer_text, "size": "xs", "color": "#aaaaaa", "wrap": True, "align": "center"}
+            ]
+        }
+    }
 
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None, is_skip=False):
     map_list = BOSS_MAP.get(boss, [])
