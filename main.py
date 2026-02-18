@@ -206,116 +206,12 @@ def get_latest_boss_records(group_id):
         conn.close()
 
 def get_last_boss_record(group_id, boss_name):
+    """從資料庫抓取最後一筆重生紀錄"""
     conn = get_pg_conn()
     if not conn: return None
     try:
         cur = conn.cursor()
-        query = """
-            SELECT respawn_time FROM boss_time 
-            WHERE group_id = %s AND boss_name = %s 
-            ORDER BY respawn_time DESC LIMIT 1
-        """
-        cur.execute(query, (group_id, boss_name))
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        
-        if row and row[0]:
-            res_time = row[0]
-            # 如果資料庫取出的時間沒有時區資訊，先賦予它 UTC 再轉台灣
-            if res_time.tzinfo is None:
-                # 假設資料庫存的是 UTC (Heroku/Render 常見狀況)
-                res_time = pytz.utc.localize(res_time).astimezone(TZ)
-            else:
-                res_time = res_time.astimezone(TZ)
-            return res_time
-    except Exception as e:
-        print(f"查詢出錯: {e}")
-    return None
-
-def handle_boss_skipped(event, group_id, boss_name, user_id, user_note):
-    """
-    處理輪空邏輯：
-    1. 抓取上次預計重生時間
-    2. 判定是否在重生時間後的 30 分鐘內
-    3. 自動推算下一口 CD 並存檔
-    4. 根據結果回傳成功(紫)或失敗(紅)的 Flex 卡片
-    """
-    # 1. 取得該王最後一次紀錄的重生時間
-    last_respawn = get_last_boss_record(group_id, boss_name)
-    
-    if not last_respawn:
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 查無【{boss_name}】的紀錄，請先手動登記一次。"))
-        return
-
-    # --- 強制時區校正 (解決 08:06 變成 02:10 的問題) ---
-    now = datetime.now(TZ)
-    if last_respawn.tzinfo is None:
-        # 如果資料庫取出的是 naive datetime，先假設它是 UTC 再轉台灣時區
-        last_respawn = pytz.utc.localize(last_respawn).astimezone(TZ)
-    else:
-        # 如果已有時區資訊，直接轉台灣時區
-        last_respawn = last_respawn.astimezone(TZ)
-    
-    # 計算時間差 (分鐘)
-    # 正數：已超過重生時間幾分鐘；負數：距離重生還有幾分鐘
-    time_diff = (now - last_respawn).total_seconds() / 60
-
-    # 2. 判定條件：重生時間的前 5 分鐘到後 30 分鐘內才允許登記
-    if -5 <= time_diff <= 30:
-        cd = cd_map.get(boss_name)
-        if not cd:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 找不到【{boss_name}】的 CD 設定。"))
-            return
-
-        # 計算：本次死亡時間 = 上次重生時間；下次重生 = 上次重生 + 1個CD
-        new_kill_time = last_respawn
-        new_respawn_time = last_respawn + timedelta(hours=cd)
-        
-        # 3. 儲存至資料庫 (備註使用使用者輸入的內容)
-        save_boss_to_pg(
-            group_id=group_id,
-            boss_name=boss_name,
-            kill_time=new_kill_time,
-            respawn_time=new_respawn_time,
-            user_id=user_id,
-            note=user_note, # 存入如 "空2"
-            source="skip"
-        )
-
-        # 4. 回傳成功 Flex Message (紫色主題)
-        registrar = get_username(user_id)
-        kill_str = new_kill_time.strftime("%H:%M")
-        resp_str = new_respawn_time.strftime("%H:%M")
-        
-        # 呼叫您現有的紫色卡片函式
-        flex_msg = build_register_boss_flex(
-            boss_name, kill_str, resp_str, registrar, user_note, is_skip=True
-        )
-        safe_reply(event, f"✅ {boss_name} 輪空登記成功", flex_msg)
-        
-    else:
-        # 5. 時間不符：回傳紅色錯誤卡片
-        error_flex_content = build_error_flex(
-            "⚠ 輪空登記失敗",
-            boss_name,
-            last_respawn.strftime('%H:%M'),
-            now.strftime('%H:%M'),
-            int(time_diff),
-            "💡 請在重生後 30 分鐘內登記，若已超過請手動輸入王死時間。"
-        )
-        
-        line_bot_api.reply_message(
-            event.reply_token,
-            FlexSendMessage(alt_text=f"⚠ {boss_name} 輪空登記失敗", contents=error_flex_content)
-        )
-
-def get_last_boss_record(group_id, boss_name):
-    """輔助函式：從資料庫抓取最後一筆重生紀錄"""
-    conn = get_pg_conn()
-    if not conn: return None
-    try:
-        cur = conn.cursor()
+        # 依照重生時間排序，取最新的那一口
         cur.execute("""
             SELECT respawn_time FROM boss_time 
             WHERE group_id = %s AND boss_name = %s 
@@ -326,9 +222,84 @@ def get_last_boss_record(group_id, boss_name):
         conn.close()
         return row[0] if row else None
     except Exception as e:
-        print(f"Error fetching last record: {e}")
+        print(f"Error: {e}")
         return None
+
+def handle_boss_skipped(event, group_id, boss_name, user_id, user_note):
+    """
+    處理輪空邏輯：
+    1. 抓取上次預計重生時間 (解決時區偏移)
+    2. 判定是否在重生時間後的 30 分鐘內
+    3. 推算下一口 CD 並存檔 (note 使用使用者輸入的完整字串)
+    """
+    # 1. 取得該王最後一次紀錄的重生時間
+    last_respawn = get_last_boss_record(group_id, boss_name)
     
+    if not last_respawn:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 查無【{boss_name}】歷史紀錄，請先手動登記一次。"))
+        return
+
+    # --- 時區精確校正 (解決 08:06 變成 02:10 的問題) ---
+    now = datetime.now(TZ)
+    if last_respawn.tzinfo is None:
+        # 如果資料庫取出的是 naive datetime，強制視為 UTC 再轉台灣時區
+        last_respawn = pytz.utc.localize(last_respawn).astimezone(TZ)
+    else:
+        # 如果已有時區標記，直接轉換
+        last_respawn = last_respawn.astimezone(TZ)
+    
+    # 計算時間差 (分鐘)：現在時間 - 預計重生時間
+    time_diff = (now - last_respawn).total_seconds() / 60
+
+    # 2. 判定條件：重生時間的前 5 分鐘到後 30 分鐘內
+    if -5 <= time_diff <= 30:
+        cd = cd_map.get(boss_name)
+        if not cd:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 找不到【{boss_name}】的 CD 設定。"))
+            return
+
+        # 邏輯：本次死亡時間 = 上次重生時間；下次重生 = 上次重生 + 1個CD
+        new_kill_time = last_respawn
+        new_respawn_time = last_respawn + timedelta(hours=cd)
+        
+        # 3. 儲存至資料庫
+        # 注意：save_boss_to_pg 內部若有 ON CONFLICT 邏輯，手動登記即可覆蓋此筆
+        save_boss_to_pg(
+            group_id=group_id,
+            boss_name=boss_name,
+            kill_time=new_kill_time,
+            respawn_time=new_respawn_time,
+            user_id=user_id,
+            note=user_note, # 這裡會存入如 "空2"
+            source="skip"
+        )
+
+        # 4. 回傳成功 Flex Message (紫色主題)
+        registrar = get_username(user_id)
+        kill_str = new_kill_time.strftime("%H:%M")
+        resp_str = new_respawn_time.strftime("%H:%M")
+        
+        flex_msg = build_register_boss_flex(
+            boss_name, kill_str, resp_str, registrar, user_note, is_skip=True
+        )
+        safe_reply(event, f"✅ {boss_name} 輪空成功", flex_msg)
+        
+    else:
+        # 5. 時間不符：回傳紅色錯誤卡片
+        error_flex_content = build_error_flex(
+            "⚠ 輪空登記失敗",
+            boss_name,
+            last_respawn.strftime('%H:%M'),
+            now.strftime('%H:%M'),
+            int(time_diff),
+            "💡 請在重生後 30 分鐘內登記。若要更正時間，請直接輸入「王名 時間」。"
+        )
+        
+        line_bot_api.reply_message(
+            event.reply_token,
+            FlexSendMessage(alt_text=f"⚠ {boss_name} 輪空失敗", contents=error_flex_content)
+        )
+
 def init_cd_boss_with_given_time(group_id, base_time, user_id):
     """
     開機初始化：只針對『目前沒紀錄』的王補上開機時間。
@@ -711,41 +682,38 @@ def build_subscription_flex(status, expiry_str):
     return FlexSendMessage(alt_text="服務到期通知", contents=bubble)
 
 def build_error_flex(title, boss_name, last_resp, now_time, diff, footer_text):
-    """製作輪空失敗的錯誤提示卡片"""
+    """製作輪空失敗的紅色錯誤卡片"""
     return {
-        "type": "bubble",
-        "size": "thin",
-        "styles": {"header": {"backgroundColor": "#ff4b4b"}}, # 紅色標頭
+        "type": "bubble", "size": "thin",
+        "styles": {"header": {"backgroundColor": "#FF4B4B"}},
         "header": {
             "type": "box", "layout": "vertical",
-            "contents": [
-                {"type": "text", "text": title, "weight": "bold", "color": "#ffffff", "size": "sm"}
-            ]
+            "contents": [{"type": "text", "text": title, "weight": "bold", "color": "#FFFFFF", "size": "sm"}]
         },
         "body": {
             "type": "box", "layout": "vertical", "spacing": "md",
             "contents": [
-                {"type": "text", "text": f"【{boss_name}】", "weight": "bold", "size": "md", "align": "center"},
+                {"type": "text", "text": f"【{boss_name}】", "weight": "bold", "size": "lg", "align": "center", "color": "#FF4B4B"},
                 {"type": "separator"},
                 {
                     "type": "box", "layout": "vertical", "spacing": "sm",
                     "contents": [
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "預計重生", "color": "#aaaaaa", "size": "sm", "flex": 2},
-                            {"type": "text", "text": last_resp, "wrap": True, "color": "#666666", "size": "sm", "flex": 4}
+                            {"type": "text", "text": "預計重生", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": last_resp, "color": "#666666", "size": "sm", "flex": 4}
                         ]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "現在時間", "color": "#aaaaaa", "size": "sm", "flex": 2},
-                            {"type": "text", "text": now_time, "wrap": True, "color": "#666666", "size": "sm", "flex": 4}
+                            {"type": "text", "text": "現在時間", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": now_time, "color": "#666666", "size": "sm", "flex": 4}
                         ]},
                         {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "時間差距", "color": "#aaaaaa", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{diff} 分鐘", "wrap": True, "color": "#ff4b4b", "size": "sm", "flex": 4, "weight": "bold"}
+                            {"type": "text", "text": "時間差距", "color": "#AAAAAA", "size": "sm", "flex": 2},
+                            {"type": "text", "text": f"{diff} 分鐘", "color": "#FF4B4B", "size": "sm", "flex": 4, "weight": "bold"}
                         ]}
                     ]
                 },
                 {"type": "separator"},
-                {"type": "text", "text": footer_text, "size": "xs", "color": "#aaaaaa", "wrap": True, "align": "center"}
+                {"type": "text", "text": footer_text, "size": "xs", "color": "#AAAAAA", "wrap": True, "align": "center"}
             ]
         }
     }
