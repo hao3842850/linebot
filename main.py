@@ -7,10 +7,12 @@ from threading import Lock
 from fastapi import FastAPI, Request, Header
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import (JoinEvent,  MemberJoinedEvent, MessageEvent, TextMessage, TextSendMessage, FlexSendMessage)
+from linebot.models import (
+    JoinEvent,  
+    MemberJoinedEvent, MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
+)
 
 # 基本設定
-
 db_lock = Lock()
 app = FastAPI()
 active_auctions = {}
@@ -22,19 +24,16 @@ handler = WebhookHandler(CHANNEL_SECRET)
 TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 DATABASE_URL = os.getenv("DATABASE_URL")
-
 # 工具函式
-
 def is_peak_time():
-    return False 
+    return False # 暫時關閉，永遠允許 Flex 訊息
 
+    #h = now_tw().hour
+    #return 19 <= h <= 23
 def check_subscription(group_id):
     """檢查訂閱：回傳 (是否允許, 到期時間, 狀態文字)"""
     conn = get_pg_conn()
-    if not conn: 
-        return True, None, "資料庫連線異常"
-    
-    cur = None # 預先宣告，確保 finally 能正確存取
+    if not conn: return True, None, "資料庫連線異常"
     try:
         cur = conn.cursor()
         cur.execute("SELECT status, expiry_date FROM subscriptions WHERE group_id = %s", (group_id,))
@@ -44,26 +43,22 @@ def check_subscription(group_id):
         # 1. 如果是新群組，自動給 7 天試用
         if not row:
             expiry = now + timedelta(days=7)
-            # 使用 ON CONFLICT 避免重複寫入衝突
             cur.execute(
-                "INSERT INTO subscriptions (group_id, status, expiry_date) VALUES (%s, %s, %s) ON CONFLICT (group_id) DO NOTHING",
+                "INSERT INTO subscriptions (group_id, status, expiry_date) VALUES (%s, %s, %s)",
                 (group_id, 'trial', expiry)
             )
             conn.commit()
             return True, expiry, "試用中"
-        
-        # --- 方法一：使用 else 或確保 row 存在後才解構 ---
-        # 走到這裡代表 row 絕對有值，Pylance 就不會再報錯了
+
         status, expiry_date = row
         
         # 2. 【核心修正】處理字串轉時間問題
         if isinstance(expiry_date, str):
+            # 處理 PostgreSQL 格式字串: 2026-02-16 02:52:00...
             try:
-                # 處理 PostgreSQL 格式字串: 2026-02-16 02:52:00...
                 clean_date = expiry_date.split('.')[0].split('+')[0]
                 expiry_date = datetime.strptime(clean_date, '%Y-%m-%d %H:%M:%S')
-            except Exception as e:
-                print(f"時間格式解析失敗: {e}")
+            except:
                 return True, None, "時間格式解析失敗"
 
         # 3. 補上時區資訊
@@ -72,25 +67,19 @@ def check_subscription(group_id):
 
         # 4. 判斷是否到期
         if now > expiry_date:
-            return False, expiry_date, f"已到期 (狀態: {status})"
+            return False, expiry_date, "已到期"
             
-        return True, expiry_date, f"授權有效 (狀態: {status})"
-        
+        return True, expiry_date, "授權有效"
     except Exception as e:
         print(f"訂閱檢查出錯: {e}")
         return True, None, "系統略過檢查"
     finally:
-        # 確保即使 try 失敗，資源也能安全關閉
-        if cur:
-            cur.close()
-        if conn:
-            conn.close()
+        cur.close()
+        conn.close()
 
 def build_subscription_flex(status, expiry_date):
     """建立訂閱到期的卡片回覆"""
-    # 這裡加入檢查，避免 expiry_date 為 None 時報錯
-    expiry_str = expiry_date.strftime('%Y-%m-%d %H:%M') if expiry_date else "無紀錄"
-    
+    expiry_str = expiry_date.strftime('%Y-%m-%d %H:%M')
     bubble = {
       "type": "bubble",
       "header": {
@@ -100,7 +89,6 @@ def build_subscription_flex(status, expiry_date):
       "body": {
         "type": "box", "layout": "vertical", "spacing": "md",
         "contents": [
-          # 這裡引用 status 變數
           {"type": "text", "text": f"目前狀態：{status}", "weight": "bold", "size": "md"},
           {"type": "text", "text": f"有效期限至：\n{expiry_str}", "size": "sm", "color": "#aaaaaa", "wrap": True},
           {"type": "separator", "margin": "lg"},
@@ -380,6 +368,119 @@ def get_all_records_for_kpi(group_id, start_time, end_time):
     finally:
         conn.close()
     return records
+def background_check():
+    while True:
+        try:
+            conn = get_pg_conn()
+            cur = conn.cursor()
+            now = now_tw()
+            
+            # 撈取所有還沒重生的紀錄
+            cur.execute("SELECT group_id, boss_name, respawn_time FROM boss_time")
+            rows = cur.fetchall()
+            
+            for row in rows:
+                group_id, boss_name, respawn_time = row
+                
+                # 確保時區一致
+                if respawn_time.tzinfo is None:
+                    respawn_time = TZ.localize(respawn_time)
+                
+                # 計算距離重生的秒數
+                time_diff = (respawn_time - now).total_seconds()
+
+                # 判斷是否在 5 分鐘左右 (270~330 秒)
+                if 270 <= time_diff < 330:
+                    # 【核心修改】：只針對大王清單內的王進行處理
+                    if boss_name in MAJOR_BOSSES:
+                        # 執行標記通知
+                        notify_boss_team(group_id, boss_name)
+                    # 一般王直接跳過，不做任何動作 (不用發送普通推播)
+            
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"背景檢查發生錯誤: {e}")
+        
+        # 每 60 秒檢查一次
+        time.sleep(60)
+
+# 啟動背景執行緒 (放在檔案最下方)
+t = threading.Thread(target=background_check)
+t.daemon = True
+t.start()
+
+# 1. 定義需要 @標記 的大王清單 (名稱需與 cd_map 一致)
+MAJOR_BOSSES = ["古代巨人", "不死鳥", "死亡騎士", "克特"]
+
+def notify_boss_team(group_id, boss_name):
+    conn = get_pg_conn()
+    cur = conn.cursor()
+    try:
+        # 1. 抓取成員
+        cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
+        rows = cur.fetchall()
+        
+        # 2. 基礎訊息文字
+        base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
+        
+        if rows:
+            user_ids = [r[0] for r in rows]
+            text_prefix = "📢 打王組集合！ "
+            mentionees = []
+            
+            # 3. 嚴格計算每個人的 Index 位址
+            for i, uid in enumerate(user_ids[:50]):
+                mentionees.append({
+                    "index": len(text_prefix) + i,
+                    "length": 1,
+                    "userId": str(uid)
+                })
+
+            # 組合最終文字：前綴 + 空格預留位 + 訊息內容
+            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
+
+            # 4. 手動建構 Payload (不依賴 SDK 類別)
+            payload = {
+                "to": group_id,
+                "messages": [
+                    {
+                        "type": "text",
+                        "text": full_text,
+                        "mention": {
+                            "mentionees": mentionees
+                        }
+                    }
+                ]
+            }
+
+            # 5. 直接發送 Post 請求到 LINE API
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
+            }
+            
+            response = requests.post(
+                "https://api.line.me/v2/bot/message/push",
+                headers=headers,
+                data=json.dumps(payload)
+            )
+            
+            if response.status_code != 200:
+                print(f"LINE API 報錯: {response.text}")
+        else:
+            # 沒人時發送普通訊息
+            line_bot_api.push_message(group_id, TextSendMessage(text=f"⏰ {base_msg}"))
+            
+    except Exception as e:
+        print(f"通知過程發生錯誤: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+
+        
 
 def init_db():
     if not os.path.exists(DB_FILE):
@@ -394,35 +495,72 @@ def save_db(db):
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(db, f, ensure_ascii=False, indent=2)
 init_db()
+def build_all_boss_quick_flex():
+    # 取得 BOSS 名稱（確保 cd_map 已定義）
+    boss_names = sorted(list(cd_map.keys()))
+    
+    rows = []
+    # 每 4 隻王一列，減少垂直高度，避免超過螢幕
+    for i in range(0, len(boss_names), 4):
+        chunk = boss_names[i:i+4]
+        cols = []
+        for name in chunk:
+            cols.append({
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": "#4682B4",
+                "cornerRadius": "md",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": name,
+                        "size": "xxs", # 使用極小字體確保 4 欄塞得下
+                        "align": "center",
+                        "color": "#ffffff",
+                        "weight": "bold",
+                        "gravity": "center"
+                    }
+                ],
+                "paddingAll": "8px", # 確保數值帶 px
+                "action": {
+                    "type": "message",
+                    "label": name,
+                    "text": f"6666 {name}"
+                }
+            })
+        
+        # 補齊空格
+        while len(cols) < 4:
+            cols.append({"type": "spacer", "flex": 1})
+            
+        rows.append({
+            "type": "box",
+            "layout": "horizontal",
+            "spacing": "xs",
+            "contents": cols
+        })
 
-def build_subscription_flex(status, expiry_str):
-    # 這裡的 status 是由參數傳入的，直接在 bubble 中使用
-    bubble = {
-      "type": "bubble",
-      "header": {
-        "type": "box", "layout": "vertical", "backgroundColor": "#ff4444",
-        "contents": [{"type": "text", "text": "⛔ 服務已到期", "color": "#ffffff", "weight": "bold", "size": "lg"}]
-      },
-      "body": {
-        "type": "box", "layout": "vertical", "spacing": "md",
-        "contents": [
-          {"type": "text", "text": "您的群組授權已過期", "weight": "bold", "size": "md"},
-          # 引用傳入的參數 status 與 expiry_str
-          {"type": "text", "text": f"目前狀態：{status}", "size": "sm", "color": "#666666"},
-          {"type": "text", "text": f"到期時間：{expiry_str}", "size": "sm", "color": "#aaaaaa"},
-          {"type": "separator"},
-          {"type": "text", "text": "請聯絡開發者申請續約，以繼續使用自動通知與統計功能。", "wrap": True, "size": "sm", "color": "#666666"}
-        ]
-      },
-      "footer": {
-        "type": "box", "layout": "vertical",
-        "contents": [
-          {"type": "button", "style": "primary", "color": "#ff4444", 
-           "action": {"type": "uri", "label": "聯絡開發者續費", "uri": "https://line.me/ti/p/wenhao0222"}}
-        ]
-      }
+    # 封裝成 Bubble
+    bubble_content = {
+        "type": "bubble",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#2c3e50",
+            "contents": [
+                {"type": "text", "text": "快速登記 (6666)", "weight": "bold", "color": "#ffffff", "size": "sm", "align": "center"}
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": rows
+        }
     }
-    return FlexSendMessage(alt_text="服務到期通知", contents=bubble)
+    
+    # 務必檢查這裡的 FlexSendMessage 拼字與結構
+    return FlexSendMessage(alt_text="快速登記選單", contents=bubble_content)
 
 def build_kill_list_flex(title, display_items):
     """
@@ -533,9 +671,93 @@ def build_kill_list_flex(title, display_items):
     }
     return FlexSendMessage(alt_text=title, contents=bubble)
 
+def notify_boss_team_with_flex(group_id, boss_name):
+    conn = get_pg_conn()
+    cur = conn.cursor()
+    try:
+        # 1. 抓取打王組成員
+        cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
+        rows = cur.fetchall()
+        
+        base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
+        full_text = f"⏰ 提醒：{base_msg}"
+        mention_payload = None  # 用來存標記資料的變數
 
+        # 2. 手動建構標記 (使用字典而非類別)
+        if rows:
+            user_ids = [r[0] for r in rows]
+            text_prefix = "📢 打王組集合！ "
+            mentionees = []
+            
+            # 手動計算每個人的標記位置
+            for i, uid in enumerate(user_ids[:50]): # LINE 限制上限 50 人
+                mentionees.append({
+                    "index": len(text_prefix) + i,
+                    "length": 1,
+                    "userId": uid
+                })
+            
+            # 組合最終文字：前綴 + 空格(標記位) + 訊息
+            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
+            # 這就是 LINE API 需要的標記字典格式
+            mention_payload = {"mentionees": mentionees}
 
+        # 3. 定義 bubble (卡片內容)
+        bubble = {
+            "type": "bubble",
+            "size": "sm",
+            "header": {
+                "type": "box", "layout": "vertical", "backgroundColor": "#E74C3C",
+                "contents": [{"type": "text", "text": "⚔️ 大王警告", "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}]
+            },
+            "body": {
+                "type": "box", "layout": "vertical", 
+                "contents": [
+                    {"type": "text", "text": f"{boss_name}", "weight": "bold", "size": "xl", "align": "center", "margin": "md"},
+                    {"type": "text", "text": "準備重生", "size": "sm", "color": "#aaaaaa", "align": "center"}
+                ]
+            }
+        }
 
+        # 4. 發送訊息 (直接將字典丟入 mention 參數)
+        messages = [
+            TextSendMessage(text=full_text, mention=mention_payload),
+            FlexSendMessage(alt_text=f"警報: {boss_name}", contents=bubble)
+        ]
+        
+        line_bot_api.push_message(group_id, messages)
+            
+    except Exception as e:
+        print(f"通知出錯: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
+def build_subscription_flex(status, expiry_str):
+    bubble = {
+      "type": "bubble",
+      "header": {
+        "type": "box", "layout": "vertical", "backgroundColor": "#ff4444",
+        "contents": [{"type": "text", "text": "⛔ 服務已到期", "color": "#ffffff", "weight": "bold", "size": "lg"}]
+      },
+      "body": {
+        "type": "box", "layout": "vertical", "spacing": "md",
+        "contents": [
+          {"type": "text", "text": "您的群組授權已過期", "weight": "bold", "size": "md"},
+          {"type": "text", "text": f"到期時間：{expiry_str}", "size": "sm", "color": "#aaaaaa"},
+          {"type": "separator"},
+          {"type": "text", "text": "請聯絡開發者申請續約，以繼續使用自動通知與統計功能。", "wrap": True, "size": "sm", "color": "#666666"}
+        ]
+      },
+      "footer": {
+        "type": "box", "layout": "vertical",
+        "contents": [
+          {"type": "button", "style": "primary", "color": "#ff4444", 
+           "action": {"type": "uri", "label": "聯絡開發者續費", "uri": "https://line.me/ti/p/您的LINE_ID"}}
+        ]
+      }
+    }
+    return FlexSendMessage(alt_text="服務到期通知", contents=bubble)
 
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None, is_skip=False):
     map_list = BOSS_MAP.get(boss, [])
@@ -685,6 +907,194 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
         }
     )
 
+def build_register_boss_text(boss, kill_time, respawn_time, registrar, note):
+    map_list = BOSS_MAP.get(boss, [])
+    map_text = "、".join(map_list) if map_list else "未知"
+
+    msg = (
+        f"已登記 {boss}\n"
+        f"地圖：{map_text}\n"
+        f"死亡時間：{kill_time}\n"
+    )
+    if note:
+        msg += f"備註：{note}"
+    return msg
+def build_help_flex():
+    bubbles = []
+    # 1️⃣ 登記王
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "📌 登記BOSS",
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "指令格式：",
+                    "weight": "bold"
+                },
+                {
+                    "type": "text",
+                    "text": "6666 四色\nK 四色\n0930 四色\n093045 四色 備註",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": "※ 6666 = 現在時間 and K = 現在時間",
+                    "size": "sm",
+                    "color": "#888888"
+                }
+            ]
+        }
+    })
+    # 2️⃣ 查詢王
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🔍 查詢歷史登記",
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "查 王名",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": "範例：\n查 四色",
+                    "wrap": True
+                }
+            ]
+        }
+    })
+    # 3️⃣ 出王清單
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "⏰ 出王清單",
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "出",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": "顯示即將重生的BOSS",
+                    "size": "sm",
+                    "color": "#888888"
+                }
+            ]
+        }
+    })
+    # 4️⃣ clear 說明
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "⚠️ 清除紀錄",
+                    "weight": "bold",
+                    "size": "lg",
+                    "color": "#D32F2F"
+                },
+                {
+                    "type": "text",
+                    "text": "clear",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": "※ 確定清除所有時間\n需按下『確定清除』",
+                    "size": "sm",
+                    "color": "#888888",
+                    "wrap": True
+                }
+            ]
+        }
+    })
+    # 5️⃣ 小技巧
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "📃 BOSS資料",
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "王列表➡️所有王的簡稱\n王重生➡️所有王的CD時間",
+                    "wrap": True
+                }
+            ]
+        }
+    })
+    # 六 
+    bubbles.append({
+        "type": "bubble",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🔌開機時間",
+                    "weight": "bold",
+                    "size": "lg"
+                },
+                {
+                    "type": "text",
+                    "text": "開機 時間",
+                    "wrap": True
+                },
+                {
+                    "type": "text",
+                    "text": "範例：\n開機 2100",
+                    "wrap": True
+                }
+            ]
+        }
+    })
+    return FlexSendMessage(
+        alt_text="伊娃小幫手 使用說明",
+        contents={
+            "type": "carousel",
+            "contents": bubbles
+        }
+    )
 def build_join_roster_guide_flex():
     return FlexSendMessage(
         alt_text="歡迎加入群組，請加入名冊",
@@ -920,45 +1330,6 @@ def clear_confirm_flex():
         }
       }
     }
-def build_roster_search_flex(keyword, results):
-    """建立左右滑動 (Carousel) 的名冊搜尋結果"""
-    bubbles = []
-    # 每 5 筆資料封裝成一個卡片 (Bubble)
-    chunk_size = 5 
-    for i in range(0, len(results), chunk_size):
-        chunk = results[i:i + chunk_size]
-        item_contents = []
-        for game_name, clan, _ in chunk:
-            item_contents.append({
-                "type": "box", "layout": "horizontal", "margin": "md",
-                "contents": [
-                    {"type": "text", "text": "👤", "flex": 1, "size": "xs"},
-                    {"type": "text", "text": game_name, "flex": 4, "weight": "bold", "size": "sm", "color": "#111111"},
-                    {"type": "text", "text": clan, "flex": 3, "size": "xs", "align": "end", "color": "#888888"}
-                ]
-            })
-            item_contents.append({"type": "separator", "margin": "sm"})
-        
-        # 移除最後一個多餘的分隔線
-        if item_contents: item_contents.pop()
-
-        bubbles.append({
-            "type": "bubble",
-            "size": "small",
-            "header": {
-                "type": "box", "layout": "vertical", "backgroundColor": "#000000",
-                "contents": [{"type": "text", "text": f"🔍 {keyword}", "color": "#ffffff", "size": "sm", "weight": "bold"}]
-            },
-            "body": {
-                "type": "box", "layout": "vertical", "contents": item_contents, "paddingAll": "12px"
-            }
-        })
-
-    # LINE Carousel 限制最多 10 個 Bubble
-    return FlexSendMessage(
-        alt_text=f"名冊搜尋結果: {keyword}", 
-        contents={"type": "carousel", "contents": bubbles[:10]}
-    )
 def build_boot_init_flex(base_time_str):
     return {
         "type": "bubble",
@@ -1290,62 +1661,18 @@ def build_roster_confirm_update_flex(old_name, old_clan, new_name, new_clan):
         }
     }
 def build_roster_self_flex(game_name, clan):
-    contents = {
+    return {
         "type": "bubble",
-        "header": {
-            "type": "box",
-            "layout": "vertical",
-            "backgroundColor": "#1a1a1a",  # 深色背景增加質感
-            "contents": [
-                {
-                    "type": "text", 
-                    "text": "👤 我的名冊卡片", 
-                    "color": "#ffffff", 
-                    "weight": "bold", 
-                    "size": "lg"
-                }
-            ]
-        },
         "body": {
             "type": "box",
             "layout": "vertical",
-            "spacing": "md",
             "contents": [
-                {
-                    "type": "box",
-                    "layout": "baseline",
-                    "spacing": "sm",
-                    "contents": [
-                        {"type": "text", "text": "遊戲名稱", "color": "#aaaaaa", "size": "sm", "flex": 2},
-                        {"type": "text", "text": game_name, "wrap": True, "color": "#333333", "size": "md", "flex": 5, "weight": "bold"}
-                    ]
-                },
-                {
-                    "type": "box",
-                    "layout": "baseline",
-                    "spacing": "sm",
-                    "contents": [
-                        {"type": "text", "text": "所屬血盟", "color": "#aaaaaa", "size": "sm", "flex": 2},
-                        {"type": "text", "text": clan, "wrap": True, "color": "#333333", "size": "md", "flex": 5, "weight": "bold"}
-                    ]
-                },
-                {"type": "separator", "margin": "lg"},
-                {
-                    "type": "text", 
-                    "text": "💡 欲修改名冊請輸入：加入名冊 [血盟名] [遊戲名]", 
-                    "size": "xxs", 
-                    "color": "#999999", 
-                    "margin": "md",
-                    "wrap": True
-                }
+                {"type": "text", "text": "👤 我的名冊", "weight": "bold"},
+                {"type": "text", "text": f"🎮 {game_name}"},
+                {"type": "text", "text": f"🏰 {clan}"}
             ]
-        },
-        "styles": {
-            "footer": {"separator": True}
         }
     }
-    # 請確保外層有調用 FlexSendMessage
-    return FlexSendMessage(alt_text=f"👤 {game_name} 的名冊", contents=contents)
 def build_roster_delete_confirm_flex(game_name):
     return {
         "type": "bubble",
@@ -1986,44 +2313,25 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
             "note": "開機",
             "user": "__SYSTEM__"
         })
-
 def handle_boss_skipped(event, group_id, boss_name, user_id, note):
     cd = cd_map.get(boss_name)
     if cd is None: return
 
-    # 1. 取得最後一次登記紀錄作為「最近一次重生時間」基準
+    # 這裡會抓到「最後一次」登記的紀錄 (不論是手動還是輪空)
     latest_records = get_latest_boss_records(group_id)
     
-    if boss_name not in latest_records or not latest_records[boss_name]:
-        return safe_reply(event, f"❌ 找不到 {boss_name} 的前次紀錄。")
-
-    # 取得前次計算出的重生時間
-    last_respawn_iso = latest_records[boss_name][0]["respawn"]
-    base_time = datetime.fromisoformat(last_respawn_iso)
-    
-    # 統一時區
-    if base_time.tzinfo is None:
-        base_time = TZ.localize(base_time)
+    if boss_name in latest_records:
+        last_respawn_iso = latest_records[boss_name][0]["respawn"]
+        base_time = datetime.fromisoformat(last_respawn_iso)
+        if base_time.tzinfo is None:
+            base_time = base_time.replace(tzinfo=pytz.UTC).astimezone(TZ)
+        else:
+            base_time = base_time.astimezone(TZ)
     else:
-        base_time = base_time.astimezone(TZ)
+        base_time = now_tw().replace(second=0, microsecond=0)
 
-    # 2. 核心判定：只可以登記「已重生」且「重生 30 分鐘內」
-    now = now_tw()
-    diff = (now - base_time).total_seconds() / 60  # 轉為分鐘
-
-    if diff < 0:
-        # 代表現在時間還沒到重生時間
-        wait_min = abs(int(diff))
-        return safe_reply(event, f"❌ 尚未重生：{boss_name} 預計在 {wait_min} 分鐘後才重生。")
-    
-    if diff > 30:
-        # 代表已經重生超過 30 分鐘
-        return safe_reply(event, f"❌ 超過時限：{boss_name} 已重生超過 30 分鐘，請手動輸入實際時間。")
-
-    # 3. 符合條件，計算下一趟重生時間
     new_respawn = base_time + timedelta(hours=cd)
     
-    # 儲存至資料庫
     save_boss_to_pg(
         group_id=group_id,
         boss_name=boss_name,
@@ -2031,19 +2339,20 @@ def handle_boss_skipped(event, group_id, boss_name, user_id, note):
         respawn_time=new_respawn,
         user_id=user_id,
         note=note,
-        source="skip" 
+        source="skip" # 標記為輪空
     )
 
-    # 4. 準備回覆
     registrar = get_username(user_id)
+    # 統一顯示格式為 %H:%M:%S 確保與正常登記一致
     kill_str = base_time.strftime("%H:%M:%S")
     resp_str = new_respawn.strftime("%H:%M:%S")
     
     flex_msg = build_register_boss_flex(boss_name, kill_str, resp_str, registrar, note, is_skip=True)
-    text_msg = f"⭕ 輪空登記成功：{boss_name}\n基準點：{kill_str}\n下趟重生：{resp_str}"
+    text_msg = f"⭕ 輪空登記：{boss_name}\n基準點：{kill_str}\n下趟重生：{resp_str}"
     
     safe_reply(event, text_msg, flex_msg)
     
+    safe_reply(event, text_msg, flex_msg)
 def get_kpi_range(now):
     """
     計算以『週三 05:00』為起點的 KPI 區間
@@ -2312,18 +2621,17 @@ def handle_message(event):
             FlexSendMessage(alt_text=f"權限狀態：{status_text}", contents=status_flex_content)
         )
         return
-    #-------------------------------------------------------------交班系統 ---------------------------------------
-    if any(keyword in msg_text_no_space for keyword in ["@All交班", "@All交接", "@All換人", "@All換手", "換手", "換人", "交班", "交接"]):
+    #-------------------------------------------------------------交班 未完成 交接也可以 換人 換手 ---------------------------------------
+    if "@All交班" in msg_text_no_space:
         with get_pg_conn() as conn:
             with conn.cursor() as cur:
-                # 1. 抓取目前「下一班」是誰
+                # 抓取目前「下一班」是誰
                 cur.execute("SELECT next_user_id FROM shift_info WHERE group_id = %s", (group_id,))
                 row = cur.fetchone()
                 
-                # 2. 邏輯：原本預約接班的人 (next) 變成 現在當班 (current)
+                # 邏輯：原本預約接班的人 (next) 變成 現在當班 (current)
                 new_current = row[0] if row else None
                 
-                # 3. 更新資料庫
                 cur.execute("""
                     INSERT INTO shift_info (group_id, current_user_id, next_user_id)
                     VALUES (%s, %s, NULL)
@@ -2334,7 +2642,7 @@ def handle_message(event):
                 """, (group_id, new_current))
                 conn.commit()
                 
-                # 4. 顯示狀態卡片
+                # 顯示狀態卡片
                 flex = build_shift_status_flex(group_id, new_current, None)
                 line_bot_api.reply_message(event.reply_token, flex)
                 return
@@ -2512,7 +2820,7 @@ def handle_message(event):
         )
         return
     
-    #-------------------------------------------------------------查自己名冊---------------------------------------
+    #-------------------------------------------------------------查自己名冊 未完成 優化查詢畫面---------------------------------------
     if msg == "查自己":
         profile = get_roster_profile(user)
         if not profile:
@@ -2622,7 +2930,22 @@ def handle_message(event):
             TextSendMessage(text)
         )
         return
-
+    #-------------------------------------------------------------!!!!!!! 未完成 全部名冊!!!!!!!!---------------------------------------
+    if msg.startswith("名冊"):
+        parts = msg.split(maxsplit=1)
+        if len(parts) == 2:
+            clan = parts[1]
+            rows = query_roster(clan)
+            keyword = clan
+        else:
+            rows = query_roster()
+            keyword = "全部"
+        result = []
+        for game_name, clan_name in rows:
+            result.append((game_name, clan_name, ""))
+        reply = build_roster_search_flex(keyword, result)
+        line_bot_api.reply_message(event.reply_token, reply)
+        return
     #-------------------------------------------------------------紀錄開機時間---------------------------------------
     if msg.startswith("開機 "):
         parts = msg.split(" ", 1)
@@ -2733,23 +3056,23 @@ def handle_message(event):
         return
     #-------------------------------------------------------------!!!!!!!   未完成 查詢王!!!!!!!---------------------------------------
     if msg.startswith("查 "):
-        # 解析指令
-        parts = msg.split(" ", 1)
-        if len(parts) < 2: return
-        
-        name = parts[1]
-        boss = get_boss(name) # 假設您已有此函數
+        name = msg.split(" ", 1)[1]
+        boss = get_boss(name)
         if not boss:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("找不到此王"))
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("找不到此王")
+            )
             return
 
+        # 1. 從資料庫抓取該群組、該隻王的最近 5 筆紀錄
         group_id = getattr(event.source, 'group_id', 'default_group')
         conn = get_pg_conn()
         if not conn: return
         
         try:
             cur = conn.cursor()
-            # 抓取最近 5 筆，內部先 DESC 抓最新，外部再 ASC 排序回原本習慣
+            # 抓取最近 5 筆，按時間由舊到新排序 (符合原本程式碼習慣)
             query = """
                 SELECT kill_time, respawn_time, note, user_id
                 FROM (
@@ -2757,7 +3080,7 @@ def handle_message(event):
                     FROM boss_time
                     WHERE group_id = %s AND boss_name = %s
                     ORDER BY kill_time DESC
-                    LIMIT 10
+                    LIMIT 5
                 ) sub
                 ORDER BY kill_time ASC
             """
@@ -2766,28 +3089,33 @@ def handle_message(event):
             cur.close()
             
             if not rows:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(f"尚無 {boss} 的紀錄"))
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage("尚無紀錄")
+                )
                 return
 
-            # 轉換為 Flex 接收的字典格式
+            # 2. 轉換為 Flex Message 接收的格式
             records = []
             for row in rows:
                 records.append({
-                    "kill": row[0].strftime("%H:%M:%S") if row[0] else "未知",
-                    "respawn": row[1].isoformat() if row[1] else "",
+                    "kill": row[0].strftime("%H:%M:%S"),
+                    "respawn": row[1].isoformat(),
                     "note": row[2] if row[2] else "",
-                    "user": row[3] if row[3] else "系統"
+                    "user": row[3]
                 })
 
-            # 呼叫產生器並送出
+            # 3. 呼叫原本的 Flex 產生器並送出
             flex_msg = build_query_boss_flex(boss, records)
-            line_bot_api.reply_message(event.reply_token, flex_msg)
-
+            line_bot_api.reply_message(
+                event.reply_token,
+                flex_msg
+            )
         except Exception as e:
             print(f"Error querying boss records: {e}")
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("查詢發生錯誤，請稍後再試"))
         finally:
             conn.close()
+        return
     # KPI 指令處理
     if msg.upper() == "KPI":
         now = now_tw()
@@ -3018,8 +3346,9 @@ def handle_message(event):
             kill_str = t.strftime("%H:%M:%S")
             resp_str = respawn.strftime('%H:%M:%S')
             
+            text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, note)
             flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, note)
-            safe_reply(event, flex_msg)
+            safe_reply(event, text_msg, flex_msg)
 
     # 5. 迴圈結束後的回覆 (不再需要針對 boss_db 做 save_db)
     if is_backup_mode:
