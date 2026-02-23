@@ -1663,14 +1663,77 @@ def build_roster_confirm_update_flex(old_name, old_clan, new_name, new_clan):
 def build_roster_self_flex(game_name, clan):
     return {
         "type": "bubble",
+        "size": "medium",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "MY ROSTER",
+                    "color": "#ffffff66",
+                    "size": "xs",
+                    "weight": "bold",
+                    "letterSpacing": "2px"
+                },
+                {
+                    "type": "text",
+                    "text": "👤 我的個人名冊",
+                    "color": "#ffffff",
+                    "size": "lg",
+                    "weight": "bold"
+                }
+            ],
+            "backgroundColor": "#273132", # 深灰色底板，顯得較專業
+            "paddingTop": "15px",
+            "paddingBottom": "15px"
+        },
         "body": {
             "type": "box",
             "layout": "vertical",
             "contents": [
-                {"type": "text", "text": "👤 我的名冊", "weight": "bold"},
-                {"type": "text", "text": f"🎮 {game_name}"},
-                {"type": "text", "text": f"🏰 {clan}"}
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {"type": "text", "text": "遊戲名字", "color": "#8c8c8c", "size": "sm", "flex": 1},
+                        {"type": "text", "text": game_name, "color": "#111111", "size": "sm", "flex": 2, "weight": "bold", "align": "end"}
+                    ],
+                    "margin": "md"
+                },
+                {
+                    "type": "separator",
+                    "margin": "md"
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {"type": "text", "text": "血盟", "color": "#8c8c8c", "size": "sm", "flex": 1},
+                        {"type": "text", "text": clan, "color": "#111111", "size": "sm", "flex": 2, "weight": "bold", "align": "end"}
+                    ],
+                    "margin": "md"
+                }
             ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "我的名冊",
+                    "size": "xs",
+                    "color": "#aaaaaa",
+                    "align": "center"
+                }
+            ],
+            "paddingTop": "10px"
+        },
+        "styles": {
+            "footer": {
+                "separator": True
+            }
         }
     }
 def build_roster_delete_confirm_flex(game_name):
@@ -2621,17 +2684,22 @@ def handle_message(event):
             FlexSendMessage(alt_text=f"權限狀態：{status_text}", contents=status_flex_content)
         )
         return
-    #-------------------------------------------------------------交班 未完成 交接也可以 換人 換手 ---------------------------------------
-    if "@All交班" in msg_text_no_space:
+    #-------------------------------------------------------------交班  ---------------------------------------
+    keywords = ["交班", "交接", "換人", "換手"]
+    pattern = rf"^(@All)?({'|'.join(keywords)})$"
+
+    # 使用 re.search 或 re.match 來判定
+    if re.search(pattern, msg_text_no_space):
         with get_pg_conn() as conn:
             with conn.cursor() as cur:
-                # 抓取目前「下一班」是誰
+                # 1. 抓取目前「下一班」是誰
                 cur.execute("SELECT next_user_id FROM shift_info WHERE group_id = %s", (group_id,))
                 row = cur.fetchone()
-                
+            
                 # 邏輯：原本預約接班的人 (next) 變成 現在當班 (current)
-                new_current = row[0] if row else None
-                
+                new_current = row[0] if row and row[0] else None
+            
+                # 2. 更新資料庫：將原本的 next 轉為 current，並將 next 清空
                 cur.execute("""
                     INSERT INTO shift_info (group_id, current_user_id, next_user_id)
                     VALUES (%s, %s, NULL)
@@ -2641,8 +2709,9 @@ def handle_message(event):
                         updated_at = NOW()
                 """, (group_id, new_current))
                 conn.commit()
-                
-                # 顯示狀態卡片
+            
+                # 3. 顯示狀態卡片
+                # 如果 new_current 是 None，代表原本沒人預約接班，可以考慮在 build_shift_status_flex 處理顯示邏輯
                 flex = build_shift_status_flex(group_id, new_current, None)
                 line_bot_api.reply_message(event.reply_token, flex)
                 return
@@ -2820,7 +2889,7 @@ def handle_message(event):
         )
         return
     
-    #-------------------------------------------------------------查自己名冊 未完成 優化查詢畫面---------------------------------------
+    #-------------------------------------------------------------查自己名冊---------------------------------------
     if msg == "查自己":
         profile = get_roster_profile(user)
         if not profile:
