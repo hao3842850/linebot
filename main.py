@@ -3185,7 +3185,7 @@ def handle_message(event):
         finally:
             conn.close()
         return
-    # KPI 指令處理
+    #-------------------------------------------------------------KPI---------------------------------------
     if msg.upper() == "KPI":
         now = now_tw()
         start, end = get_kpi_range(now)
