@@ -1663,7 +1663,7 @@ def build_roster_confirm_update_flex(old_name, old_clan, new_name, new_clan):
 def build_roster_self_flex(game_name, clan):
     return {
         "type": "bubble",
-        "size": "medium",
+        "size": "mega",
         "header": {
             "type": "box",
             "layout": "vertical",
