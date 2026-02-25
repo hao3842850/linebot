@@ -206,16 +206,14 @@ def get_latest_boss_records(group_id):
         conn.close()
 
 def init_cd_boss_with_given_time(group_id, base_time, user_id):
-    """
-    開機初始化：只針對「最近 12 小時內無紀錄」的王補上時間。
-    """
     conn = get_pg_conn()
-    if not conn: return
+    if not conn: 
+        print("無法連線至資料庫")
+        return
     
     try:
         cur = conn.cursor()
-        
-        # 只抓取最近 12 小時內有效的紀錄，避免被數天前的舊資料干擾
+        # 1. 抓出最近 12 小時內已有的紀錄
         check_time = base_time - timedelta(hours=12)
         cur.execute("""
             SELECT DISTINCT boss_name 
@@ -224,7 +222,8 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
         """, (group_id, check_time))
         
         recorded_bosses = {row[0] for row in cur.fetchall()}
-        
+        print(f"目前資料庫已有紀錄的王: {recorded_bosses}")
+
         insert_data = []
         for boss, cd in cd_map.items():
             if boss in recorded_bosses:
@@ -235,17 +234,23 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
                 group_id, boss, base_time, respawn, user_id, "伺服器開機補推", "boot"
             ))
         
+        # 2. 執行寫入
         if insert_data:
+            print(f"準備寫入 {len(insert_data)} 筆開機資料...")
             insert_query = """
                 INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
             cur.executemany(insert_query, insert_data)
+            conn.commit() # 重要：確保有 commit
+            print("資料庫寫入成功！")
+        else:
+            print("沒有需要補推的王（可能都已有紀錄）")
             
-        conn.commit()
         cur.close()
     except Exception as e:
-        print(f"資料庫處理錯誤: {e}")
+        print(f"資料庫初始化過程出錯: {e}")
+        conn.rollback() # 出錯時回滾
     finally:
         conn.close()
 
@@ -3028,39 +3033,42 @@ def handle_message(event):
             base_time = parse_time(time_token)
             
             if not base_time:
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 時間格式錯誤"))
+                return
+
+            source = event.source
+            group_id = getattr(source, 'group_id', None) or getattr(source, 'room_id', None) or getattr(source, 'user_id', 'unknown')
+            user_id = getattr(source, 'user_id', 'unknown')
+            time_str = base_time.strftime('%H:%M')
+            
+            # 核心修正：分開處理資料庫與發送
+            try:
+                # 1. 先做資料庫寫入
+                init_cd_boss_with_given_time(group_id, base_time, user_id)
+                
+                # 2. 產出 Flex (確保它是 dict)
+                flex_contents = build_boot_init_flex(time_str)
+                
+                # 如果 build_boot_init_flex 意外回傳了字串，這裡強制轉回 dict
+                if isinstance(flex_contents, str):
+                    import json
+                    flex_contents = json.loads(flex_contents)
+
+                # 3. 發送 Flex
                 line_bot_api.reply_message(
                     event.reply_token,
-                    TextSendMessage(text="❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
+                    FlexSendMessage(
+                        alt_text=f"🔌 開機紀錄：{time_str}",
+                        contents=flex_contents
+                    )
                 )
-            else:
-                # 取得來源資訊
-                source = event.source
-                group_id = getattr(source, 'group_id', None) or getattr(source, 'room_id', None) or getattr(source, 'user_id', 'unknown')
-                user_id = getattr(source, 'user_id', 'unknown')
-                time_str = base_time.strftime('%H:%M')
-                
-                try:
-                    # 1. 執行資料庫動作
-                    init_cd_boss_with_given_time(group_id, base_time, user_id)
-                    
-                    # 2. 獲取 Flex 內容 (確保是 dict)
-                    flex_contents = build_boot_init_flex(time_str)
-                    
-                    # 3. 發送 Flex Message
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        FlexSendMessage(
-                            alt_text=f"🔌 開機時間已紀錄：{time_str}",
-                            contents=flex_contents
-                        )
-                    )
-                except Exception as e:
-                    print(f"LINE 發送失敗 (可能是 Flex 格式問題): {e}")
-                    # 萬一 Flex 失敗，發送純文字作為保險
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text=f"✅ 開機時間 {time_str} 已紀錄 (系統自動補齊完成)")
-                    )
+            except Exception as e:
+                # 這裡會捕捉到 Flex 的 setdefault 錯誤，但前面的資料庫已經 commit 了
+                print(f"發送階段錯誤: {e}")
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=f"✅ 開機時間 {time_str} 已紀錄 (系統自動補齊完成)")
+                )
 
     #-------------------------------------------------------------清除所有登記紀錄---------------------------------------
     if msg == "clear":
