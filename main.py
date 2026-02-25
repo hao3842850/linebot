@@ -206,51 +206,44 @@ def get_latest_boss_records(group_id):
         conn.close()
 
 def init_cd_boss_with_given_time(group_id, base_time, user_id):
+    """
+    開機初始化：只針對『目前沒紀錄』的王補上開機時間。
+    """
     conn = get_pg_conn()
-    if not conn: 
-        print("無法連線至資料庫")
-        return
+    if not conn: return
     
     try:
         cur = conn.cursor()
-        # 1. 抓出最近 12 小時內已有的紀錄
-        check_time = base_time - timedelta(hours=12)
-        cur.execute("""
-            SELECT DISTINCT boss_name 
-            FROM boss_time 
-            WHERE group_id = %s AND respawn_time > %s
-        """, (group_id, check_time))
         
+        # 1. 先抓出目前該群組資料庫中所有王最新的紀錄清單
+        # 使用 DISTINCT ON 確保每隻王只會出現一筆最新的
+        cur.execute("""
+            SELECT boss_name 
+            FROM boss_time 
+            WHERE group_id = %s
+        """, (group_id,))
+        
+        # 取得所有已經有紀錄的王名集合
         recorded_bosses = {row[0] for row in cur.fetchall()}
-        print(f"目前資料庫已有紀錄的王: {recorded_bosses}")
-
-        insert_data = []
+        
+        # 2. 遍歷定義好的 cd_map，只處理不在 recorded_bosses 裡的王
         for boss, cd in cd_map.items():
             if boss in recorded_bosses:
+                # 只要有紀錄（不論時間點），就跳過，不覆蓋既有的狀態
                 continue
             
+            # 沒紀錄的，才補上開機時間
             respawn = base_time + timedelta(hours=cd)
-            insert_data.append((
-                group_id, boss, base_time, respawn, user_id, "伺服器開機補推", "boot"
-            ))
-        
-        # 2. 執行寫入
-        if insert_data:
-            print(f"準備寫入 {len(insert_data)} 筆開機資料...")
             insert_query = """
                 INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            cur.executemany(insert_query, insert_data)
-            conn.commit() # 重要：確保有 commit
-            print("資料庫寫入成功！")
-        else:
-            print("沒有需要補推的王（可能都已有紀錄）")
+            cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "伺服器開機補推", "boot"))
             
+        conn.commit()
         cur.close()
     except Exception as e:
-        print(f"資料庫初始化過程出錯: {e}")
-        conn.rollback() # 出錯時回滾
+        print(f"Error during selective boot init: {e}")
     finally:
         conn.close()
 
@@ -1338,9 +1331,6 @@ def clear_confirm_flex():
       }
     }
 def build_boot_init_flex(base_time_str):
-    """
-    回傳原生 Python 字典 (dict)，不可使用 json.dumps()
-    """
     return {
         "type": "bubble",
         "size": "mega",
@@ -1378,7 +1368,7 @@ def build_boot_init_flex(base_time_str):
                         },
                         {
                             "type": "text",
-                            "text": str(base_time_str),
+                            "text": base_time_str,
                             "size": "md",
                             "weight": "bold",
                             "color": "#333333",
@@ -3028,47 +3018,35 @@ def handle_message(event):
     #-------------------------------------------------------------紀錄開機時間---------------------------------------
     if msg.startswith("開機 "):
         parts = msg.split(" ", 1)
-        if len(parts) >= 2:
-            time_token = parts[1].strip()
-            base_time = parse_time(time_token)
+        if len(parts) < 2: return
+        
+        time_token = parts[1].strip()
+        base_time = parse_time(time_token)
+        
+        if not base_time:
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage("❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
+            )
+            return
             
-            if not base_time:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 時間格式錯誤"))
-                return
-
-            source = event.source
-            group_id = getattr(source, 'group_id', None) or getattr(source, 'room_id', None) or getattr(source, 'user_id', 'unknown')
-            user_id = getattr(source, 'user_id', 'unknown')
-            time_str = base_time.strftime('%H:%M')
-            
-            # 核心修正：分開處理資料庫與發送
-            try:
-                # 1. 先做資料庫寫入
-                init_cd_boss_with_given_time(group_id, base_time, user_id)
-                
-                # 2. 產出 Flex (確保它是 dict)
-                flex_contents = build_boot_init_flex(time_str)
-                
-                # 如果 build_boot_init_flex 意外回傳了字串，這裡強制轉回 dict
-                if isinstance(flex_contents, str):
-                    import json
-                    flex_contents = json.loads(flex_contents)
-
-                # 3. 發送 Flex
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    FlexSendMessage(
-                        alt_text=f"🔌 開機紀錄：{time_str}",
-                        contents=flex_contents
-                    )
-                )
-            except Exception as e:
-                # 這裡會捕捉到 Flex 的 setdefault 錯誤，但前面的資料庫已經 commit 了
-                print(f"發送階段錯誤: {e}")
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(text=f"✅ 開機時間 {time_str} 已紀錄 (系統自動補齊完成)")
-                )
+        # 取得 group_id
+        group_id = getattr(event.source, 'group_id', 'default_group')
+        # 執行初始化邏輯
+        init_cd_boss_with_given_time(group_id, base_time, user)
+        
+        # 1. 取得 Flex 字典內容 (確保 build_boot_init_flex 回傳的是 dict)
+        flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
+        
+        # 2. 關鍵修正：直接傳入字典，不要使用 BubbleContainer.new_from_json_dict
+        line_bot_api.reply_message(
+            event.reply_token,
+            FlexSendMessage(
+                alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
+                contents=flex_contents  # 直接傳字典進去
+            )
+        )
+        return
 
     #-------------------------------------------------------------清除所有登記紀錄---------------------------------------
     if msg == "clear":
