@@ -3026,7 +3026,7 @@ def handle_message(event):
         if not base_time:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
+                TextSendMessage("❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
             )
             return
             
