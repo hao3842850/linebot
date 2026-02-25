@@ -3026,26 +3026,41 @@ def handle_message(event):
         if not base_time:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
+                TextSendMessage(text="❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
             )
             return
             
-        # 取得 group_id
+        # 取得必要的 ID
         group_id = getattr(event.source, 'group_id', 'default_group')
-        # 執行初始化邏輯
-        init_cd_boss_with_given_time(group_id, base_time, user)
+        user_id = getattr(event.source, 'user_id', 'unknown')
         
-        # 1. 取得 Flex 字典內容 (確保 build_boot_init_flex 回傳的是 dict)
-        flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
-        
-        # 2. 關鍵修正：直接傳入字典，不要使用 BubbleContainer.new_from_json_dict
-        line_bot_api.reply_message(
-            event.reply_token,
-            FlexSendMessage(
-                alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
-                contents=flex_contents  # 直接傳字典進去
+        try:
+            # 執行資料庫初始化
+            init_cd_boss_with_given_time(group_id, base_time, user_id)
+            
+            # 取得 Flex 字典內容
+            flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
+            
+            # 安全檢查：確保 contents 必須是 dict
+            if isinstance(flex_contents, str):
+                import json
+                flex_contents = json.loads(flex_contents)
+            
+            # 發送回覆
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(
+                    alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
+                    contents=flex_contents
+                )
             )
-        )
+        except Exception as e:
+            print(f"LINE 背景處理錯誤: {e}")
+            # 如果 Flex 失敗，改發送純文字避免使用者沒反應
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"✅ 開機時間 {base_time.strftime('%H:%M')} 已紀錄 (Flex 顯示異常)")
+            )
         return
 
     #-------------------------------------------------------------清除所有登記紀錄---------------------------------------
