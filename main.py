@@ -2418,23 +2418,18 @@ def handle_boss_skipped(event, group_id, boss_name, user_id, note):
     safe_reply(event, text_msg, flex_msg)
 def get_kpi_range(now):
     """
-    計算以『週三 05:00』為起點的 KPI 區間
-    區間：本週三 05:00:00 ~ 下週三 05:00:00 (不含)
+    計算以『週三 09:00』為起點的 KPI 區間
     """
-    # 計算距離最近一個週三差幾天 (Mon=0, Tue=1, Wed=2...)
-    days_since_wed = (now.weekday() - 2) % 7
+    # 1. 取得本週三 09:00 (含)
+    start = (now - timedelta(days=(now.weekday() - 2) % 7)).replace(
+        hour=9, minute=0, second=0, microsecond=0
+    )
     
-    # 取得本週三的日期
-    start = now - timedelta(days=days_since_wed)
-    # 強制設定時間為 05:00:00
-    start = start.replace(hour=5, minute=0, second=0, microsecond=0)
-    
-    # 【關鍵判斷】：如果「現在時間」還沒到「本週三 05:00」
-    # 代表統計起點應該是「上週三 05:00」
+    # 2. 如果現在還沒到 09:00，則起點往前推 7 天
     if now < start:
         start -= timedelta(days=7)
     
-    # 結束點為起點往後推 7 天
+    # 3. 結束點為起點加 7 天
     end = start + timedelta(days=7)
     
     return start, end
