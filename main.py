@@ -3210,7 +3210,7 @@ def handle_message(event):
 
     #-------------------------------------------------------------重生列表---------------------------------------
     is_force_full = (msg == "出出")
-    if msg in ("出", "出出"):
+    if msg in ("出", "出出", "tj"):        
         now = now_tw()
         time_items = []
         unregistered = []
