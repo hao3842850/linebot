@@ -3022,12 +3022,15 @@ def handle_message(event):
         return
     #-------------------------------------------------------------紀錄開機時間---------------------------------------
     if msg.startswith("開機 "):
+        # 1. 拆分指令與時間
         parts = msg.split(" ", 1)
-        if len(parts) < 2: return
+        if len(parts) < 2:
+            return # 也可以回覆一個提示訊息給使用者
         
         time_token = parts[1].strip()
         base_time = parse_time(time_token)
         
+        # 2. 驗證時間解析是否成功
         if not base_time:
             line_bot_api.reply_message(
                 event.reply_token,
@@ -3035,32 +3038,46 @@ def handle_message(event):
             )
             return
             
-        # 1. 取得 group_id 與 user_id
+        # 3. 取得 group_id 與 user_id (根據 event 來源自動判定)
         source = event.source
-        group_id = getattr(source, 'group_id', getattr(source, 'room_id', 'default_group'))
+        # 優先嘗試取得 group_id，若無則嘗試 room_id，最後則是個人 user_id
+        group_id = getattr(source, 'group_id', getattr(source, 'room_id', getattr(source, 'user_id', 'unknown')))
         user_id = getattr(source, 'user_id', 'unknown')
         
-        # 2. 執行初始化邏輯 (建議根據上一篇修改 init 函式)
-        init_cd_boss_with_given_time(group_id, base_time, user_id)
-        
-        # 3. 取得 Flex 內容
-        # 這裡建議顯示完整時間 (包含日期或年月)，避免跨日判斷混淆
-        flex_dict = build_boot_init_flex(base_time.strftime('%H:%M'))
-
-        # 2. 關鍵修正點：
-        # 確保 flex_dict 是 dict，如果是 str 則轉回 dict
-        if isinstance(flex_dict, str):
-            flex_dict = json.loads(flex_dict)
-
-        # 3. 強制轉換成 Bubble 物件後發送
-        line_bot_api.reply_message(
-            event.reply_token,
-            FlexSendMessage(
-                alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
-                # 使用 new_from_json_dict 是解決 setdefault 錯誤的最安全路徑
-                contents=BubbleContainer.new_from_json_dict(flex_dict)
+        try:
+            # 4. 執行資料庫寫入邏輯
+            # 這裡會根據你之前的代碼，針對沒紀錄的王補推開機時間
+            init_cd_boss_with_given_time(group_id, base_time, user_id)
+            
+            # 5. 構建 Flex 訊息字典
+            display_time = base_time.strftime('%H:%M')
+            flex_dict = build_boot_init_flex(display_time)
+            
+            # 6. 【關鍵修正】解決 'str' object has no attribute 'setdefault' 報錯
+            # 確保 flex_dict 如果被轉成字串，先轉回 dict
+            if isinstance(flex_dict, str):
+                flex_dict = json.loads(flex_dict)
+            
+            # 使用 SDK 內建方法將字典轉換成正確的 Bubble 物件
+            flex_obj = BubbleContainer.new_from_json_dict(flex_dict)
+            
+            # 7. 發送回覆
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(
+                    alt_text=f"🔌 開機時間已紀錄：{display_time}",
+                    contents=flex_obj  # 這裡傳入的是物件，不會觸發 setdefault 錯誤
+                )
             )
-        )
+            
+        except Exception as e:
+            # 捕捉資料庫或 Flex 構建過程中的錯誤
+            print(f"處理開機指令時發生錯誤: {e}")
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="⚠️ 系統處理開機指令失敗，請檢查日誌。")
+            )
+
         return
 
     #-------------------------------------------------------------清除所有登記紀錄---------------------------------------
