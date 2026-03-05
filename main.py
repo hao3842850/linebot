@@ -212,40 +212,50 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
     conn = get_pg_conn()
     if not conn: return
     
+    cur = None # 初始化 cur 以便在 finally 關閉
     try:
         cur = conn.cursor()
         
-        # 1. 先抓出目前該群組資料庫中所有王最新的紀錄清單
-        # 使用 DISTINCT ON 確保每隻王只會出現一筆最新的
+        # --- 修改點 1: 確保查詢邏輯符合「目前狀態」 ---
+        # 如果只要過往有紀錄就不補，維持原樣；
+        # 但如果是要補「現在沒在 CD 中」的王，建議增加篩選條件
         cur.execute("""
-            SELECT boss_name 
+            SELECT DISTINCT boss_name 
             FROM boss_time 
             WHERE group_id = %s
         """, (group_id,))
         
-        # 取得所有已經有紀錄的王名集合
         recorded_bosses = {row[0] for row in cur.fetchall()}
         
-        # 2. 遍歷定義好的 cd_map，只處理不在 recorded_bosses 裡的王
+        # 紀錄一下準備新增的名單 (Debug 用)
+        to_insert = []
+
         for boss, cd in cd_map.items():
             if boss in recorded_bosses:
-                # 只要有紀錄（不論時間點），就跳過，不覆蓋既有的狀態
                 continue
             
-            # 沒紀錄的，才補上開機時間
             respawn = base_time + timedelta(hours=cd)
             insert_query = """
                 INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
             cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "伺服器開機補推", "boot"))
+            to_insert.append(boss)
             
-        conn.commit()
-        cur.close()
+        # --- 修改點 2: 確認是否有資料才 commit ---
+        if to_insert:
+            conn.commit()
+            print(f"Successfully initialized bosses: {to_insert}")
+        else:
+            print("No new bosses needed initialization.")
+
     except Exception as e:
+        if conn: conn.rollback() # 發生錯誤時回滾
         print(f"Error during selective boot init: {e}")
     finally:
-        conn.close()
+        if cur: cur.close()
+        if conn: conn.close()
+
 
 def delete_boss_records_by_alias(group_id, input_text):
     """
@@ -3021,24 +3031,29 @@ def handle_message(event):
         if not base_time:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
+                TextSendMessage(text="❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
             )
             return
             
-        # 取得 group_id
-        group_id = getattr(event.source, 'group_id', 'default_group')
-        # 執行初始化邏輯
-        init_cd_boss_with_given_time(group_id, base_time, user)
+        # 1. 取得 group_id 與 user_id
+        source = event.source
+        group_id = getattr(source, 'group_id', getattr(source, 'room_id', 'default_group'))
+        user_id = getattr(source, 'user_id', 'unknown')
         
-        # 1. 取得 Flex 字典內容 (確保 build_boot_init_flex 回傳的是 dict)
-        flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
+        # 2. 執行初始化邏輯 (建議根據上一篇修改 init 函式)
+        init_cd_boss_with_given_time(group_id, base_time, user_id)
         
-        # 2. 關鍵修正：直接傳入字典，不要使用 BubbleContainer.new_from_json_dict
+        # 3. 取得 Flex 內容
+        # 這裡建議顯示完整時間 (包含日期或年月)，避免跨日判斷混淆
+        display_time = base_time.strftime('%H:%M')
+        flex_contents = build_boot_init_flex(display_time)
+        
+        # 4. 回傳 Flex 訊息
         line_bot_api.reply_message(
             event.reply_token,
             FlexSendMessage(
-                alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
-                contents=flex_contents  # 直接傳字典進去
+                alt_text=f"🔌 開機時間已紀錄：{display_time}",
+                contents=flex_contents
             )
         )
         return
