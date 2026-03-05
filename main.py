@@ -212,49 +212,40 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id):
     conn = get_pg_conn()
     if not conn: return
     
-    cur = None # 初始化 cur 以便在 finally 關閉
     try:
         cur = conn.cursor()
         
-        # --- 修改點 1: 確保查詢邏輯符合「目前狀態」 ---
-        # 如果只要過往有紀錄就不補，維持原樣；
-        # 但如果是要補「現在沒在 CD 中」的王，建議增加篩選條件
+        # 1. 先抓出目前該群組資料庫中所有王最新的紀錄清單
+        # 使用 DISTINCT ON 確保每隻王只會出現一筆最新的
         cur.execute("""
-            SELECT DISTINCT boss_name 
+            SELECT boss_name 
             FROM boss_time 
             WHERE group_id = %s
         """, (group_id,))
         
+        # 取得所有已經有紀錄的王名集合
         recorded_bosses = {row[0] for row in cur.fetchall()}
         
-        # 紀錄一下準備新增的名單 (Debug 用)
-        to_insert = []
-
+        # 2. 遍歷定義好的 cd_map，只處理不在 recorded_bosses 裡的王
         for boss, cd in cd_map.items():
             if boss in recorded_bosses:
+                # 只要有紀錄（不論時間點），就跳過，不覆蓋既有的狀態
                 continue
             
+            # 沒紀錄的，才補上開機時間
             respawn = base_time + timedelta(hours=cd)
             insert_query = """
                 INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
             cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "伺服器開機補推", "boot"))
-            to_insert.append(boss)
             
-        # --- 修改點 2: 確認是否有資料才 commit ---
-        if to_insert:
-            conn.commit()
-            print(f"Successfully initialized bosses: {to_insert}")
-        else:
-            print("No new bosses needed initialization.")
-
+        conn.commit()
+        cur.close()
     except Exception as e:
-        if conn: conn.rollback() # 發生錯誤時回滾
         print(f"Error during selective boot init: {e}")
     finally:
-        if cur: cur.close()
-        if conn: conn.close()
+        conn.close()
 
 
 def delete_boss_records_by_alias(group_id, input_text):
@@ -3022,62 +3013,35 @@ def handle_message(event):
         return
     #-------------------------------------------------------------紀錄開機時間---------------------------------------
     if msg.startswith("開機 "):
-        # 1. 拆分指令與時間
         parts = msg.split(" ", 1)
-        if len(parts) < 2:
-            return # 也可以回覆一個提示訊息給使用者
+        if len(parts) < 2: return
         
         time_token = parts[1].strip()
         base_time = parse_time(time_token)
         
-        # 2. 驗證時間解析是否成功
         if not base_time:
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
+                TextSendMessage("❌ 時間格式錯誤，請使用 HHMM 或 HHMMSS")
             )
             return
             
-        # 3. 取得 group_id 與 user_id (根據 event 來源自動判定)
-        source = event.source
-        # 優先嘗試取得 group_id，若無則嘗試 room_id，最後則是個人 user_id
-        group_id = getattr(source, 'group_id', getattr(source, 'room_id', getattr(source, 'user_id', 'unknown')))
-        user_id = getattr(source, 'user_id', 'unknown')
+        # 取得 group_id
+        group_id = getattr(event.source, 'group_id', 'default_group')
+        # 執行初始化邏輯
+        init_cd_boss_with_given_time(group_id, base_time, user)
         
-        try:
-            # 4. 執行資料庫寫入邏輯
-            # 這裡會根據你之前的代碼，針對沒紀錄的王補推開機時間
-            init_cd_boss_with_given_time(group_id, base_time, user_id)
-            
-            # 5. 構建 Flex 訊息字典
-            display_time = base_time.strftime('%H:%M')
-            flex_dict = build_boot_init_flex(display_time)
-            
-            # 6. 【關鍵修正】解決 'str' object has no attribute 'setdefault' 報錯
-            # 確保 flex_dict 如果被轉成字串，先轉回 dict
-            if isinstance(flex_dict, str):
-                flex_dict = json.loads(flex_dict)
-            
-            # 使用 SDK 內建方法將字典轉換成正確的 Bubble 物件
-            flex_obj = BubbleContainer.new_from_json_dict(flex_dict)
-            
-            # 7. 發送回覆
-            line_bot_api.reply_message(
-                event.reply_token,
-                FlexSendMessage(
-                    alt_text=f"🔌 開機時間已紀錄：{display_time}",
-                    contents=flex_obj  # 這裡傳入的是物件，不會觸發 setdefault 錯誤
-                )
+        # 1. 取得 Flex 字典內容 (確保 build_boot_init_flex 回傳的是 dict)
+        flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
+        
+        # 2. 關鍵修正：直接傳入字典，不要使用 BubbleContainer.new_from_json_dict
+        line_bot_api.reply_message(
+            event.reply_token,
+            FlexSendMessage(
+                alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
+                contents=flex_contents  # 直接傳字典進去
             )
-            
-        except Exception as e:
-            # 捕捉資料庫或 Flex 構建過程中的錯誤
-            print(f"處理開機指令時發生錯誤: {e}")
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="⚠️ 系統處理開機指令失敗，請檢查日誌。")
-            )
-
+        )
         return
 
     #-------------------------------------------------------------清除所有登記紀錄---------------------------------------
