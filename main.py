@@ -9,7 +9,7 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     JoinEvent,  
-    MemberJoinedEvent, MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
+    MemberJoinedEvent, MessageEvent, TextMessage, TextSendMessage, FlexSendMessage, BubbleContainer
 )
 
 # 基本設定
@@ -3045,15 +3045,20 @@ def handle_message(event):
         
         # 3. 取得 Flex 內容
         # 這裡建議顯示完整時間 (包含日期或年月)，避免跨日判斷混淆
-        display_time = base_time.strftime('%H:%M')
-        flex_contents = build_boot_init_flex(display_time)
-        
-        # 4. 回傳 Flex 訊息
+        flex_dict = build_boot_init_flex(base_time.strftime('%H:%M'))
+
+        # 2. 關鍵修正點：
+        # 確保 flex_dict 是 dict，如果是 str 則轉回 dict
+        if isinstance(flex_dict, str):
+            flex_dict = json.loads(flex_dict)
+
+        # 3. 強制轉換成 Bubble 物件後發送
         line_bot_api.reply_message(
             event.reply_token,
             FlexSendMessage(
-                alt_text=f"🔌 開機時間已紀錄：{display_time}",
-                contents=flex_contents
+                alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
+                # 使用 new_from_json_dict 是解決 setdefault 錯誤的最安全路徑
+                contents=BubbleContainer.new_from_json_dict(flex_dict)
             )
         )
         return
