@@ -140,9 +140,11 @@ def get_username(user_id):
 def get_pg_conn():
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+        # 開啟自動提交，確保每一筆寫入都會立刻進入資料庫，讓另一台機器人讀到
+        conn.autocommit = True 
         return conn
     except Exception as e:
-        print(f"Database connection failed: {e}")
+        print(f"❌ 資料庫連線失敗: {e}")
         return None
     
 def save_boss_to_pg(group_id, boss_name, kill_time, respawn_time, user_id, note, source="manual"):
