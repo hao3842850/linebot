@@ -2923,15 +2923,35 @@ def handle_message(event):
         return
     # === 確認修改名冊 ===
     if msg == "確認修改":
-        wait = db.get("__ROSTER_WAIT__", {}).get(user)
-        if not wait or wait["action"] != "update":
+        # 1. 取得等待中的狀態 (使用 get 避免 Key Error)
+        roster_sessions = db.get("__ROSTER_WAIT__", {})
+        session = roster_sessions.get(user)
+
+        # 2. 驗證狀態：若無待處理任務或動作不符，則不予理會
+        if not session or session.get("action") != "update":
+            # 這裡可以考慮回覆一個「連結已過期」的訊息
             return
-        roster_update(user, wait["name"], wait["clan"])
-        db["__ROSTER_WAIT__"].pop(user)
+
+        # 3. 執行更新
+        new_name = session["name"]
+        new_clan = session["clan"]
+        roster_update(user, new_name, new_clan)
+
+        # 4. 清理快取並存檔 (安全刪除)
+        roster_sessions.pop(user, None)
+        db["__ROSTER_WAIT__"] = roster_sessions # 確保結構同步
         save_db(db)
+
+        # 5. 發送更有質感的成功回饋
+        reply_text = (
+            f"✅ 名冊更新成功！\n\n"
+            f"🛡️ 血盟：{new_clan}"
+            f"👤 遊戲名字：{new_name}\n" 
+        )
+    
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage("✅ 名冊已更新")
+            TextSendMessage(text=reply_text)
         )
         return
     
