@@ -1644,23 +1644,68 @@ def build_roster_added_flex(clan, game_name):
 def build_roster_confirm_update_flex(old_name, old_clan, new_name, new_clan):
     return {
         "type": "bubble",
+        "size": "md",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "確認更新資料", "weight": "bold", "color": "#E67E22", "size": "lg"}
+            ],
+            "paddingBottom": "none"
+        },
         "body": {
             "type": "box",
             "layout": "vertical",
             "contents": [
-                {"type": "text", "text": "⚠️ 名冊已存在", "weight": "bold"},
-                {"type": "text", "text": f"目前：{old_name} / {old_clan}"},
-                {"type": "text", "text": f"修改為：{new_name} / {new_clan}"},
+                {"type": "text", "text": "系統偵測到該名冊已存在，是否要覆蓋現有資訊？", "wrap": True, "size": "sm", "color": "#8c8c8c"},
+                {"type": "separator", "margin": "lg"},
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "lg",
+                    "spacing": "sm",
+                    "contents": [
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {"type": "text", "text": "目前內容", "size": "sm", "color": "#aaaaaa", "flex": 2},
+                                {"type": "text", "text": f"{old_name} / {old_clan}", "size": "sm", "color": "#666666", "flex": 4, "align": "end"}
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {"type": "text", "text": "修改為", "size": "sm", "color": "#1DB446", "flex": 2, "weight": "bold"},
+                                {"type": "text", "text": f"{new_name} / {new_clan}", "size": "sm", "color": "#1DB446", "flex": 4, "align": "end", "weight": "bold"}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
                 {
                     "type": "button",
+                    "style": "primary",
+                    "height": "sm",
+                    "color": "#1DB446",
                     "action": {"type": "message", "label": "確認修改", "text": "確認修改"}
                 },
                 {
                     "type": "button",
-                    "action": {"type": "message", "label": "取消", "text": "取消"}
+                    "style": "secondary",
+                    "height": "sm",
+                    "action": {"type": "message", "label": "取消操作", "text": "取消"}
                 }
             ]
-        }
+        },
+        "styles": {"footer": {"separator": True}}
     }
 def build_roster_self_flex(game_name, clan):
     return {
