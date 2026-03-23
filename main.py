@@ -2923,13 +2923,13 @@ def handle_message(event):
         return
     # === 確認修改名冊 ===
     if msg == "確認修改":
-        # 1. 取得等待中的狀態 (使用 get 避免 Key Error)
+        # 1. 取得等待中的狀態
         roster_sessions = db.get("__ROSTER_WAIT__", {})
         session = roster_sessions.get(user)
 
-        # 2. 驗證狀態：若無待處理任務或動作不符，則不予理會
+        # 2. 驗證狀態
         if not session or session.get("action") != "update":
-            # 這裡可以考慮回覆一個「連結已過期」的訊息
+            # 如果找不到 session，可以回一個簡單的錯誤
             return
 
         # 3. 執行更新
@@ -2937,21 +2937,62 @@ def handle_message(event):
         new_clan = session["clan"]
         roster_update(user, new_name, new_clan)
 
-        # 4. 清理快取並存檔 (安全刪除)
+        # 4. 清理快取並存檔
         roster_sessions.pop(user, None)
-        db["__ROSTER_WAIT__"] = roster_sessions # 確保結構同步
+        db["__ROSTER_WAIT__"] = roster_sessions
         save_db(db)
 
-        # 5. 發送更有質感的成功回饋
-        reply_text = (
-            f"✅ 名冊更新成功！\n\n"
-            f"🛡️ 血盟：{new_clan}"
-            f"👤 遊戲名字：{new_name}\n" 
-        )
-    
+        # 5. 構建成功 Flex Message 卡片
+        success_flex = {
+            "type": "bubble",
+            "size": "mega",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {"type": "text", "text": "✅ 更新成功", "weight": "bold", "color": "#1DB446", "size": "lg"}
+                ],
+                "paddingBottom": "none"
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "contents": [
+                    {"type": "text", "text": "您的名冊資訊已同步更新完成。", "size": "sm", "color": "#8c8c8c"},
+                    {"type": "separator", "margin": "lg"},
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "lg",
+                        "spacing": "sm",
+                        "contents": [
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {"type": "text", "text": "🛡️ 血盟", "size": "sm", "color": "#aaaaaa", "flex": 2},
+                                    {"type": "text", "text": f"{new_clan}", "size": "sm", "color": "#111111", "flex": 4, "align": "end", "weight": "bold"}
+                                ]
+                            },
+                            {
+                                "type": "box",
+                                "layout": "horizontal",
+                                "contents": [
+                                    {"type": "text", "text": "👤 名字", "size": "sm", "color": "#aaaaaa", "flex": 2},
+                                    {"type": "text", "text": f"{new_name}", "size": "sm", "color": "#111111", "flex": 4, "align": "end", "weight": "bold"}
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+
+        # 發送卡片
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text=reply_text)
+            FlexSendMessage(alt_text="✅ 名冊更新成功", contents=success_flex)
         )
         return
     
