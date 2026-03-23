@@ -3000,11 +3000,63 @@ def handle_message(event):
     if msg == "查自己":
         profile = get_roster_profile(user)
         if not profile:
+            no_profile_flex = {
+                "type": "bubble",
+                "size": "mega",
+                "header": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": "查無個人名冊", "weight": "bold", "color": "#E74C3C", "size": "lg"}
+                    ],
+                    "paddingBottom": "none"
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "md",
+                    "contents": [
+                        {
+                            "type": "text", 
+                            "text": "系統目前找不到您的登記資訊。請先完成加入名冊！", 
+                            "wrap": True, 
+                            "size": "sm", 
+                            "color": "#666666"
+                        },
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "margin": "lg",
+                            "backgroundColor": "#F8F9FA",
+                            "paddingAll": "md",
+                            "cornerRadius": "sm",
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": "💡 加入指令：",
+                                    "size": "xs",
+                                    "color": "#8c8c8c",
+                                    "weight": "bold"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "加入名冊 [血盟] [遊戲名字]",
+                                    "size": "sm",
+                                    "color": "#34495E",
+                                    "margin": "sm"
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("❌ 尚未加入名冊")
+                FlexSendMessage(alt_text="❌ 尚未加入名冊", contents=no_profile_flex)
             )
             return
+
         line_bot_api.reply_message(
             event.reply_token,
             FlexSendMessage(
@@ -3019,9 +3071,60 @@ def handle_message(event):
     if msg == "刪除名冊":
         profile = get_roster_profile(user)
         if not profile:
+            no_profile_flex = {
+                "type": "bubble",
+                "size": "mega",
+                "header": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": "查無個人名冊", "weight": "bold", "color": "#E74C3C", "size": "lg"}
+                    ],
+                    "paddingBottom": "none"
+                },
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "md",
+                    "contents": [
+                        {
+                            "type": "text", 
+                            "text": "系統目前找不到您的登記資訊。請先完成加入名冊！", 
+                            "wrap": True, 
+                            "size": "sm", 
+                            "color": "#666666"
+                        },
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "margin": "lg",
+                            "backgroundColor": "#F8F9FA",
+                            "paddingAll": "md",
+                            "cornerRadius": "sm",
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": "💡 加入指令：",
+                                    "size": "xs",
+                                    "color": "#8c8c8c",
+                                    "weight": "bold"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "加入名冊 [血盟] [遊戲名字]",
+                                    "size": "sm",
+                                    "color": "#34495E",
+                                    "margin": "sm"
+                                }
+                            ]
+                        }
+                    ]
+                },
+            }
+
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage("❌ 尚未加入名冊")
+                FlexSendMessage(alt_text="❌ 尚未加入名冊", contents=no_profile_flex)
             )
             return
         line_bot_api.reply_message(
