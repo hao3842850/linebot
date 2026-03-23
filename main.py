@@ -2898,24 +2898,76 @@ def handle_message(event):
     elif text.startswith("下標 "):
         if group_id in active_auctions:
             try:
-                # 取得金額
+                # 1. 取得金額與當前狀態
                 new_bid = int(text.replace("下標 ", "").strip())
                 current = active_auctions[group_id]
-                
-                if new_bid > current["bid"]:
+                current_bid = current["bid"]
+            
+                # 2. 判斷出價是否有效
+                if new_bid > current_bid:
+                    # --- 出價成功 ---
                     current_user_name = get_username(user_id)
                     active_auctions[group_id].update({
                         "bid": new_bid,
                         "bidder_name": current_user_name,
                         "bidder_id": user_id
                     })
-                    # 更新卡片回傳
-                    flex = build_auction_flex(current["item"], new_bid, current_user_name)
-                    line_bot_api.reply_message(event.reply_token, flex)
+                
+                    # 這裡使用你原本的 build_auction_flex，或是稍微微調它增加「出價成功」字樣
+                    flex_content = build_auction_flex(current["item"], new_bid, current_user_name)
+                
+                    # 提示：可以在 Alt Text 加入動態資訊
+                    line_bot_api.reply_message(
+                        event.reply_token, 
+                        FlexSendMessage(alt_text=f"🔨 出價成功！{new_bid} 鑽", contents=flex_content)
+                    )
                 else:
-                    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"❌ 出價需高於目前的 {current['bid']} 鑽"))
+                    # --- 出價失敗 (低於目前價格) ---
+                    error_bid_flex = {
+                        "type": "bubble",
+                        "size": "mega",
+                        "header": {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [
+                                {"type": "text", "text": "❌ 出價無效", "weight": "bold", "color": "#E74C3C", "size": "lg"}
+                            ]
+                        },
+                        "body": {
+                            "type": "box",
+                            "layout": "vertical",
+                            "spacing": "md",
+                            "contents": [
+                                {"type": "text", "text": "您的出價低於目前的最高金額，請調整後再試。", "wrap": True, "size": "sm", "color": "#666666"},
+                                {
+                                    "type": "box",
+                                    "layout": "vertical",
+                                    "margin": "lg",
+                                    "backgroundColor": "#FEF5E7",
+                                    "paddingAll": "md",
+                                    "cornerRadius": "sm",
+                                    "contents": [
+                                        {
+                                            "type": "box",
+                                            "layout": "horizontal",
+                                            "contents": [
+                                                {"type": "text", "text": "目前最高標", "size": "sm", "color": "#D68910", "flex": 3, "weight": "bold"},
+                                                {"type": "text", "text": f"{current_bid} 💎", "size": "md", "color": "#D68910", "flex": 4, "align": "end", "weight": "bold"}
+                                            ]
+                                        }
+                                    ]
+                                },
+                                {"type": "text", "text": f"💡 建議出價：{current_bid + 1} 鑽以上", "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center"}
+                            ]
+                        }
+                    }
+                    line_bot_api.reply_message(
+                        event.reply_token, 
+                        FlexSendMessage(alt_text=f"❌ 出價失敗：需高於 {current_bid} 鑽", contents=error_bid_flex)
+                    )
+
             except ValueError:
-                pass # 數字格式錯誤則不回應
+                pass # 格式不對就不處理，維持原樣
 
     # 3. 結標：直接打「結標」
     elif text == "結標":
