@@ -1786,18 +1786,56 @@ def build_roster_self_flex(game_name, clan):
 def build_roster_delete_confirm_flex(game_name):
     return {
         "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "⚠️ 刪除確認", "weight": "bold", "color": "#E74C3C", "size": "lg"}
+            ],
+            "paddingBottom": "none"
+        },
         "body": {
             "type": "box",
             "layout": "vertical",
             "contents": [
-                {"type": "text", "text": "⚠️ 確認刪除名冊", "weight": "bold"},
-                {"type": "text", "text": f"角色：{game_name}"},
+                {"type": "text", "text": "確定要從系統中移除此角色嗎？此動作無法復原。", "wrap": True, "size": "sm", "color": "#666666"},
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "lg",
+                    "backgroundColor": "#FDF2F2",
+                    "paddingAll": "md",
+                    "cornerRadius": "sm",
+                    "contents": [
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {"type": "text", "text": "待刪除角色", "size": "sm", "color": "#888888", "flex": 3},
+                                {"type": "text", "text": f"{game_name}", "size": "sm", "color": "#E74C3C", "flex": 4, "align": "end", "weight": "bold"}
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
                 {
                     "type": "button",
+                    "style": "primary",
+                    "color": "#E74C3C",
+                    "height": "sm",
                     "action": {"type": "message", "label": "確認刪除", "text": "確認刪除"}
                 },
                 {
                     "type": "button",
+                    "style": "secondary",
+                    "height": "sm",
                     "action": {"type": "message", "label": "取消", "text": "取消"}
                 }
             ]
@@ -1806,11 +1844,28 @@ def build_roster_delete_confirm_flex(game_name):
 def build_roster_deleted_flex():
     return {
         "type": "bubble",
+        "size": "mega",
         "body": {
             "type": "box",
             "layout": "vertical",
             "contents": [
-                {"type": "text", "text": "🗑 名冊已刪除", "weight": "bold"}
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "md",
+                    "alignItems": "center",
+                    "contents": [
+                        {"type": "text", "text": "🗑", "size": "xl", "flex": 0},
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "contents": [
+                                {"type": "text", "text": "名冊已成功刪除", "weight": "bold", "size": "md", "color": "#555555"},
+                                {"type": "text", "text": "該角色資訊已從資料庫移除", "size": "xs", "color": "#aaaaaa"}
+                            ]
+                        }
+                    ]
+                }
             ]
         }
     }
