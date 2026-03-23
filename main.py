@@ -1401,35 +1401,39 @@ def build_auction_flex(item_name, highest_bid, bidder_name):
     
     bubble = {
         "type": "bubble",
+        "size": "mega", # 確保尺寸正確
         "header": {
             "type": "box", "layout": "vertical", "backgroundColor": "#E67E22",
-            "contents": [{"type": "text", "text": "⚔️ 盟內裝備快閃競標", "weight": "bold", "color": "#FFFFFF", "size": "sm"}]
+            "paddingAll": "sm",
+            "contents": [{"type": "text", "text": "⚔️ 盟內裝備快閃競標", "weight": "bold", "color": "#FFFFFF", "size": "sm", "align": "center"}]
         },
         "body": {
             "type": "box", "layout": "vertical", "spacing": "md",
             "contents": [
-                {"type": "text", "text": f"📦 物品：{item_name}", "weight": "bold", "size": "lg"},
+                {"type": "text", "text": f"📦 物品：{item_name}", "weight": "bold", "size": "lg", "color": "#111111"},
                 {"type": "separator"},
                 {"type": "box", "layout": "vertical", "spacing": "sm", "contents": [
                     {"type": "box", "layout": "horizontal", "contents": [
                         {"type": "text", "text": "最高標", "size": "sm", "color": "#aaaaaa", "flex": 2},
-                        {"type": "text", "text": f"{highest_bid} 鑽", "size": "sm", "weight": "bold", "color": "#E67E22", "flex": 4}
+                        {"type": "text", "text": f"{highest_bid} 💎", "size": "md", "weight": "bold", "color": "#E67E22", "flex": 4, "align": "end"}
                     ]},
                     {"type": "box", "layout": "horizontal", "contents": [
                         {"type": "text", "text": "領先者", "size": "sm", "color": "#aaaaaa", "flex": 2},
-                        {"type": "text", "text": f"{display_bidder}", "size": "sm", "flex": 4}
+                        {"type": "text", "text": f"{display_bidder}", "size": "sm", "color": "#111111", "flex": 4, "align": "end", "weight": "bold"}
                     ]}
                 ]}
             ]
         },
         "footer": {
-            "type": "box", "layout": "vertical",
+            "type": "box", "layout": "vertical", "spacing": "sm",
             "contents": [
-                {"type": "text", "text": "輸入「下標 金額」參與競標", "size": "xs", "color": "#aaaaaa", "align": "center"}
+                {"type": "text", "text": "輸入「下標 金額」參與競標", "size": "xs", "color": "#aaaaaa", "align": "center"},
+                {"type": "separator", "margin": "md"}
             ]
         }
     }
-    return FlexSendMessage(alt_text=f"競標中: {item_name}", contents=bubble)
+    # 注意：這裡回傳字典(dict)，方便後續調用
+    return bubble
 def build_kpi_flex(title, period_text, ranking):
     rows = []
     # 定義前三名的特殊顏色與圖標
@@ -2898,12 +2902,12 @@ def handle_message(event):
     elif text.startswith("下標 "):
         if group_id in active_auctions:
             try:
-                # 1. 取得金額與當前狀態
+                # 1. 解析出價金額
                 new_bid = int(text.replace("下標 ", "").strip())
                 current = active_auctions[group_id]
                 current_bid = current["bid"]
-            
-                # 2. 判斷出價是否有效
+
+                # 2. 判斷出價是否高於目前價格
                 if new_bid > current_bid:
                     # --- 出價成功 ---
                     current_user_name = get_username(user_id)
@@ -2912,62 +2916,43 @@ def handle_message(event):
                         "bidder_name": current_user_name,
                         "bidder_id": user_id
                     })
+
+                    # 呼叫函數取得 bubble 字典
+                    bubble_content = build_auction_flex(current["item"], new_bid, current_user_name)
                 
-                    # 這裡使用你原本的 build_auction_flex，或是稍微微調它增加「出價成功」字樣
-                    flex_content = build_auction_flex(current["item"], new_bid, current_user_name)
-                
-                    # 提示：可以在 Alt Text 加入動態資訊
+                    # 發送 Flex Message
                     line_bot_api.reply_message(
-                        event.reply_token, 
-                        FlexSendMessage(alt_text=f"🔨 出價成功！{new_bid} 鑽", contents=flex_content)
+                        event.reply_token,
+                        FlexSendMessage(alt_text=f"🔨 出價更新：{new_bid} 鑽", contents=bubble_content)
                     )
                 else:
-                    # --- 出價失敗 (低於目前價格) ---
+                    # --- 出價失敗 (使用我們之前的失敗卡片模板) ---
                     error_bid_flex = {
                         "type": "bubble",
                         "size": "mega",
-                        "header": {
-                            "type": "box",
-                            "layout": "vertical",
-                            "contents": [
-                                {"type": "text", "text": "❌ 出價無效", "weight": "bold", "color": "#E74C3C", "size": "lg"}
-                            ]
-                        },
                         "body": {
-                            "type": "box",
-                            "layout": "vertical",
-                            "spacing": "md",
+                            "type": "box", "layout": "vertical", "spacing": "md",
                             "contents": [
-                                {"type": "text", "text": "您的出價低於目前的最高金額，請調整後再試。", "wrap": True, "size": "sm", "color": "#666666"},
+                                {"type": "text", "text": "❌ 出價無效", "weight": "bold", "color": "#E74C3C", "size": "md"},
+                                {"type": "text", "text": f"出價需高於目前的最高標。", "size": "sm", "color": "#666666"},
                                 {
-                                    "type": "box",
-                                    "layout": "vertical",
-                                    "margin": "lg",
-                                    "backgroundColor": "#FEF5E7",
-                                    "paddingAll": "md",
-                                    "cornerRadius": "sm",
+                                    "type": "box", "layout": "vertical", "margin": "md", "backgroundColor": "#FEF5E7", "paddingAll": "md", "cornerRadius": "sm",
                                     "contents": [
-                                        {
-                                            "type": "box",
-                                            "layout": "horizontal",
-                                            "contents": [
-                                                {"type": "text", "text": "目前最高標", "size": "sm", "color": "#D68910", "flex": 3, "weight": "bold"},
-                                                {"type": "text", "text": f"{current_bid} 💎", "size": "md", "color": "#D68910", "flex": 4, "align": "end", "weight": "bold"}
-                                            ]
-                                        }
+                                        {"type": "text", "text": f"目前最高：{current_bid} 💎", "size": "sm", "color": "#D68910", "weight": "bold", "align": "center"}
                                     ]
                                 },
-                                {"type": "text", "text": f"💡 建議出價：{current_bid + 1} 鑽以上", "size": "xs", "color": "#aaaaaa", "margin": "md", "align": "center"}
+                                {"type": "text", "text": f"💡 建議出價：{current_bid + 1} 鑽以上", "size": "xs", "color": "#aaaaaa", "align": "center"}
                             ]
                         }
                     }
                     line_bot_api.reply_message(
-                        event.reply_token, 
-                        FlexSendMessage(alt_text=f"❌ 出價失敗：需高於 {current_bid} 鑽", contents=error_bid_flex)
+                        event.reply_token,
+                        FlexSendMessage(alt_text="❌ 出價無效", contents=error_bid_flex)
                     )
 
             except ValueError:
-                pass # 格式不對就不處理，維持原樣
+                # 如果輸入不是數字，靜默處理或回覆提示
+                pass
 
     # 3. 結標：直接打「結標」
     elif text == "結標":
