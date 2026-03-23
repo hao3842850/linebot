@@ -3122,7 +3122,7 @@ def handle_message(event):
         reply = build_roster_search_flex(keyword, result)
         line_bot_api.reply_message(event.reply_token, reply)
         return
-    #-------------------------------------------------------------紀錄開機時間---------------------------------------
+    #-------------------------------------------------------------失效!!!!!紀錄開機時間---------------------------------------
     if msg.startswith("開機 "):
         parts = msg.split(" ", 1)
         if len(parts) < 2: return
@@ -3303,9 +3303,75 @@ def handle_message(event):
         period_text, ranking = get_kpi_ranking(group_id)
         
         if not ranking:
+            no_data_flex = {
+                "type": "bubble",
+                "size": "mega",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "spacing": "md",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "📊 KPI 統計報表",
+                            "weight": "bold",
+                            "color": "#111111",
+                            "size": "md"
+                        },
+                        {
+                            "type": "separator",
+                            "margin": "md"
+                        },
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "margin": "lg",
+                            "spacing": "sm",
+                            "alignItems": "center",
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": "∅",
+                                    "size": "xxl",
+                                    "color": "#cccccc",
+                                    "weight": "bold"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": "目前尚無相關紀錄",
+                                    "size": "sm",
+                                    "color": "#aaaaaa"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "margin": "md",
+                            "contents": [
+                                {
+                                    "type": "text",
+                                    "text": "查詢區間",
+                                    "size": "xs",
+                                    "color": "#bbbbbb",
+                                    "flex": 0
+                                },
+                                {
+                                    "type": "text",
+                                    "text": f"{period_text}",
+                                    "size": "xs",
+                                    "color": "#bbbbbb",
+                                    "align": "end"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(f"📊 區間：{period_text}\n目前尚無 KPI 紀錄")
+                FlexSendMessage(alt_text=f"📊 {period_text} 尚無 KPI 紀錄", contents=no_data_flex)
             )
             return
 
