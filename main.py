@@ -11,7 +11,7 @@ from linebot.models import (
     JoinEvent,  
     MemberJoinedEvent, MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
 )
-
+from linebot.models import FlexSendMessage, FlexContainer # 確保導入 FlexContainer
 # 基本設定
 db_lock = Lock()
 app = FastAPI()
@@ -2918,12 +2918,14 @@ def handle_message(event):
                     })
 
                     # 呼叫函數取得 bubble 字典
-                    bubble_content = build_auction_flex(current["item"], new_bid, current_user_name)
-                
+                    bubble_dict = build_auction_flex(current["item"], new_bid, current_user_name)                
                     # 發送 Flex Message
                     line_bot_api.reply_message(
                         event.reply_token,
-                        FlexSendMessage(alt_text=f"🔨 出價更新：{new_bid} 鑽", contents=bubble_content)
+                        FlexSendMessage(
+                            alt_text=f"🔨 出價更新：{new_bid} 鑽",
+                            contents=FlexContainer.new_from_json_dict(bubble_dict) # 加上這行轉換
+                        )
                     )
                 else:
                     # --- 出價失敗 (使用我們之前的失敗卡片模板) ---
