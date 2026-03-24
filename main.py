@@ -735,31 +735,7 @@ def notify_boss_team_with_flex(group_id, boss_name):
         cur.close()
         conn.close()
 
-def build_subscription_flex(status, expiry_str):
-    bubble = {
-      "type": "bubble",
-      "header": {
-        "type": "box", "layout": "vertical", "backgroundColor": "#ff4444",
-        "contents": [{"type": "text", "text": "⛔ 服務已到期", "color": "#ffffff", "weight": "bold", "size": "lg"}]
-      },
-      "body": {
-        "type": "box", "layout": "vertical", "spacing": "md",
-        "contents": [
-          {"type": "text", "text": "您的群組授權已過期", "weight": "bold", "size": "md"},
-          {"type": "text", "text": f"到期時間：{expiry_str}", "size": "sm", "color": "#aaaaaa"},
-          {"type": "separator"},
-          {"type": "text", "text": "請聯絡開發者申請續約，以繼續使用自動通知與統計功能。", "wrap": True, "size": "sm", "color": "#666666"}
-        ]
-      },
-      "footer": {
-        "type": "box", "layout": "vertical",
-        "contents": [
-          {"type": "button", "style": "primary", "color": "#ff4444", 
-           "action": {"type": "uri", "label": "聯絡開發者續費", "uri": "https://line.me/ti/p/您的LINE_ID"}}
-        ]
-      }
-    }
-    return FlexSendMessage(alt_text="服務到期通知", contents=bubble)
+   
 
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None, is_skip=False):
     map_list = BOSS_MAP.get(boss, [])
