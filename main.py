@@ -563,107 +563,125 @@ def build_all_boss_quick_flex():
     
     # 務必檢查這裡的 FlexSendMessage 拼字與結構
     return FlexSendMessage(alt_text="快速登記選單", contents=bubble_content)
-
 def build_kill_list_flex(title, display_items):
-    """
-    優化版：高對比度、適配黑白主題的重生列表
-    """
     rows = []
     now = now_tw()
 
     for dt, line_text in display_items:
         parts = line_text.split(" ", 1)
         time_str = parts[0]
-        boss_info = parts[1] if len(parts) > 1 else ""
+        boss_full_info = parts[1] if len(parts) > 1 else ""
         
-        # 判定狀態色塊顏色
+        # 判定狀態顏色 (改為較柔和且具層次感的色系)
         diff = (dt - now).total_seconds()
         if diff < 0:
-            bg_color = "#F44336"  # 質感紅 (已過)
+            status_color = "#E57373"  # 柔紅
             status_text = "已重生"
+            accent_color = "#D32F2F"
         elif diff < 1800:
-            bg_color = "#FF9800"  # 質感橘 (30分內)
-            status_text = "即將"
+            status_color = "#FFB74D"  # 柔橘
+            status_text = "即將重生"
+            accent_color = "#F57C00"
         else:
-            bg_color = "#4CAF50"  # 質感綠 (尚未)
-            status_text = "等待"
+            status_color = "#81C784"  # 柔綠
+            status_text = "等待中"
+            accent_color = "#388E3C"
 
-        # 取得純王名
-        pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
+        # 取得純王名與副標題
+        pure_name = boss_full_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
+        sub_info = boss_full_info.replace(pure_name, "").strip()
 
         rows.append({
             "type": "box",
             "layout": "horizontal",
             "contents": [
-                # 1. 時間色塊標籤
-                {
-                    "type": "box",
-                    "layout": "vertical",
-                    "flex": 3,
-                    "contents": [
-                        {"type": "text", "text": time_str, "size": "xs", "color": "#ffffff", "weight": "bold", "align": "center"},
-                        {"type": "text", "text": status_text, "size": "xxs", "color": "#ffffff", "align": "center", "opacity": "0.8"}
-                    ],
-                    "backgroundColor": bg_color,
-                    "cornerRadius": "sm",
-                    "paddingAll": "2px"
-                },
-                # 2. 王名 (加大 md，加粗，使用深灰色確保黑白主題皆清楚)
-                {
-                    "type": "text", 
-                    "text": boss_info, 
-                    "size": "md", 
-                    "weight": "bold", 
-                    "flex": 6, 
-                    "gravity": "center", 
-                    "wrap": True,
-                    "margin": "md",
-                    "color": "#333333" # 在白色主題顯眼，深色主題也會自動適配
-                },
-                # 3. 擊殺按鈕 (使用高級深藍色)
+                # 1. 時間指示器 (垂直裝飾條風格)
                 {
                     "type": "box",
                     "layout": "vertical",
                     "flex": 2,
-                    "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
-                    "backgroundColor": "#17a2b8", # 質感青藍色
-                    "cornerRadius": "xxl", # 圓角按鈕
-                    "paddingAll": "6px",
+                    "contents": [
+                        {"type": "text", "text": time_str, "size": "xs", "weight": "bold", "color": accent_color},
+                        {"type": "text", "text": status_text, "size": "xxs", "color": "#888888"}
+                    ],
+                    "borderWidth": "2px",
+                    "borderColor": status_color,
+                    "cornerRadius": "sm",
+                    "paddingStart": "sm",
+                    "spacing": "xs"
+                },
+                # 2. 王名與詳情 (層次化)
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "flex": 5,
+                    "margin": "md",
+                    "contents": [
+                        {"type": "text", "text": pure_name, "size": "sm", "weight": "bold", "color": "#222222", "wrap": True},
+                        {"type": "text", "text": sub_info, "size": "xxs", "color": "#aaaaaa", "wrap": True} if sub_info else {"type": "filler"}
+                    ]
+                },
+                # 3. 擊殺按鈕 (優雅的小按鈕)
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "flex": 2,
+                    "contents": [
+                        {
+                            "type": "text", 
+                            "text": "擊殺", 
+                            "size": "xs", 
+                            "color": "#ffffff", 
+                            "align": "center", 
+                            "weight": "bold",
+                            "gravity": "center"
+                        }
+                    ],
+                    "backgroundColor": "#464e56",
+                    "cornerRadius": "md",
+                    "height": "30px",
                     "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
                 }
             ],
-            "margin": "lg",
+            "paddingTop": "md",
+            "paddingBottom": "md",
             "alignItems": "center"
         })
+        # 加入分割線 (除了最後一項)
+        rows.append({"type": "separator", "margin": "none", "color": "#eeeeee"})
+
+    # 移除最後一個分割線
+    if rows: rows.pop()
 
     bubble = {
         "type": "bubble",
         "header": {
             "type": "box", 
             "layout": "vertical", 
-            "backgroundColor": "#343a40", # 深石板色標題
-            "contents": [{"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}]
+            "backgroundColor": "#1C1C1C", 
+            "paddingAll": "lg",
+            "contents": [
+                {"type": "text", "text": "⚔️ " + title, "color": "#ffffff", "weight": "bold", "size": "md", "align": "center"}
+            ]
         },
         "body": {
             "type": "box", 
             "layout": "vertical", 
-            "spacing": "none", 
-            "contents": rows if rows else [{"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm"}]
+            "spacing": "none",
+            "paddingAll": "md",
+            "contents": rows if rows else [{"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm", "margin": "xxl"}]
         },
         "footer": {
             "type": "box",
             "layout": "vertical",
+            "paddingAll": "md",
             "contents": [
                 {
                     "type": "button",
-                    "action": {
-                        "type": "message",
-                        "label": "🔄 更新清單",
-                        "text": "打王"
-                    },
-                    "style": "primary",
-                    "color": "#343a40", # 使用與標題一致的深色系
-                    "height": "sm"
+                    "action": {"type": "message", "label": "🔄 更新清單", "text": "打王"},
+                    "style": "secondary",
+                    "height": "sm",
+                    "color": "#eeeeee"
                 }
             ]
         },
