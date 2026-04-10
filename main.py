@@ -563,125 +563,123 @@ def build_all_boss_quick_flex():
     
     # 務必檢查這裡的 FlexSendMessage 拼字與結構
     return FlexSendMessage(alt_text="快速登記選單", contents=bubble_content)
+
 def build_kill_list_flex(title, display_items):
     rows = []
+    # 假設 now_tw() 已經在你的環境中定義好了
     now = now_tw()
 
-    for dt, line_text in display_items:
+    for i, (dt, line_text) in enumerate(display_items):
         parts = line_text.split(" ", 1)
         time_str = parts[0]
-        boss_full_info = parts[1] if len(parts) > 1 else ""
+        boss_info = parts[1] if len(parts) > 1 else ""
         
-        # 判定狀態顏色 (改為較柔和且具層次感的色系)
+        # 判定狀態色塊顏色 (使用更柔和且高質感的現代色系)
         diff = (dt - now).total_seconds()
         if diff < 0:
-            status_color = "#E57373"  # 柔紅
+            bg_color = "#FF5252"  # 珊瑚紅 (已過)
             status_text = "已重生"
-            accent_color = "#D32F2F"
         elif diff < 1800:
-            status_color = "#FFB74D"  # 柔橘
-            status_text = "即將重生"
-            accent_color = "#F57C00"
+            bg_color = "#FFB74D"  # 柔和橘 (30分內)
+            status_text = "即將"
         else:
-            status_color = "#81C784"  # 柔綠
-            status_text = "等待中"
-            accent_color = "#388E3C"
+            bg_color = "#66BB6A"  # 清新綠 (尚未)
+            status_text = "等待"
 
-        # 取得純王名與副標題
-        pure_name = boss_full_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
-        sub_info = boss_full_info.replace(pure_name, "").strip()
+        # 取得純王名
+        pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
-        rows.append({
+        # 建立單行 Boss 資訊區塊
+        row_box = {
             "type": "box",
             "layout": "horizontal",
+            "margin": "md",
+            "alignItems": "center",
             "contents": [
-                # 1. 時間指示器 (垂直裝飾條風格)
+                # 1. 時間色塊標籤 (增加 Padding 讓字不會太貼邊，調整圓角)
                 {
                     "type": "box",
                     "layout": "vertical",
-                    "flex": 2,
+                    "flex": 3,
                     "contents": [
-                        {"type": "text", "text": time_str, "size": "xs", "weight": "bold", "color": accent_color},
-                        {"type": "text", "text": status_text, "size": "xxs", "color": "#888888"}
+                        {"type": "text", "text": time_str, "size": "xs", "color": "#ffffff", "weight": "bold", "align": "center"},
+                        {"type": "text", "text": status_text, "size": "xxs", "color": "#ffffff", "align": "center", "opacity": "0.9", "margin": "2px"}
                     ],
-                    "borderWidth": "2px",
-                    "borderColor": status_color,
-                    "cornerRadius": "sm",
-                    "paddingStart": "sm",
-                    "spacing": "xs"
-                },
-                # 2. 王名與詳情 (層次化)
-                {
-                    "type": "box",
-                    "layout": "vertical",
-                    "flex": 5,
-                    "margin": "md",
-                    "contents": [
-                        {"type": "text", "text": pure_name, "size": "sm", "weight": "bold", "color": "#222222", "wrap": True},
-                        {"type": "text", "text": sub_info, "size": "xxs", "color": "#aaaaaa", "wrap": True} if sub_info else {"type": "filler"}
-                    ]
-                },
-                # 3. 擊殺按鈕 (優雅的小按鈕)
-                {
-                    "type": "box",
-                    "layout": "vertical",
-                    "flex": 2,
-                    "contents": [
-                        {
-                            "type": "text", 
-                            "text": "擊殺", 
-                            "size": "xs", 
-                            "color": "#ffffff", 
-                            "align": "center", 
-                            "weight": "bold",
-                            "gravity": "center"
-                        }
-                    ],
-                    "backgroundColor": "#464e56",
+                    "backgroundColor": bg_color,
                     "cornerRadius": "md",
-                    "height": "30px",
+                    "paddingAll": "5px"
+                },
+                # 2. 王名 (移除自訂 color，讓 LINE 自動完美適配深淺色模式)
+                {
+                    "type": "text", 
+                    "text": boss_info, 
+                    "size": "sm", # 使用 sm 配合加粗，版面更精緻且不易被長名字撐破
+                    "weight": "bold", 
+                    "flex": 6, 
+                    "gravity": "center", 
+                    "wrap": True,
+                    "margin": "md"
+                },
+                # 3. 擊殺按鈕 (改用質感天空藍，讓動作按鈕更跳脫)
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "flex": 2,
+                    "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
+                    "backgroundColor": "#4A90E2", 
+                    "cornerRadius": "lg",
+                    "paddingAll": "6px",
                     "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
                 }
-            ],
-            "paddingTop": "md",
-            "paddingBottom": "md",
-            "alignItems": "center"
-        })
-        # 加入分割線 (除了最後一項)
-        rows.append({"type": "separator", "margin": "none", "color": "#eeeeee"})
+            ]
+        }
 
-    # 移除最後一個分割線
-    if rows: rows.pop()
+        # 在清單項目之間加入淡淡的分隔線 (除了第一項之外)
+        if i > 0:
+            rows.append({"type": "separator", "margin": "lg", "color": "#ECECEC"})
+        
+        # 加入上方 margin 確保與分隔線有足夠的呼吸空間
+        if i > 0:
+            row_box["margin"] = "lg"
 
+        rows.append(row_box)
+
+    # 組合整個 Bubble
     bubble = {
         "type": "bubble",
+        "size": "mega", # 若內容較多，可以考慮使用 mega 尺寸讓畫面更寬敞
         "header": {
             "type": "box", 
             "layout": "vertical", 
-            "backgroundColor": "#1C1C1C", 
-            "paddingAll": "lg",
+            "backgroundColor": "#2C3E50", # 更有質感的深藍灰
+            "paddingAll": "15px", # 加大標題的上下留白
             "contents": [
-                {"type": "text", "text": "⚔️ " + title, "color": "#ffffff", "weight": "bold", "size": "md", "align": "center"}
+                {"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "md", "align": "center"}
             ]
         },
         "body": {
             "type": "box", 
             "layout": "vertical", 
-            "spacing": "none",
-            "paddingAll": "md",
-            "contents": rows if rows else [{"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm", "margin": "xxl"}]
+            "spacing": "none", 
+            "paddingAll": "20px", # 讓主體內容不要太貼近視窗邊緣
+            "contents": rows if rows else [
+                {"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm", "margin": "xl"}
+            ]
         },
         "footer": {
             "type": "box",
             "layout": "vertical",
-            "paddingAll": "md",
+            "paddingAll": "10px",
             "contents": [
                 {
                     "type": "button",
-                    "action": {"type": "message", "label": "🔄 更新清單", "text": "打王"},
-                    "style": "secondary",
-                    "height": "sm",
-                    "color": "#eeeeee"
+                    "action": {
+                        "type": "message",
+                        "label": "🔄 更新清單",
+                        "text": "打王"
+                    },
+                    "style": "secondary", # 改為 secondary，讓更新按鈕呈現輕量化的灰色底，不搶主視覺
+                    "height": "sm"
                 }
             ]
         },
@@ -689,6 +687,8 @@ def build_kill_list_flex(title, display_items):
             "footer": {"separator": True}
         }
     }
+    
+    # 這裡假設你的環境有從 linebot 匯入 FlexSendMessage
     return FlexSendMessage(alt_text=title, contents=bubble)
 
 def notify_boss_team_with_flex(group_id, boss_name):
