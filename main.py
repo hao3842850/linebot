@@ -773,10 +773,15 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
         if record_time > now + timedelta(minutes=5):
             record_time -= timedelta(days=1)
 
-        # 計算時差 (秒)
+        # --- 修正後的判斷邏輯 ---
+        # 計算時差：現在時間 減去 登記時間
         diff_seconds = (now - record_time).total_seconds()
+        
+        # 除錯用印出，你可以從 Log 看到數值
+        print(f"DEBUG - 現在: {now.strftime('%H:%M:%S')}, 登記: {kill_time}, 時差秒數: {diff_seconds}")
 
-        # 如果超過 30 分鐘 (1800 秒)
+        # 只有在「現在比登記時間晚」且「超過 1800 秒」時才顯示警告
+        # 如果 diff_seconds 是負數，代表登記的是未來時間，則不顯示
         if diff_seconds > 1800:
             warning_box = {
                 "type": "box",
@@ -796,6 +801,9 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
                     }
                 ]
             }
+        else:
+            # 如果不符合條件，確保 warning_box 是空的
+            warning_box = None
     except Exception as e:
         # 如果解析還是失敗，會在後台印出訊息，方便檢查是不是格式變了
         print(f"DEBUG - 時間解析失敗: {e}, 收到字串: {kill_time}")
