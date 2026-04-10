@@ -755,137 +755,117 @@ def notify_boss_team_with_flex(group_id, boss_name):
 
    
 
+from datetime import datetime, timedelta
+
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None, is_skip=False):
     map_list = BOSS_MAP.get(boss, [])
     map_text = "、".join(map_list) if map_list else "未知"
-
-    # 根據是否輪空設定顯示文字與顏色
     header_prefix = "⭕ 輪空登記 " if is_skip else "🔥 已登記 "
-    boss_color = "#A020F0" if is_skip else "#FF6D18"  # 輪空用紫色，正常用橘紅
+    boss_color = "#A020F0" if is_skip else "#FF6D18" 
     time_label = "🕒 輪空：" if is_skip else "🕒 死亡："
 
+    # --- 1. 新增時間檢查邏輯 ---
+    warning_box = None
+    try:
+        # 假設 kill_time 格式為 "MM/DD HH:mm" 或 "YYYY-MM-DD HH:mm"
+        # 這裡需根據你傳入的字串格式進行調整，假設是 "%H:%M" 或包含日期
+        # 下面以常見的 "YYYY-MM-DD HH:mm" 為例，若只有時間請自行修改 format
+        now = datetime.now()
+        # 嘗試解析時間 (這裡建議傳入時已是 datetime 物件，或是統一格式)
+        # 如果 kill_time 只是 "14:30"，我們補上今天的日期
+        if len(kill_time) <= 5:
+            record_time = datetime.strptime(kill_time, "%H:%M").replace(
+                year=now.year, month=now.month, day=now.day
+            )
+        else:
+            # 依據你的實際格式調整，例如 "2024-05-20 14:30"
+            record_time = datetime.strptime(kill_time, "%Y-%m-%d %H:%M")
+
+        # 判斷是否超過現在時間 30 分鐘
+        if (now - record_time) > timedelta(minutes=30):
+            warning_box = {
+                "type": "box",
+                "layout": "vertical",
+                "margin": "md",
+                "backgroundColor": "#FFEEEE",
+                "cornerRadius": "md",
+                "paddingAll": "sm",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "⚠️ 注意：登記時間已超過 30 分鐘！",
+                        "color": "#FF0000",
+                        "size": "xs",
+                        "weight": "bold",
+                        "align": "center"
+                    }
+                ]
+            }
+    except Exception as e:
+        print(f"時間解析失敗: {e}")
+
+    # --- 2. 構建原本的內容 ---
     contents = [
-        # ===== 標題 =====
         {
             "type": "text",
             "text": header_prefix,
             "weight": "bold",
             "size": "lg",
             "contents": [
-                {
-                    "type": "span",
-                    "text": header_prefix
-                },
-                {
-                    "type": "span",
-                    "text": boss,
-                    "color": boss_color,
-                    "weight": "bold"
-                }
-            ]
-        },
-        {
-            "type": "separator",
-            "margin": "md"
-        },
-
-        # ===== 資訊列：地圖 =====
-        {
-            "type": "box",
-            "layout": "baseline",
-            "contents": [
-                {
-                    "type": "text",
-                    "text": "🗺️ 地圖：",
-                    "size": "sm",
-                    "color": "#888888",
-                    "flex": 2
-                },
-                {
-                    "type": "text",
-                    "text": map_text,
-                    "wrap": True,
-                    "flex": 6
-                }
-            ]
-        },
-        # ===== 資訊列：時間 (死亡/基準) =====
-        {
-            "type": "box",
-            "layout": "baseline",
-            "contents": [
-                {
-                    "type": "text",
-                    "text": time_label,
-                    "size": "sm",
-                    "color": "#888888",
-                    "flex": 2
-                },
-                {
-                    "type": "text",
-                    "text": kill_time,
-                    "wrap": True,
-                    "flex": 6
-                }
-            ]
-        },
-        # ===== 資訊列：重生 =====
-        {
-            "type": "box",
-            "layout": "baseline",
-            "contents": [
-                {
-                    "type": "text",
-                    "text": "✨ 重生：",
-                    "size": "sm",
-                    "color": "#888888",
-                    "flex": 2
-                },
-                {
-                    "type": "text",
-                    "text": respawn_time,
-                    "wrap": True,
-                    "flex": 6
-                }
+                {"type": "span", "text": header_prefix},
+                {"type": "span", "text": boss, "color": boss_color, "weight": "bold"}
             ]
         }
     ]
 
-    # ===== 備註 =====
+    # 如果有警告，插入在標題下方
+    if warning_box:
+        contents.append(warning_box)
+
+    contents.append({"type": "separator", "margin": "md"})
+
+    # ===== 資訊列：地圖、時間、重生 =====
+    contents.extend([
+        {
+            "type": "box",
+            "layout": "baseline",
+            "contents": [
+                {"type": "text", "text": "🗺️ 地圖：", "size": "sm", "color": "#888888", "flex": 2},
+                {"type": "text", "text": map_text, "wrap": True, "flex": 6}
+            ]
+        },
+        {
+            "type": "box",
+            "layout": "baseline",
+            "contents": [
+                {"type": "text", "text": time_label, "size": "sm", "color": "#888888", "flex": 2},
+                {"type": "text", "text": kill_time, "wrap": True, "flex": 6}
+            ]
+        },
+        {
+            "type": "box",
+            "layout": "baseline",
+            "contents": [
+                {"type": "text", "text": "✨ 重生：", "size": "sm", "color": "#888888", "flex": 2},
+                {"type": "text", "text": respawn_time, "wrap": True, "flex": 6}
+            ]
+        }
+    ])
+
+    # ===== 備註與登記者 (維持原樣) =====
     if note:
         contents.append({
             "type": "box",
             "layout": "baseline",
             "contents": [
-                {
-                    "type": "text",
-                    "text": "📌 備註：",
-                    "size": "sm",
-                    "color": "#888888",
-                    "flex": 2
-                },
-                {
-                    "type": "text",
-                    "text": note,
-                    "wrap": True,
-                    "flex": 6
-                }
+                {"type": "text", "text": "📌 備註：", "size": "sm", "color": "#888888", "flex": 2},
+                {"type": "text", "text": note, "wrap": True, "flex": 6}
             ]
         })
 
-    # ===== 登記者 =====
     contents.extend([
-        {
-            "type": "separator",
-            "margin": "lg"
-        },
-        {
-            "type": "text",
-            "text": f"👤 登記者：{registrar}",
-            "size": "xs",
-            "color": "#999999",
-            "wrap": True
-        }
+        {"type": "separator", "margin": "lg"},
+        {"type": "text", "text": f"👤 登記者：{registrar}", "size": "xs", "color": "#999999", "wrap": True}
     ])
 
     alt_title = f"輪空登記 {boss}" if is_skip else f"已登記 {boss}"
