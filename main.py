@@ -752,37 +752,37 @@ def notify_boss_team_with_flex(group_id, boss_name):
     finally:
         cur.close()
         conn.close()
-
-   
-
 from datetime import datetime, timedelta
-from datetime import datetime, timedelta
+import pytz # 記得 pip install pytz
 
 def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None, is_skip=False):
-    # --- 1. 時間檢查邏輯 (針對 15:00:00 格式優化) ---
+    # --- 1. 時間檢查邏輯 ---
     warning_box = None
     try:
-        now = datetime.now()
-        # 依照圖片格式解析：15:00:00 -> %H:%M:%S
-        # 並補上今天的年、月、日
-        record_time = datetime.strptime(kill_time.strip(), "%H:%M:%S").replace(
-            year=now.year, month=now.month, day=now.day
-        )
+        # 設定台灣時區
+        tz = pytz.timezone('Asia/Taipei')
+        now = datetime.now(tz)
+        
+        # 1. 解析死亡時間 (kill_time)
+        # 這裡有個細節：kill_time 是字串 "15:52:33"
+        # 我們將其結合今天的日期
+        record_time = datetime.strptime(kill_time.strip(), "%H:%M:%S")
+        record_time = tz.localize(datetime(
+            year=now.year, month=now.month, day=now.day,
+            hour=record_time.hour, minute=record_time.minute, second=record_time.second
+        ))
 
-        # 跨日邏輯補正：如果現在是 00:10，登記的是 23:50，record_time 應該是昨天
-        if record_time > now + timedelta(minutes=5):
+        # 2. 跨日補正 (如果登記時間比現在晚很多，代表那是昨天的死亡時間)
+        if record_time > now + timedelta(minutes=10):
             record_time -= timedelta(days=1)
 
-        # --- 修正後的判斷邏輯 ---
-        # 計算時差：現在時間 減去 登記時間
+        # 3. 判斷邏輯：
+        # 如果你是要判斷「這筆資料是否太舊」，則應該比對發送當下的時間。
+        # 如果 record_time (死亡時間) 距離現在已經超過 30 分鐘 (1800秒)
         diff_seconds = (now - record_time).total_seconds()
         
-        # 除錯用印出，你可以從 Log 看到數值
-        print(f"DEBUG - 現在: {now.strftime('%H:%M:%S')}, 登記: {kill_time}, 時差秒數: {diff_seconds}")
-
-        # 只有在「現在比登記時間晚」且「超過 1800 秒」時才顯示警告
-        # 如果 diff_seconds 是負數，代表登記的是未來時間，則不顯示
-        if diff_seconds > 1800:
+        # 只有在超過 30 分鐘且小於 12 小時(避免舊資料干擾)時顯示
+        if 1800 < diff_seconds < 43200: 
             warning_box = {
                 "type": "box",
                 "layout": "vertical",
@@ -793,7 +793,7 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
                 "contents": [
                     {
                         "type": "text",
-                        "text": "⚠️ 注意：登記時間已超過 30 分鐘！",
+                        "text": "⚠️ 注意：此為 30 分鐘前的紀錄！",
                         "color": "#FF0000",
                         "size": "xs",
                         "weight": "bold",
@@ -801,12 +801,9 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
                     }
                 ]
             }
-        else:
-            # 如果不符合條件，確保 warning_box 是空的
-            warning_box = None
+            
     except Exception as e:
-        # 如果解析還是失敗，會在後台印出訊息，方便檢查是不是格式變了
-        print(f"DEBUG - 時間解析失敗: {e}, 收到字串: {kill_time}")
+        print(f"DEBUG - 時間解析失敗: {e}")
 
     # --- 2. 原始 UI 構建邏輯 ---
     map_list = BOSS_MAP.get(boss, [])
