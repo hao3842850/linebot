@@ -164,7 +164,12 @@ def now_tw():
 def get_username(user_id):
     try:
         profile = get_roster_profile(user_id)
-        return profile["name"] if profile else "未登記玩家"
+        if profile and profile["name"]:
+            return profile["name"]
+        
+        # --- 備援邏輯：名冊沒資料，改抓 LINE 暱稱 ---
+        line_profile = line_bot_api.get_profile(user_id)
+        return line_profile.display_name
     except Exception:
         return "未知玩家"
 
@@ -2801,25 +2806,22 @@ fixed_bosses = {
 }
 # 邏輯函式
 def get_roster_profile(user_id):
-    # 呼叫資料庫查詢函式
     row = roster_get_by_user(user_id) 
-    
     if not row:
         return None
     
-    # 重點：必須確認 roster_get_by_user 回傳的欄位順序
-    # 假設順序是：遊戲名, 血盟, LINE名, 職業
     try:
+        # 依照上面 SQL 的順序解包
         game_name, clan_name, line_name, job = row
         
         return {
-            "name": game_name if game_name else "未命名",
+            "name": game_name if game_name else "未命名玩家",
             "clan": clan_name if clan_name else "無血盟",
             "line_name": line_name,
-            "job": job if job else "預設" # 如果職業欄位是空的，給予「預設」
+            "job": job if job else "預設"
         }
     except Exception as e:
-        print(f"解包失敗，資料庫回傳欄位數可能不符: {e}")
+        print(f"❌ 職業欄位讀取失敗或數量不符: {e}")
         return None
 def get_boss(name):
     for boss, aliases in alias_map.items():
@@ -3029,7 +3031,7 @@ def roster_get_by_user(user_id):
     if not conn: return None
     try:
         cur = conn.cursor()
-        # 確保這裡的順序跟上面解包的順序一模一樣
+        # 強制固定順序：遊戲名、盟名、LINE名、職業
         cur.execute("""
             SELECT game_name, clan_name, line_name, job 
             FROM roster 
@@ -4106,12 +4108,17 @@ def handle_message(event):
             if kpi_data:
                 # 2. 排序並結合名冊抓取職業與名字
                 ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
-                
+            
                 display_full = []
-                for uid, count in ranking[:3]: # 只取前三名
+                for uid, count in ranking[:3]:
                     profile = get_roster_profile(uid)
-                    p_name = profile["name"] if profile else get_username(uid)
-                    p_job = profile["job"] if profile and "job" in profile else "預設"
+                    if profile:
+                        p_name = profile["name"]
+                        p_job = profile["job"]
+                    else:
+                        # 沒登記名冊的人，抓 LINE 名字，背景用預設
+                        p_name = get_username(uid)
+                        p_job = "預設"
                     display_full.append((p_name, count, p_job))
                 
                 # 3. 呼叫產生卡片函式
