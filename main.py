@@ -30,6 +30,31 @@ def is_peak_time():
 
     #h = now_tw().hour
     #return 19 <= h <= 23
+def init_db():
+    """初始化資料庫，自動建立所需的資料表"""
+    print("啟動資料庫檢查...")
+    conn = get_pg_conn() # 呼叫您原本用來取得連線的函式
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                # 建立固定王紀錄專用資料表
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS fixed_boss_records (
+                        id SERIAL PRIMARY KEY,
+                        group_id VARCHAR(50) NOT NULL,
+                        boss_name VARCHAR(50) NOT NULL,
+                        status VARCHAR(20) NOT NULL,
+                        record_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+            # 必須 commit 才會正式寫入資料庫
+            conn.commit()
+            print("✅ fixed_boss_records 資料表檢查/建立完成！")
+        except Exception as e:
+            print(f"❌ 建立資料表失敗: {e}")
+            conn.rollback() # 發生錯誤時退回，避免資料庫卡住
+        finally:
+            conn.close() # 確保最後一定會關閉連線
 def check_subscription(group_id):
     """檢查訂閱：回傳 (是否允許, 到期時間, 狀態文字)"""
     conn = get_pg_conn()
@@ -321,48 +346,6 @@ def get_kpi_ranking(group_id):
     finally:
         conn.close()
 
-def get_zero_participation_players(group_id):
-    """查詢在 KPI 區間內登記次數為 0 的玩家"""
-    conn = get_pg_conn()
-    if not conn: return "資料庫連線失敗", []
-    
-    try:
-        cur = conn.cursor()
-        now = now_tw()
-        start_time, end_time = get_kpi_range(now) # 使用您現有的 KPI 時間區間邏輯
-        period_text = f"{start_time.strftime('%m/%d')} ~ {end_time.strftime('%m/%d')}"
-        
-        # SQL 邏輯：從成員表 (boss_team) 中找出不在登記紀錄 (boss_time) 中的 user_id
-        # 註：這裡假設您的成員表名稱為 boss_team，請依實際情況調整
-        query = """
-            SELECT DISTINCT t.user_id
-            FROM boss_team t
-            WHERE t.group_id = %s
-              AND t.user_id NOT IN (
-                  SELECT user_id 
-                  FROM boss_time 
-                  WHERE group_id = %s 
-                    AND kill_time >= %s 
-                    AND kill_time < %s
-                    AND source != 'boot'
-              )
-        """
-        cur.execute(query, (group_id, group_id, start_time, end_time))
-        rows = cur.fetchall()
-        
-        zero_players = []
-        for row in rows:
-            user_id = row[0]
-            name = get_username(user_id) # 轉換為遊戲名稱
-            zero_players.append(name)
-            
-        return period_text, zero_players
-    except Exception as e:
-        print(f"Zero Participation Error: {e}")
-        return "查詢出錯", []
-    finally:
-        conn.close()
-
 def delete_all_boss_records(group_id):
     """確實執行 SQL 刪除"""
     conn = get_pg_conn()
@@ -525,7 +508,80 @@ def notify_boss_team(group_id, boss_name):
 
 
         
+# 1. 產生確認用 Flex 卡片的函式
+def build_confirmation_flex(boss_name):
+    bubble = {
+        "type": "bubble",
+        "header": {
+            "type": "box", "layout": "vertical", "backgroundColor": "#2C3E50",
+            "contents": [{"type": "text", "text": f"⚔️ 擊殺確認：{boss_name}", "color": "#ffffff", "weight": "bold"}]
+        },
+        "body": {
+            "type": "box", "layout": "vertical", "spacing": "md",
+            "contents": [
+                {"type": "text", "text": "王 5 分鐘後即將重生，請回報結果：", "size": "sm"},
+                {
+                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "contents": [
+                        {"type": "button", "style": "primary", "color": "#4A90E2", 
+                         "action": {"type": "message", "label": "我方擊殺", "text": f"紀錄 我方擊殺 {boss_name}"}},
+                        {"type": "button", "style": "secondary", "color": "#FF5252", 
+                         "action": {"type": "message", "label": "敵人吃", "text": f"紀錄 敵人吃 {boss_name}"}},
+                        {"type": "button", "style": "secondary", "color": "#95A5A6", 
+                         "action": {"type": "message", "label": "漏掉", "text": f"紀錄 漏掉 {boss_name}"}}
+                    ]
+                }
+            ]
+        }
+    }
+    return FlexSendMessage(alt_text=f"{boss_name} 擊殺確認", contents=bubble)
 
+# 2. 5分鐘後執行的推播函式
+def send_delayed_confirmation(group_id, boss_name):
+    try:
+        flex_msg = build_confirmation_flex(boss_name)
+        # 這裡必須使用 push_message，因為已經超過 1 分鐘無法 reply
+        line_bot_api.push_message(group_id, flex_msg)
+    except Exception as e:
+        print(f"延遲發送卡片失敗: {e}")
+
+
+def auto_mark_missed(group_id, boss_name):
+    """計時結束後檢查是否有回報，若無則自動記錄為漏掉"""
+    conn = get_pg_conn()
+    if not conn: 
+        return
+    
+    try:
+        with conn.cursor() as cur:
+            # 檢查過去 15 分鐘內，這個群組的這隻王是否已經有任何狀態的紀錄
+            # (用 15 分鐘是為了確保涵蓋倒數的 10 分鐘加上一點緩衝時間)
+            cur.execute("""
+                SELECT id FROM fixed_boss_records 
+                WHERE group_id = %s AND boss_name = %s 
+                AND record_time >= NOW() - INTERVAL '15 minutes'
+            """, (group_id, boss_name))
+            
+            row = cur.fetchone()
+            
+            # 如果找不到紀錄，代表沒有人點擊卡片回報
+            if not row:
+                cur.execute("""
+                    INSERT INTO fixed_boss_records (group_id, boss_name, status) 
+                    VALUES (%s, %s, '漏掉')
+                """, (group_id, boss_name))
+                conn.commit()
+                print(f"✅ {boss_name} 超時未回報，已自動寫入：漏掉")
+                
+                # (選用) 如果希望機器人自動通報漏掉了，可以取消下面這行的註解
+                # line_bot_api.push_message(group_id, TextSendMessage(text=f"⏳ {boss_name} 超時未回報，系統已自動記錄為：漏掉"))
+                
+    except Exception as e:
+        print(f"❌ 自動標記漏掉失敗: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+        
 def init_db():
     if not os.path.exists(DB_FILE):
         with open(DB_FILE, "w", encoding="utf-8") as f:
@@ -2766,7 +2822,101 @@ def handle_message(event):
     db["boss"].setdefault(group_id, {})
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
+    text = event.message.text.strip()
 
+
+    # 【功能 A】攔截 iOS 捷徑的提醒，並啟動 5 分鐘倒數
+    if "⏰固定王提醒" in text and "倒數5️⃣分鐘" in text and "Boss" in text:
+    
+        # 動態擷取 Boss 的名字
+        boss_name = "未知王" # 給個預設防呆值
+        for line in text.split('\n'):
+            if "Boss" in line:
+                # 將該行用 'Boss' 切割，取後面的文字，並清除多餘的空白
+                boss_name = line.split("Boss")[1].strip()
+                break # 找到名字就跳出迴圈
+        
+        # 1. 立即使用 reply_message 回傳 Flex 卡片，省下推播額度
+        flex_msg = build_confirmation_flex(boss_name)
+        line_bot_api.reply_message(event.reply_token, flex_msg)
+        
+        # 2. 啟動防呆計時器：600秒 (10分鐘) 後執行 auto_mark_missed 檢查
+        timer = threading.Timer(600.0, auto_mark_missed, args=[group_id, boss_name])
+        timer.start()
+        
+        return
+
+    # 【功能 B】處理 Flex 卡片的按鈕回覆 (儲存至資料庫)
+    if text.startswith("紀錄 "):
+        parts = text.split(" ")
+        if len(parts) == 3:
+            status = parts[1] # "我方擊殺", "敵吃", 或 "漏掉"
+            boss_name = parts[2]
+            
+            # 將結果寫入資料庫
+            conn = get_pg_conn()
+            if conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO fixed_boss_records (group_id, boss_name, status) VALUES (%s, %s, %s)",
+                        (group_id, boss_name, status)
+                    )
+                conn.commit()
+                conn.close()
+                
+                # 回覆登記成功
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=f"✅ 已記錄 {boss_name} 狀態為：{status}")
+                )
+        return
+    
+    # 【功能 C】處理統計指令
+    if text == "固定王統計":
+        conn = get_pg_conn()
+        if conn:
+            with conn.cursor() as cur:
+                # 取得該群組的統計數據
+                cur.execute("""
+                    SELECT 
+                        status, 
+                        COUNT(*),
+                        ARRAY_AGG(TO_CHAR(record_time, 'MM/DD HH24:MI'))
+                    FROM fixed_boss_records
+                    WHERE group_id = %s
+                    GROUP BY status
+                """, (group_id,))
+                rows = cur.fetchall()
+            conn.close()
+
+            # 整理文字報表
+            stats_dict = {"我方擊殺": 0, "敵人吃": 0, "漏掉": 0}
+            details = {"敵人吃": [], "漏掉": []}
+            
+            for row in rows:
+                status_name = row[0]
+                count = row[1]
+                time_list = row[2]
+                stats_dict[status_name] = count
+                if status_name in details:
+                    details[status_name] = time_list
+
+            total = sum(stats_dict.values())
+            
+            reply_text = f"📊 固定王統計報表 📊\n"
+            reply_text += f"總計出現次數：{total}\n"
+            reply_text += f"🟢 我方擊殺：{stats_dict.get('我方擊殺', 0)} 次\n"
+            reply_text += f"🔴 敵人吃掉：{stats_dict.get('敵仁吃', 0)} 次\n"
+            reply_text += f"⚪ 漏掉未吃：{stats_dict.get('漏掉', 0)} 次\n"
+            
+            # 列出敵吃或漏掉的場次時間
+            if details["敵人吃"]:
+                reply_text += "\n⚠️ 敵人吃場次：\n" + "\n".join(details["敵人吃"])
+            if details["漏掉"]:
+                reply_text += "\n⚠️ 漏掉場次：\n" + "\n".join(details["漏掉"])
+
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+        return
 #-------------------------------------------------------------訂閱制---------------------------------------
     group_id = getattr(event.source, 'group_id', event.source.user_id)
     msg_text = event.message.text.strip()
@@ -3592,18 +3742,6 @@ def handle_message(event):
         )
         return
 
-    # 假設這是在 handle_message 內
-    if text == "未登記":
-        group_id = get_source_id(event)
-        period, lazy_players = get_zero_participation_players(group_id)
-        
-        if not lazy_players:
-            msg = f"📊 統計區間：{period}\n\n恭喜！本週全員皆有登記紀錄。✨"
-        else:
-            names_str = "\n".join([f"• {name}" for name in lazy_players])
-            msg = f"📊 統計區間：{period}\n\n以下玩家本週登記次數為 0：\n{names_str}"
-        
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
     #-------------------------------------------------------------重生列表---------------------------------------
     is_force_full = (msg == "出出")
     if msg in ("出", "出出"):
