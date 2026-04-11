@@ -2801,20 +2801,25 @@ fixed_bosses = {
 }
 # 邏輯函式
 def get_roster_profile(user_id):
-    row = roster_get_by_user(user_id) # 這裡要確認 roster_get_by_user 回傳 4 個值
+    row = roster_get_by_user(user_id) 
     if not row:
         return None
     
-    # 假設 row 現在回傳 (遊戲名, 血盟, LINE名, 職業)
-    # 如果 row 長度不足，請先檢查你的 SQL SELECT 語句
-    game_name, clan_name, line_name, job = row
-    
-    return {
-        "name": game_name,
-        "clan": clan_name,
-        "line_name": line_name,
-        "job": job if job else "預設" # 如果沒填職業就給預設
-    }
+    try:
+        # 請務必確認你的 SQL 語句順序是: game_name, clan_name, line_name, job
+        # 如果你的 SQL 只寫 SELECT *，順序可能會亂掉
+        game_name, clan_name, line_name, job = row
+        
+        return {
+            "name": game_name if game_name else "未知玩家",
+            "clan": clan_name if clan_name else "無血盟",
+            "line_name": line_name,
+            "job": job if job else "預設"
+        }
+    except ValueError:
+        # 如果欄位數量對不起來 (例如只回傳了3個)，會進入這裡
+        print(f"⚠️ 資料庫回傳欄位數量異常: {len(row)}")
+        return None
 def get_boss(name):
     for boss, aliases in alias_map.items():
         if name in aliases:
@@ -3019,20 +3024,19 @@ def get_pg_conn():
         sslmode="require"
     )
 def roster_get_by_user(user_id):
-    with get_pg_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT game_name, clan_name, line_name
-                FROM roster
-                WHERE line_user_id = %s
-                ORDER BY updated_at DESC
-                LIMIT 1
-
-                """,
-                (user_id,)
-            )
-            return cur.fetchone()
+    conn = get_pg_conn()
+    if not conn: return None
+    try:
+        cur = conn.cursor()
+        # 這裡的欄位順序必須固定！不要用 SELECT *
+        cur.execute("""
+            SELECT game_name, clan_name, line_name, job 
+            FROM roster 
+            WHERE user_id = %s
+        """, (user_id,))
+        return cur.fetchone() # 回傳 (game_name, clan_name, line_name, job)
+    finally:
+        conn.close()
 def roster_insert(user_id, game_name, clan_name, line_name):
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
