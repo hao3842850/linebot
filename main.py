@@ -3209,13 +3209,15 @@ def handle_message(event):
 
         return
     
-    # 【功能 C：結合 Flex 卡片與顯示王名版】處理統計指令
+    # 【功能 C：送出報表 + 12:00 靜默刪除版】
     if text == "固定王統計":
         try:
             conn = get_pg_conn()
             if conn:
                 with conn.cursor() as cur:
-                    # 💡 修改點 1：利用 SQL 將 record_time 與 boss_name 串接在一起
+                    # ==========================================
+                    # 1. 先撈取統計數據 (確保 12:00 也能看到剛累積完的完整報表)
+                    # ==========================================
                     cur.execute("""
                         SELECT 
                             status, 
@@ -3226,7 +3228,6 @@ def handle_message(event):
                         GROUP BY status
                     """, (group_id,))
                     rows = cur.fetchall()
-                conn.close()
 
                 # 整理報表資料
                 stats_dict = {"我方擊殺": 0, "敵人吃": 0, "漏掉": 0}
@@ -3235,31 +3236,47 @@ def handle_message(event):
                 for row in rows:
                     status_name = row[0]
                     count = row[1]
-                    time_list = row[2] # 💡 修改點 2：這裡現在會取得如 ["04/11 20:00 (異界炎魔)", ...] 的格式
-                    
+                    time_list = row[2]
                     stats_dict[status_name] = count
-                    # 加上 time_list 的防呆判斷，避免資料庫回傳 None 導致錯誤
-                    if status_name in details and time_list: 
+                    if status_name in details and time_list:
                         details[status_name] = time_list
 
                 total = sum(stats_dict.values())
                 
-                # 🌟 呼叫您寫好的 Flex 卡片函式 🌟
+                # ==========================================
+                # 2. 照常送出 Flex 統計報表
+                # ==========================================
                 stats_flex = build_stats_report_flex(total, stats_dict, details)
+                line_bot_api.reply_message(event.reply_token, stats_flex)
                 
-                line_bot_api.reply_message(
-                    event.reply_token, 
-                    stats_flex
-                )
+                # ==========================================
+                # 3. 靜默刪除：報表送出後，如果是 12:00 就清空資料
+                # ==========================================
+                now_tw = datetime.now(TZ)
+                current_time = now_tw.strftime("%H:%M")
+                
+                if current_time == "12:00":
+                    with conn.cursor() as cur:
+                        cur.execute("DELETE FROM fixed_boss_records2 WHERE group_id = %s", (group_id,))
+                    conn.commit()
+                    # 只在伺服器後台印出提示，不吵醒 LINE 群組
+                    print(f"🕛 12:00 靜默清空群組 {group_id} 的紀錄完成。")
+
+                conn.close()
             else:
                 print("❌ 統計失敗: 無法取得資料庫連線")
                 
         except Exception as e:
-            print(f"❌ 讀取統計資料失敗: {e}")
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="❌ 讀取統計資料失敗，請稍後再試。")
-            )
+            print(f"❌ 讀取統計資料或刪除時發生錯誤: {e}")
+            # 如果卡片還沒送出就報錯，可以提示使用者
+            try:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text="❌ 讀取統計資料失敗，請稍後再試。")
+                )
+            except:
+                pass # 避免 reply_token 已經使用過而產生二次錯誤
+                
         return
 #-------------------------------------------------------------訂閱制---------------------------------------
     group_id = getattr(event.source, 'group_id', event.source.user_id)
