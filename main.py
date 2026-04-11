@@ -2853,7 +2853,21 @@ def handle_message(event):
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
     text = event.message.text.strip()
-
+    # 【強制初始化資料庫的隱藏指令】
+    if text == "初始化資料庫":
+        try:
+            # 直接在此處呼叫我們之前寫好的建置資料庫函式
+            init_db()
+            line_bot_api.reply_message(
+                event.reply_token, 
+                TextSendMessage(text="🛠️ 已發送強制建立資料庫指令！")
+            )
+        except Exception as e:
+            line_bot_api.reply_message(
+                event.reply_token, 
+                TextSendMessage(text=f"❌ 初始化發生嚴重錯誤: {e}")
+            )
+        return
 
     # 【功能 A】攔截 iOS 捷徑的提醒，並啟動 5 分鐘倒數
     if "⏰固定王提醒" in text and "倒數5️⃣分鐘" in text and "Boss" in text:
