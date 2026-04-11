@@ -28,12 +28,40 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 def startup_event():
     print("🚀 系統啟動，準備初始化資料庫...")
     init_db()
+    init_fixed_boss_db()
 # 工具函式
 def is_peak_time():
     return False # 暫時關閉，永遠允許 Flex 訊息
 
     #h = now_tw().hour
     #return 19 <= h <= 23
+def init_fixed_boss_db():
+    """自動建立固定王專用的資料表，並確保欄位長度足夠"""
+    print("🔧 系統啟動：檢查並建立 fixed_boss_records 資料表...")
+    conn = get_pg_conn()
+    if not conn:
+        print("⚠️ 無法連線至資料庫，請檢查 DATABASE_URL 設定。")
+        return
+
+    try:
+        with conn.cursor() as cur:
+            # 建立具備正確 VARCHAR 長度的資料表 (如果不存在的話)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS fixed_boss_records2 (
+                    id SERIAL PRIMARY KEY,
+                    group_id VARCHAR(255) NOT NULL,
+                    boss_name VARCHAR(255) NOT NULL,
+                    status VARCHAR(50) NOT NULL,
+                    record_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+        conn.commit()
+        print("✅ fixed_boss_records 資料表已確認存在 / 建立完成！")
+    except Exception as e:
+        print(f"❌ 自動建立資料表失敗: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 def check_subscription(group_id):
     """檢查訂閱：回傳 (是否允許, 到期時間, 狀態文字)"""
     conn = get_pg_conn()
@@ -587,7 +615,7 @@ def auto_mark_missed(group_id, boss_name):
             # 檢查過去 15 分鐘內，這個群組的這隻王是否已經有任何狀態的紀錄
             # (用 15 分鐘是為了確保涵蓋倒數的 10 分鐘加上一點緩衝時間)
             cur.execute("""
-                SELECT id FROM fixed_boss_records1 
+                SELECT id FROM fixed_boss_records2
                 WHERE group_id = %s AND boss_name = %s 
                 AND record_time >= NOW() - INTERVAL '15 minutes'
             """, (group_id, boss_name))
@@ -597,7 +625,7 @@ def auto_mark_missed(group_id, boss_name):
             # 如果找不到紀錄，代表沒有人點擊卡片回報
             if not row:
                 cur.execute("""
-                    INSERT INTO fixed_boss_records1 (group_id, boss_name, status) 
+                    INSERT INTO fixed_boss_records2 (group_id, boss_name, status) 
                     VALUES (%s, %s, '漏掉')
                 """, (group_id, boss_name))
                 conn.commit()
@@ -2904,7 +2932,7 @@ def handle_message(event):
                 if conn:
                     with conn.cursor() as cur:
                         cur.execute(
-                            "INSERT INTO fixed_boss_records1 (group_id, boss_name, status) VALUES (%s, %s, %s)",
+                            "INSERT INTO fixed_boss_records2 (group_id, boss_name, status) VALUES (%s, %s, %s)",
                             (group_id, boss_name, status)
                         )
                     conn.commit()
@@ -2917,7 +2945,7 @@ def handle_message(event):
                     )
             except Exception as e:
                 # 如果資料庫出錯（例如資料表沒建好），在終端機印出錯誤並回覆給使用者
-                print(f"❌ 寫入 fixed_boss_records1 失敗: {e}")
+                print(f"❌ 寫入 fixed_boss_records2 失敗: {e}")
                 line_bot_api.reply_message(
                     event.reply_token,
                     TextSendMessage(text=f"❌ 紀錄寫入失敗，請檢查後台！錯誤訊息: {e}")
@@ -2941,7 +2969,7 @@ def handle_message(event):
                         status, 
                         COUNT(*),
                         ARRAY_AGG(TO_CHAR(record_time, 'MM/DD HH24:MI'))
-                    FROM fixed_boss_records1
+                    FROM fixed_boss_records2
                     WHERE group_id = %s
                     GROUP BY status
                 """, (group_id,))
