@@ -854,7 +854,7 @@ def build_kill_list_flex(title, display_items):
     # 這裡假設你的環境有從 linebot 匯入 FlexSendMessage
     return FlexSendMessage(alt_text=title, contents=bubble)
 
-def build_top3_carousel(display_list):
+def build_top3_carousel(display_full):    
     """
     display_list 格式: [(名字, 次數, 職業), ...]
     """
@@ -877,11 +877,10 @@ def build_top3_carousel(display_list):
     }
     
     bubbles = []
-    top_3 = display_list[:3]
     medals = ["🥇 第一名", "🥈 第二名", "🥉 第三名"]
     
-    for i, (name, count, job) in enumerate(top_3):
-        # 根據職業選圖，若找不到該職業則用「預設」
+    for i, (name, count, job) in enumerate(display_full):
+        # 根據職業選圖，若找不到該關鍵字則使用預設圖
         bg_url = job_bg_map.get(job, job_bg_map["預設"])
         
         bubble = {
@@ -911,9 +910,7 @@ def build_top3_carousel(display_list):
                             ], "margin": "sm"}
                         ],
                         "position": "absolute",
-                        "offsetBottom": "0px",
-                        "offsetStart": "0px",
-                        "offsetEnd": "0px",
+                        "offsetBottom": "0px", "offsetStart": "0px", "offsetEnd": "0px",
                         "backgroundColor": "#000000AA",
                         "paddingAll": "20px"
                     }
@@ -2810,14 +2807,14 @@ def get_roster_profile(user_id):
     if not row:
         return None
     
-    # 按照 SELECT 的順序：game_name, clan_name, line_name, job
+    # 按照上面 SELECT 的順序解包
     game_name, clan_name, line_name, job = row
     
     return {
         "name": game_name if game_name else "未命名",
         "clan": clan_name if clan_name else "無血盟",
         "line_name": line_name,
-        "job": job if job else "預設" # 關鍵：如果職業是 Null，回傳 "預設"
+        "job": job if job and job.strip() else "預設" # 處理空值或空格
     }
 def get_boss(name):
     for boss, aliases in alias_map.items():
@@ -3027,7 +3024,8 @@ def roster_get_by_user(user_id):
     if not conn: return None
     try:
         cur = conn.cursor()
-        # 這裡嚴格規定抓取的順序：遊戲名(1), 血盟(2), LINE名(3), 職業(4)
+        # 強制指定順序：遊戲名(1), 血盟(2), LINE名(3), 職業(4)
+        # 這樣對應 Python 解包就不會出錯
         cur.execute("""
             SELECT game_name, clan_name, line_name, job 
             FROM roster 
