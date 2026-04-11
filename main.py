@@ -24,37 +24,16 @@ handler = WebhookHandler(CHANNEL_SECRET)
 TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 DATABASE_URL = os.getenv("DATABASE_URL")
+@app.on_event("startup")
+def startup_event():
+    print("🚀 系統啟動，準備初始化資料庫...")
+    init_db()
 # 工具函式
 def is_peak_time():
     return False # 暫時關閉，永遠允許 Flex 訊息
 
     #h = now_tw().hour
     #return 19 <= h <= 23
-def init_db():
-    """初始化資料庫，自動建立所需的資料表"""
-    print("啟動資料庫檢查...")
-    conn = get_pg_conn() # 呼叫您原本用來取得連線的函式
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                # 建立固定王紀錄專用資料表
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS fixed_boss_records (
-                        id SERIAL PRIMARY KEY,
-                        group_id VARCHAR(50) NOT NULL,
-                        boss_name VARCHAR(50) NOT NULL,
-                        status VARCHAR(20) NOT NULL,
-                        record_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                """)
-            # 必須 commit 才會正式寫入資料庫
-            conn.commit()
-            print("✅ fixed_boss_records 資料表檢查/建立完成！")
-        except Exception as e:
-            print(f"❌ 建立資料表失敗: {e}")
-            conn.rollback() # 發生錯誤時退回，避免資料庫卡住
-        finally:
-            conn.close() # 確保最後一定會關閉連線
 def check_subscription(group_id):
     """檢查訂閱：回傳 (是否允許, 到期時間, 狀態文字)"""
     conn = get_pg_conn()
@@ -512,34 +491,45 @@ def notify_boss_team(group_id, boss_name):
 def build_confirmation_flex(boss_name):
     bubble = {
         "type": "bubble",
-        "size": "kilo", # 縮小卡片寬度，讓簡單的確認訊息更精緻
+        "size": "kilo", 
         "header": {
             "type": "box", 
             "layout": "vertical", 
-            "backgroundColor": "#2C3E50", # 質感深藍灰
-            "paddingAll": "15px", # 增加標題留白
+            "backgroundColor": "#2C3E50", 
+            "paddingAll": "15px", 
             "contents": [
+                # 使用 span 來讓王名特別顯眼
                 {
                     "type": "text", 
-                    "text": f"⚔️ 擊殺確認：{boss_name}", 
-                    "color": "#ffffff", 
                     "weight": "bold",
                     "align": "center",
-                    "size": "md"
+                    "size": "lg", # 加大標題字體
+                    "contents": [
+                        {
+                            "type": "span", 
+                            "text": "⚔️ 擊殺確認：", 
+                            "color": "#ffffff"
+                        },
+                        {
+                            "type": "span", 
+                            "text": boss_name, 
+                            "color": "#FFD700" # 使用高對比的亮金色讓王名突顯
+                        }
+                    ]
                 }
             ]
         },
         "body": {
             "type": "box", 
             "layout": "vertical", 
-            "spacing": "lg", # 加大文字與按鈕之間的間距
+            "spacing": "lg", 
             "paddingAll": "20px",
             "contents": [
                 {
                     "type": "text", 
                     "text": "王 5 分鐘後即將重生\n請盡速回報結果：", 
                     "size": "sm",
-                    "color": "#555555", # 使用深灰色增加閱讀舒適度
+                    "color": "#555555", 
                     "align": "center",
                     "weight": "bold",
                     "wrap": True
@@ -547,9 +537,8 @@ def build_confirmation_flex(boss_name):
                 {
                     "type": "box", 
                     "layout": "horizontal", 
-                    "spacing": "md", # 按鈕之間的間距
+                    "spacing": "md", 
                     "contents": [
-                        # 藍色我方擊殺按鈕
                         {
                             "type": "button", 
                             "style": "primary", 
@@ -560,7 +549,6 @@ def build_confirmation_flex(boss_name):
                                 "text": f"紀錄 我方擊殺 {boss_name}"
                             }
                         },
-                        # 紅色敵人擊殺按鈕 (style 改為 primary 確保背景色生效)
                         {
                             "type": "button", 
                             "style": "primary", 
