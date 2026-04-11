@@ -512,23 +512,65 @@ def notify_boss_team(group_id, boss_name):
 def build_confirmation_flex(boss_name):
     bubble = {
         "type": "bubble",
+        "size": "kilo", # 縮小卡片寬度，讓簡單的確認訊息更精緻
         "header": {
-            "type": "box", "layout": "vertical", "backgroundColor": "#2C3E50",
-            "contents": [{"type": "text", "text": f"⚔️ 擊殺確認：{boss_name}", "color": "#ffffff", "weight": "bold"}]
+            "type": "box", 
+            "layout": "vertical", 
+            "backgroundColor": "#2C3E50", # 質感深藍灰
+            "paddingAll": "15px", # 增加標題留白
+            "contents": [
+                {
+                    "type": "text", 
+                    "text": f"⚔️ 擊殺確認：{boss_name}", 
+                    "color": "#ffffff", 
+                    "weight": "bold",
+                    "align": "center",
+                    "size": "md"
+                }
+            ]
         },
         "body": {
-            "type": "box", "layout": "vertical", "spacing": "md",
+            "type": "box", 
+            "layout": "vertical", 
+            "spacing": "lg", # 加大文字與按鈕之間的間距
+            "paddingAll": "20px",
             "contents": [
-                {"type": "text", "text": "王 5 分鐘後即將重生，請回報結果：", "size": "sm"},
                 {
-                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "type": "text", 
+                    "text": "王 5 分鐘後即將重生\n請盡速回報結果：", 
+                    "size": "sm",
+                    "color": "#555555", # 使用深灰色增加閱讀舒適度
+                    "align": "center",
+                    "weight": "bold",
+                    "wrap": True
+                },
+                {
+                    "type": "box", 
+                    "layout": "horizontal", 
+                    "spacing": "md", # 按鈕之間的間距
                     "contents": [
-                        {"type": "button", "style": "primary", "color": "#4A90E2", 
-                         "action": {"type": "message", "label": "我方擊殺", "text": f"紀錄 我方擊殺 {boss_name}"}},
-                        {"type": "button", "style": "secondary", "color": "#FF5252", 
-                         "action": {"type": "message", "label": "敵人吃", "text": f"紀錄 敵人吃 {boss_name}"}},
-                        {"type": "button", "style": "secondary", "color": "#95A5A6", 
-                         "action": {"type": "message", "label": "漏掉", "text": f"紀錄 漏掉 {boss_name}"}}
+                        # 藍色我方擊殺按鈕
+                        {
+                            "type": "button", 
+                            "style": "primary", 
+                            "color": "#4A90E2", 
+                            "action": {
+                                "type": "message", 
+                                "label": "我方擊殺", 
+                                "text": f"紀錄 我方擊殺 {boss_name}"
+                            }
+                        },
+                        # 紅色敵人擊殺按鈕 (style 改為 primary 確保背景色生效)
+                        {
+                            "type": "button", 
+                            "style": "primary", 
+                            "color": "#FF5252", 
+                            "action": {
+                                "type": "message", 
+                                "label": "敵人吃", 
+                                "text": f"紀錄 敵人吃 {boss_name}"
+                            }
+                        }
                     ]
                 }
             ]
@@ -2846,29 +2888,44 @@ def handle_message(event):
         
         return
 
-    # 【功能 B】處理 Flex 卡片的按鈕回覆 (儲存至資料庫)
+    # 【功能 B：升級版】處理 Flex 卡片的按鈕回覆 (儲存至資料庫)
     if text.startswith("紀錄 "):
-        parts = text.split(" ")
-        if len(parts) == 3:
-            status = parts[1] # "我方擊殺", "敵吃", 或 "漏掉"
-            boss_name = parts[2]
+        # 使用 split(" ", 2) 最多只切兩刀，這樣萬一王的名字裡面有空格也不會出錯
+        parts = text.split(" ", 2) 
+        
+        if len(parts) >= 3:
+            status = parts[1]      # 例如："我方擊殺", "敵吃", 或 "漏掉"
+            boss_name = parts[2]   # 例如："異界炎魔"
             
-            # 將結果寫入資料庫
-            conn = get_pg_conn()
-            if conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO fixed_boss_records (group_id, boss_name, status) VALUES (%s, %s, %s)",
-                        (group_id, boss_name, status)
+            try:
+                conn = get_pg_conn()
+                if conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "INSERT INTO fixed_boss_records (group_id, boss_name, status) VALUES (%s, %s, %s)",
+                            (group_id, boss_name, status)
+                        )
+                    conn.commit()
+                    conn.close()
+                    
+                    # 回覆登記成功
+                    line_bot_api.reply_message(
+                        event.reply_token,
+                        TextSendMessage(text=f"✅ 已記錄 [{boss_name}] 狀態為：{status}")
                     )
-                conn.commit()
-                conn.close()
-                
-                # 回覆登記成功
+            except Exception as e:
+                # 如果資料庫出錯（例如資料表沒建好），在終端機印出錯誤並回覆給使用者
+                print(f"❌ 寫入 fixed_boss_records 失敗: {e}")
                 line_bot_api.reply_message(
                     event.reply_token,
-                    TextSendMessage(text=f"✅ 已記錄 {boss_name} 狀態為：{status}")
+                    TextSendMessage(text=f"❌ 紀錄寫入失敗，請檢查後台！錯誤訊息: {e}")
                 )
+        else:
+            # 如果切割後的文字長度不對，回報格式錯誤
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ 紀錄格式錯誤，請點擊卡片上的按鈕進行回報。")
+            )
         return
     
     # 【功能 C】處理統計指令
