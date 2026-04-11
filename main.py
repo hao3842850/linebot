@@ -2810,19 +2810,15 @@ def get_roster_profile(user_id):
     if not row:
         return None
     
-    try:
-        # 依照上面 SQL 的順序解包
-        game_name, clan_name, line_name, job = row
-        
-        return {
-            "name": game_name if game_name else "未命名玩家",
-            "clan": clan_name if clan_name else "無血盟",
-            "line_name": line_name,
-            "job": job if job else "預設"
-        }
-    except Exception as e:
-        print(f"❌ 職業欄位讀取失敗或數量不符: {e}")
-        return None
+    # 按照 SELECT 的順序：game_name, clan_name, line_name, job
+    game_name, clan_name, line_name, job = row
+    
+    return {
+        "name": game_name if game_name else "未命名",
+        "clan": clan_name if clan_name else "無血盟",
+        "line_name": line_name,
+        "job": job if job else "預設" # 關鍵：如果職業是 Null，回傳 "預設"
+    }
 def get_boss(name):
     for boss, aliases in alias_map.items():
         if name in aliases:
@@ -3031,7 +3027,7 @@ def roster_get_by_user(user_id):
     if not conn: return None
     try:
         cur = conn.cursor()
-        # 強制固定順序：遊戲名、盟名、LINE名、職業
+        # 這裡嚴格規定抓取的順序：遊戲名(1), 血盟(2), LINE名(3), 職業(4)
         cur.execute("""
             SELECT game_name, clan_name, line_name, job 
             FROM roster 
@@ -4096,53 +4092,44 @@ def handle_message(event):
         return
     #-------------------------------------------------------------KPI---------------------------------------
     # ------------------------------------------------------------- 查詢當前前三名 ---------------------------------------
-    if msg == "TOP KPI":
+    if msg == "top":
         try:
             now = now_tw()
             start, end = get_kpi_range(now)
-            
-            # 1. 抓取該群組目前的登記資料
             boss_db_for_kpi = get_all_records_for_kpi(group_id, start, end)
             kpi_data = calculate_kpi(boss_db_for_kpi, start, end)
 
             if kpi_data:
-                # 2. 排序並結合名冊抓取職業與名字
                 ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
-            
                 display_full = []
+                
                 for uid, count in ranking[:3]:
                     profile = get_roster_profile(uid)
-                    if profile:
+                    if profile and profile["name"]:
                         p_name = profile["name"]
                         p_job = profile["job"]
                     else:
-                        # 沒登記名冊的人，抓 LINE 名字，背景用預設
-                        p_name = get_username(uid)
+                        # 備援：名冊沒人就抓 LINE 顯示名稱
+                        try:
+                            line_profile = line_bot_api.get_profile(uid)
+                            p_name = line_profile.display_name
+                        except:
+                            p_name = "未知玩家"
                         p_job = "預設"
+                    
                     display_full.append((p_name, count, p_job))
                 
-                # 3. 呼叫產生卡片函式
                 top3_bubbles = build_top3_carousel(display_full)
-                
                 line_bot_api.reply_message(
                     event.reply_token,
-                    FlexSendMessage(
-                        alt_text="🏆 當前 KPI 前三名",
-                        contents={
-                            "type": "carousel",
-                            "contents": top3_bubbles
-                        }
-                    )
+                    FlexSendMessage(alt_text="🏆 當前 KPI 前三名", contents={"type": "carousel", "contents": top3_bubbles})
                 )
             else:
-                line_bot_api.reply_message(
-                    event.reply_token, 
-                    TextSendMessage("目前尚無 KPI 登記紀錄。")
-                )
+                line_bot_api.reply_message(event.reply_token, TextSendMessage("目前尚無 KPI 紀錄。"))
         except Exception as e:
-            print(f"TOP 指令錯誤: {e}")
-            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ 查詢排名時發生錯誤"))
+            print(f"TOP Error: {e}")
         return
+    
     if msg.upper() == "KPI":
         now = now_tw()
         start, end = get_kpi_range(now)
