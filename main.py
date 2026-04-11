@@ -321,6 +321,48 @@ def get_kpi_ranking(group_id):
     finally:
         conn.close()
 
+def get_zero_participation_players(group_id):
+    """查詢在 KPI 區間內登記次數為 0 的玩家"""
+    conn = get_pg_conn()
+    if not conn: return "資料庫連線失敗", []
+    
+    try:
+        cur = conn.cursor()
+        now = now_tw()
+        start_time, end_time = get_kpi_range(now) # 使用您現有的 KPI 時間區間邏輯
+        period_text = f"{start_time.strftime('%m/%d')} ~ {end_time.strftime('%m/%d')}"
+        
+        # SQL 邏輯：從成員表 (boss_team) 中找出不在登記紀錄 (boss_time) 中的 user_id
+        # 註：這裡假設您的成員表名稱為 boss_team，請依實際情況調整
+        query = """
+            SELECT DISTINCT t.user_id
+            FROM boss_team t
+            WHERE t.group_id = %s
+              AND t.user_id NOT IN (
+                  SELECT user_id 
+                  FROM boss_time 
+                  WHERE group_id = %s 
+                    AND kill_time >= %s 
+                    AND kill_time < %s
+                    AND source != 'boot'
+              )
+        """
+        cur.execute(query, (group_id, group_id, start_time, end_time))
+        rows = cur.fetchall()
+        
+        zero_players = []
+        for row in rows:
+            user_id = row[0]
+            name = get_username(user_id) # 轉換為遊戲名稱
+            zero_players.append(name)
+            
+        return period_text, zero_players
+    except Exception as e:
+        print(f"Zero Participation Error: {e}")
+        return "查詢出錯", []
+    finally:
+        conn.close()
+
 def delete_all_boss_records(group_id):
     """確實執行 SQL 刪除"""
     conn = get_pg_conn()
@@ -3550,6 +3592,18 @@ def handle_message(event):
         )
         return
 
+    # 假設這是在 handle_message 內
+    if text == "未登記":
+        group_id = get_source_id(event)
+        period, lazy_players = get_zero_participation_players(group_id)
+        
+        if not lazy_players:
+            msg = f"📊 統計區間：{period}\n\n恭喜！本週全員皆有登記紀錄。✨"
+        else:
+            names_str = "\n".join([f"• {name}" for name in lazy_players])
+            msg = f"📊 統計區間：{period}\n\n以下玩家本週登記次數為 0：\n{names_str}"
+        
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
     #-------------------------------------------------------------重生列表---------------------------------------
     is_force_full = (msg == "出出")
     if msg in ("出", "出出"):
