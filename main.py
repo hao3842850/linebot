@@ -3252,14 +3252,13 @@ def handle_message(event):
                 # ==========================================
                 # 3. 靜默刪除：報表送出後，如果是 12:00 就清空資料
                 # ==========================================
-                now_tw = datetime.now(TZ)
-                current_time = now_tw.strftime("%H:%M")
+                current_dt = datetime.now(TZ) # 💡 已修正變數名稱
+                current_time = current_dt.strftime("%H:%M")
                 
                 if current_time == "12:00":
                     with conn.cursor() as cur:
                         cur.execute("DELETE FROM fixed_boss_records2 WHERE group_id = %s", (group_id,))
                     conn.commit()
-                    # 只在伺服器後台印出提示，不吵醒 LINE 群組
                     print(f"🕛 12:00 靜默清空群組 {group_id} 的紀錄完成。")
 
                 conn.close()
@@ -3268,14 +3267,13 @@ def handle_message(event):
                 
         except Exception as e:
             print(f"❌ 讀取統計資料或刪除時發生錯誤: {e}")
-            # 如果卡片還沒送出就報錯，可以提示使用者
             try:
                 line_bot_api.reply_message(
                     event.reply_token,
                     TextSendMessage(text="❌ 讀取統計資料失敗，請稍後再試。")
                 )
             except:
-                pass # 避免 reply_token 已經使用過而產生二次錯誤
+                pass 
                 
         return
 #-------------------------------------------------------------訂閱制---------------------------------------
