@@ -1910,6 +1910,94 @@ def build_roster_self_flex(game_name, clan):
             }
         }
     }
+def build_stats_report_flex(total, stats_dict, details):
+    body_contents = [
+        # 總計區塊
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "alignItems": "center",
+            "contents": [
+                {"type": "text", "text": "總計出現次數", "color": "#888888", "size": "sm", "flex": 2},
+                {"type": "text", "text": f"{total} 次", "size": "xl", "weight": "bold", "color": "#333333", "align": "end", "flex": 2}
+            ]
+        },
+        {"type": "separator", "margin": "lg"},
+        
+        # 🟢 我方擊殺
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "lg",
+            "contents": [
+                {"type": "text", "text": "🟢 我方擊殺", "size": "sm", "color": "#4A90E2", "weight": "bold", "flex": 3},
+                {"type": "text", "text": f"{stats_dict.get('我方擊殺', 0)} 次", "align": "end", "weight": "bold", "color": "#333333", "flex": 2}
+            ]
+        },
+        # 🔴 敵人吃掉
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "md",
+            "contents": [
+                {"type": "text", "text": "🔴 敵人吃掉", "size": "sm", "color": "#FF5252", "weight": "bold", "flex": 3},
+                {"type": "text", "text": f"{stats_dict.get('敵人吃', 0)} 次", "align": "end", "weight": "bold", "color": "#333333", "flex": 2}
+            ]
+        },
+        # ⚪ 漏掉未吃
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "md",
+            "contents": [
+                {"type": "text", "text": "⚪ 漏掉未吃", "size": "sm", "color": "#95A5A6", "weight": "bold", "flex": 3},
+                {"type": "text", "text": f"{stats_dict.get('漏掉', 0)} 次", "align": "end", "weight": "bold", "color": "#333333", "flex": 2}
+            ]
+        }
+    ]
+
+    # ===== 詳細時間清單 =====
+    # 為了避免畫面太長，我們用逗號分隔時間，並開啟 wrap 讓它自動換行
+    if details.get("敵人吃"):
+        body_contents.append({"type": "separator", "margin": "lg"})
+        body_contents.append({
+            "type": "text", "text": "⚠️ 敵人吃場次：", "size": "xs", "color": "#FF5252", "weight": "bold", "margin": "md"
+        })
+        body_contents.append({
+            "type": "text", "text": "、".join(details["敵人吃"]), "size": "xs", "color": "#666666", "wrap": True, "margin": "sm"
+        })
+
+    if details.get("漏掉"):
+        body_contents.append({"type": "separator", "margin": "lg"})
+        body_contents.append({
+            "type": "text", "text": "⚠️ 漏掉場次：", "size": "xs", "color": "#95A5A6", "weight": "bold", "margin": "md"
+        })
+        body_contents.append({
+            "type": "text", "text": "、".join(details["漏掉"]), "size": "xs", "color": "#666666", "wrap": True, "margin": "sm"
+        })
+
+    # 組裝成完整的 Flex 結構
+    bubble = {
+        "type": "bubble",
+        "size": "mega", # 由於可能會有時間清單，用大一點的卡片比較寬敞
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#2C3E50",
+            "paddingAll": "15px",
+            "contents": [
+                {"type": "text", "text": "📊 固定王統計報表", "color": "#ffffff", "weight": "bold", "size": "md", "align": "center"}
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "20px",
+            "contents": body_contents
+        }
+    }
+
+    return FlexSendMessage(alt_text="固定王統計報表", contents=bubble)
 def build_roster_delete_confirm_flex(game_name):
     return {
         "type": "bubble",
@@ -3033,49 +3121,54 @@ def handle_message(event):
     
     # 【功能 C】處理統計指令
     if text == "固定王統計":
-        conn = get_pg_conn()
-        if conn:
-            with conn.cursor() as cur:
-                # 取得該群組的統計數據
-                cur.execute("""
-                    SELECT 
-                        status, 
-                        COUNT(*),
-                        ARRAY_AGG(TO_CHAR(record_time, 'MM/DD HH24:MI'))
-                    FROM fixed_boss_records2
-                    WHERE group_id = %s
-                    GROUP BY status
-                """, (group_id,))
-                rows = cur.fetchall()
-            conn.close()
+        try:
+            conn = get_pg_conn()
+            if conn:
+                with conn.cursor() as cur:
+                    # 取得該群組的統計數據
+                    cur.execute("""
+                        SELECT 
+                            status, 
+                            COUNT(*),
+                            ARRAY_AGG(TO_CHAR(record_time, 'MM/DD HH24:MI'))
+                        FROM fixed_boss_records2
+                        WHERE group_id = %s
+                        GROUP BY status
+                    """, (group_id,))
+                    rows = cur.fetchall()
+                conn.close()
 
-            # 整理文字報表
-            stats_dict = {"我方擊殺": 0, "敵人吃": 0, "漏掉": 0}
-            details = {"敵人吃": [], "漏掉": []}
-            
-            for row in rows:
-                status_name = row[0]
-                count = row[1]
-                time_list = row[2]
-                stats_dict[status_name] = count
-                if status_name in details:
-                    details[status_name] = time_list
+                # 整理文字報表
+                stats_dict = {"我方擊殺": 0, "敵人吃": 0, "漏掉": 0}
+                details = {"敵人吃": [], "漏掉": []}
+                
+                for row in rows:
+                    status_name = row[0]
+                    count = row[1]
+                    time_list = row[2]
+                    
+                    stats_dict[status_name] = count
+                    if status_name in details:
+                        details[status_name] = time_list
 
-            total = sum(stats_dict.values())
-            
-            reply_text = f"📊 固定王統計報表 📊\n"
-            reply_text += f"總計出現次數：{total}\n"
-            reply_text += f"🟢 我方擊殺：{stats_dict.get('我方擊殺', 0)} 次\n"
-            reply_text += f"🔴 敵人吃掉：{stats_dict.get('敵仁吃', 0)} 次\n"
-            reply_text += f"⚪ 漏掉未吃：{stats_dict.get('漏掉', 0)} 次\n"
-            
-            # 列出敵吃或漏掉的場次時間
-            if details["敵人吃"]:
-                reply_text += "\n⚠️ 敵人吃場次：\n" + "\n".join(details["敵人吃"])
-            if details["漏掉"]:
-                reply_text += "\n⚠️ 漏掉場次：\n" + "\n".join(details["漏掉"])
-
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+                total = sum(stats_dict.values())
+                
+                # 🌟 呼叫剛剛寫好的 Flex 卡片函式 🌟
+                stats_flex = build_stats_report_flex(total, stats_dict, details)
+                
+                line_bot_api.reply_message(
+                    event.reply_token, 
+                    stats_flex
+                )
+            else:
+                print("❌ 統計失敗: 無法取得資料庫連線")
+                
+        except Exception as e:
+            print(f"❌ 讀取統計資料失敗: {e}")
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ 讀取統計資料失敗，請稍後再試。")
+            )
         return
 #-------------------------------------------------------------訂閱制---------------------------------------
     group_id = getattr(event.source, 'group_id', event.source.user_id)
