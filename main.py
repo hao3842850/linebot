@@ -164,12 +164,7 @@ def now_tw():
 def get_username(user_id):
     try:
         profile = get_roster_profile(user_id)
-        if profile and profile["name"]:
-            return profile["name"]
-        
-        # --- 備援邏輯：名冊沒資料，改抓 LINE 暱稱 ---
-        line_profile = line_bot_api.get_profile(user_id)
-        return line_profile.display_name
+        return profile["name"] if profile else "未登記玩家"
     except Exception:
         return "未知玩家"
 
@@ -853,73 +848,6 @@ def build_kill_list_flex(title, display_items):
     
     # 這裡假設你的環境有從 linebot 匯入 FlexSendMessage
     return FlexSendMessage(alt_text=title, contents=bubble)
-
-def build_top3_carousel(display_full):    
-    """
-    display_list 格式: [(名字, 次數, 職業), ...]
-    """
-    # 定義職業對應的背景圖
-    job_bg_map = {
-        "王族": "https://lineageseo.com/wp-content/uploads/2025/05/%E5%A4%A9%E5%A0%82M-%E7%8E%8B%E6%97%8F.png",
-        "騎士": "https://ldcloud.ldrescdn.com/cz_ldq/upload/03494702-7ad2-48e2-aebd-284eefd5a3ea.jpg",
-        "狂戰士": "https://i0.wp.com/www.lineagem.com.tw/wp-content/uploads/2022/11/Image-570.png?resize=534%2C462&quality=100&strip=all&ssl=1",
-        "雷神": "https://truth.bahamut.com.tw/s01/202211/83534b604bfc2b494a196b677ecc1186.JPG",
-        "龍鬥士": "https://truth.bahamut.com.tw/s01/202309/1e7db8ab590ec7eb044a80b5f5a21970.JPG",
-        "死神": "https://www.lineagem.com.tw/wp-content/uploads/2023/02/%E6%AD%BB%E7%A5%9E.png",
-        "妖精": "https://truth.bahamut.com.tw/s01/201912/890cde2f13031ef639f148496eebf68b.JPG",
-        "法師": "https://truth.bahamut.com.tw/s01/201912/8edf70c1cb213811c9bc6d03bd4ffc4c.JPG",
-        "槍手": "https://i0.wp.com/www.lineagem.com.tw/wp-content/uploads/2022/08/Image-191.png?fit=998%2C870&quality=100&strip=all&ssl=1",
-        "黑暗妖精": "https://truth.bahamut.com.tw/s01/202412/forum/25908/757315ea37d8412b11a95d55dcce9de1.JPG",
-        "暗黑騎士": "https://i0.wp.com/www.lineagem.com.tw/wp-content/uploads/2025/12/img-097.png?fit=1369%2C858&quality=100&strip=all&ssl=1",
-        "魔劍士": "https://ldcloud.ldrescdn.com/cz_ldq/upload/dd0484a6-9961-429b-8303-aaf43d9a09df.jpg",
-        "神聖劍士": "https://i0.wp.com/www.lineagem.com.tw/wp-content/uploads/2023/02/Image-237.png?fit=1079%2C646&quality=100&strip=all&ssl=1",
-        "預設": "https://play-lh.googleusercontent.com/wip08gjq-RxYl-dCEy7IyTMOHtAtYw2yMvSU609a9LpPnrQjhjVfPkg_TwAVT5DSYYI"
-    }
-    
-    bubbles = []
-    medals = ["🥇 第一名", "🥈 第二名", "🥉 第三名"]
-    
-    for i, (name, count, job) in enumerate(display_full):
-        # 根據職業選圖，若找不到該關鍵字則使用預設圖
-        bg_url = job_bg_map.get(job, job_bg_map["預設"])
-        
-        bubble = {
-            "type": "bubble",
-            "size": "kilo",
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {
-                        "type": "image",
-                        "url": bg_url,
-                        "size": "full",
-                        "aspectMode": "cover",
-                        "aspectRatio": "1:1",
-                        "gravity": "center"
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {"type": "text", "text": f"{medals[i]} | {job}", "size": "sm", "color": "#FFD700", "weight": "bold"},
-                            {"type": "text", "text": name, "size": "xl", "color": "#ffffff", "weight": "bold", "margin": "md", "wrap": True},
-                            {"type": "box", "layout": "baseline", "contents": [
-                                {"type": "text", "text": "累計登記", "color": "#cccccc", "size": "sm", "flex": 0},
-                                {"type": "text", "text": f"{count} 次", "color": "#ffffff", "size": "md", "weight": "bold", "margin": "md"}
-                            ], "margin": "sm"}
-                        ],
-                        "position": "absolute",
-                        "offsetBottom": "0px", "offsetStart": "0px", "offsetEnd": "0px",
-                        "backgroundColor": "#000000AA",
-                        "paddingAll": "20px"
-                    }
-                ],
-                "paddingAll": "0px"
-            }
-        }
-        bubbles.append(bubble)
-    return bubbles
 
 def notify_boss_team_with_flex(group_id, boss_name):
     conn = get_pg_conn()
@@ -2803,18 +2731,14 @@ fixed_bosses = {
 }
 # 邏輯函式
 def get_roster_profile(user_id):
-    row = roster_get_by_user(user_id) 
+    row = roster_get_by_user(user_id)
     if not row:
         return None
-    
-    # 按照上面 SELECT 的順序解包
-    game_name, clan_name, line_name, job = row
-    
+    game_name, clan_name, line_name = row
     return {
-        "name": game_name if game_name else "未命名",
-        "clan": clan_name if clan_name else "無血盟",
-        "line_name": line_name,
-        "job": job if job and job.strip() else "預設" # 處理空值或空格
+        "name": game_name,
+        "clan": clan_name,
+        "line_name": line_name
     }
 def get_boss(name):
     for boss, aliases in alias_map.items():
@@ -3020,20 +2944,20 @@ def get_pg_conn():
         sslmode="require"
     )
 def roster_get_by_user(user_id):
-    conn = get_pg_conn()
-    if not conn: return None
-    try:
-        cur = conn.cursor()
-        # 強制指定順序：遊戲名(1), 血盟(2), LINE名(3), 職業(4)
-        # 這樣對應 Python 解包就不會出錯
-        cur.execute("""
-            SELECT game_name, clan_name, line_name, job 
-            FROM roster 
-            WHERE user_id = %s
-        """, (user_id,))
-        return cur.fetchone() 
-    finally:
-        conn.close()
+    with get_pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT game_name, clan_name, line_name
+                FROM roster
+                WHERE line_user_id = %s
+                ORDER BY updated_at DESC
+                LIMIT 1
+
+                """,
+                (user_id,)
+            )
+            return cur.fetchone()
 def roster_insert(user_id, game_name, clan_name, line_name):
     with get_pg_conn() as conn:
         with conn.cursor() as cur:
@@ -3169,12 +3093,22 @@ def handle_message(event):
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
     text = event.message.text.strip()
-    if msg == "debugdb":
-        profile = get_roster_profile(user)
-        if profile:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"讀取結果：{str(profile)}"))
-        else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="找不到你的名冊資料"))
+    # 【強制初始化資料庫的隱藏指令】
+    if text == "初始化資料庫":
+        try:
+            # 直接在此處呼叫我們之前寫好的建置資料庫函式
+            init_db()
+            line_bot_api.reply_message(
+                event.reply_token, 
+                TextSendMessage(text="🛠️ 已發送強制建立資料庫指令！")
+            )
+        except Exception as e:
+            line_bot_api.reply_message(
+                event.reply_token, 
+                TextSendMessage(text=f"❌ 初始化發生嚴重錯誤: {e}")
+            )
+        return
+
     # 【功能 A】攔截 iOS 捷徑的提醒，並啟動 5 分鐘倒數
     if "⏰固定王提醒" in text and "倒數5️⃣分鐘" in text and "Boss" in text:
     
@@ -3978,39 +3912,24 @@ def handle_message(event):
             db.get("__WAIT__", {}).pop(group_id, None)
             save_db(db)
 
-            # --- 修改後的發送邏輯 ---
+            # 6. 回覆 KPI 圖卡 (因為現在 is_peak_time 回傳 False，一定會出圖卡)
             if kpi_data:
                 ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
-                
-                # 重新封裝資料，包含名字與職業
-                display_full = []
-                for uid, count in ranking:
-                    profile = get_roster_profile(uid)
-                    name = profile["name"] if profile else get_username(uid)
-                    job = profile["job"] if profile and "job" in profile else "預設"
-                    display_full.append((name, count, job))
-                
-                # 準備要發送的資料
+                display = [(get_username(uid), count) for uid, count in ranking]
                 period_text = f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}"
                 
-                # 1. 原本的總表 (只傳 名字、次數)
-                list_data = [(item[0], item[1]) for item in display_full]
-                list_bubble = build_kpi_flex("📊 本週 KPI 結算總表", period_text, list_data)
-                
-                # 2. 新的前三名卡片 (傳 名字、次數、職業)
-                top3_bubbles = build_top3_carousel(display_full)
-                
-                # 發送訊息
+                bubble = build_kpi_flex("📊 本週 KPI 結算", period_text, display)
                 line_bot_api.reply_message(
                     event.reply_token,
                     [
-                        FlexSendMessage(alt_text="📊 KPI 結算總表", contents=list_bubble),
-                        FlexSendMessage(alt_text="🏆 前三名榮譽榜", contents={
-                            "type": "carousel",
-                            "contents": top3_bubbles
-                        }),
+                        FlexSendMessage(alt_text="KPI 結算", contents=bubble),
                         TextSendMessage("🗑️ 資料已完全清空，KPI 結算完畢。")
                     ]
+                )
+            else:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage("🗑️ 資料已清空 (本週無符合條件之 KPI 紀錄)。")
                 )
         except Exception as e:
             import traceback
@@ -4089,45 +4008,6 @@ def handle_message(event):
             conn.close()
         return
     #-------------------------------------------------------------KPI---------------------------------------
-    # ------------------------------------------------------------- 查詢當前前三名 ---------------------------------------
-    if msg == "top":
-        try:
-            now = now_tw()
-            start, end = get_kpi_range(now)
-            boss_db_for_kpi = get_all_records_for_kpi(group_id, start, end)
-            kpi_data = calculate_kpi(boss_db_for_kpi, start, end)
-
-            if kpi_data:
-                ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
-                display_full = []
-                
-                for uid, count in ranking[:3]:
-                    profile = get_roster_profile(uid)
-                    if profile and profile["name"]:
-                        p_name = profile["name"]
-                        p_job = profile["job"]
-                    else:
-                        # 備援：名冊沒人就抓 LINE 顯示名稱
-                        try:
-                            line_profile = line_bot_api.get_profile(uid)
-                            p_name = line_profile.display_name
-                        except:
-                            p_name = "未知玩家"
-                        p_job = "預設"
-                    
-                    display_full.append((p_name, count, p_job))
-                
-                top3_bubbles = build_top3_carousel(display_full)
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    FlexSendMessage(alt_text="🏆 當前 KPI 前三名", contents={"type": "carousel", "contents": top3_bubbles})
-                )
-            else:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage("目前尚無 KPI 紀錄。"))
-        except Exception as e:
-            print(f"TOP Error: {e}")
-        return
-    
     if msg.upper() == "KPI":
         now = now_tw()
         start, end = get_kpi_range(now)
