@@ -849,6 +849,76 @@ def build_kill_list_flex(title, display_items):
     # 這裡假設你的環境有從 linebot 匯入 FlexSendMessage
     return FlexSendMessage(alt_text=title, contents=bubble)
 
+def build_top3_carousel(display_list):
+    """
+    display_list 格式: [(名字, 次數, 職業), ...]
+    """
+    # 定義職業對應的背景圖
+    job_bg_map = {
+        "王族": "https://lineageseo.com/wp-content/uploads/2025/05/%E5%A4%A9%E5%A0%82M-%E7%8E%8B%E6%97%8F.png",
+        "騎士": "https://ldcloud.ldrescdn.com/cz_ldq/upload/03494702-7ad2-48e2-aebd-284eefd5a3ea.jpg",
+        "狂戰士": "https://i0.wp.com/www.lineagem.com.tw/wp-content/uploads/2022/11/Image-570.png?resize=534%2C462&quality=100&strip=all&ssl=1",
+        "雷神": "https://truth.bahamut.com.tw/s01/202211/83534b604bfc2b494a196b677ecc1186.JPG",
+        "龍鬥士": "https://truth.bahamut.com.tw/s01/202309/1e7db8ab590ec7eb044a80b5f5a21970.JPG",
+        "死神": "https://www.lineagem.com.tw/wp-content/uploads/2023/02/%E6%AD%BB%E7%A5%9E.png",
+        "妖精": "https://truth.bahamut.com.tw/s01/201912/890cde2f13031ef639f148496eebf68b.JPG",
+        "法師": "https://truth.bahamut.com.tw/s01/201912/8edf70c1cb213811c9bc6d03bd4ffc4c.JPG",
+        "槍手": "https://i0.wp.com/www.lineagem.com.tw/wp-content/uploads/2022/08/Image-191.png?fit=998%2C870&quality=100&strip=all&ssl=1",
+        "黑暗妖精": "https://truth.bahamut.com.tw/s01/202412/forum/25908/757315ea37d8412b11a95d55dcce9de1.JPG",
+        "暗黑騎士": "https://i0.wp.com/www.lineagem.com.tw/wp-content/uploads/2025/12/img-097.png?fit=1369%2C858&quality=100&strip=all&ssl=1",
+        "魔劍士": "https://ldcloud.ldrescdn.com/cz_ldq/upload/dd0484a6-9961-429b-8303-aaf43d9a09df.jpg",
+        "神聖劍士": "https://i0.wp.com/www.lineagem.com.tw/wp-content/uploads/2023/02/Image-237.png?fit=1079%2C646&quality=100&strip=all&ssl=1",
+        "預設": "https://play-lh.googleusercontent.com/wip08gjq-RxYl-dCEy7IyTMOHtAtYw2yMvSU609a9LpPnrQjhjVfPkg_TwAVT5DSYYI"
+    }
+    
+    bubbles = []
+    top_3 = display_list[:3]
+    medals = ["🥇 第一名", "🥈 第二名", "🥉 第三名"]
+    
+    for i, (name, count, job) in enumerate(top_3):
+        # 根據職業選圖，若找不到該職業則用「預設」
+        bg_url = job_bg_map.get(job, job_bg_map["預設"])
+        
+        bubble = {
+            "type": "bubble",
+            "size": "kilo",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "image",
+                        "url": bg_url,
+                        "size": "full",
+                        "aspectMode": "cover",
+                        "aspectRatio": "1:1",
+                        "gravity": "center"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {"type": "text", "text": f"{medals[i]} | {job}", "size": "sm", "color": "#FFD700", "weight": "bold"},
+                            {"type": "text", "text": name, "size": "xl", "color": "#ffffff", "weight": "bold", "margin": "md", "wrap": True},
+                            {"type": "box", "layout": "baseline", "contents": [
+                                {"type": "text", "text": "累計登記", "color": "#cccccc", "size": "sm", "flex": 0},
+                                {"type": "text", "text": f"{count} 次", "color": "#ffffff", "size": "md", "weight": "bold", "margin": "md"}
+                            ], "margin": "sm"}
+                        ],
+                        "position": "absolute",
+                        "offsetBottom": "0px",
+                        "offsetStart": "0px",
+                        "offsetEnd": "0px",
+                        "backgroundColor": "#000000AA",
+                        "paddingAll": "20px"
+                    }
+                ],
+                "paddingAll": "0px"
+            }
+        }
+        bubbles.append(bubble)
+    return bubbles
+
 def notify_boss_team_with_flex(group_id, boss_name):
     conn = get_pg_conn()
     cur = conn.cursor()
@@ -2731,14 +2801,19 @@ fixed_bosses = {
 }
 # 邏輯函式
 def get_roster_profile(user_id):
-    row = roster_get_by_user(user_id)
+    row = roster_get_by_user(user_id) # 這裡要確認 roster_get_by_user 回傳 4 個值
     if not row:
         return None
-    game_name, clan_name, line_name = row
+    
+    # 假設 row 現在回傳 (遊戲名, 血盟, LINE名, 職業)
+    # 如果 row 長度不足，請先檢查你的 SQL SELECT 語句
+    game_name, clan_name, line_name, job = row
+    
     return {
         "name": game_name,
         "clan": clan_name,
-        "line_name": line_name
+        "line_name": line_name,
+        "job": job if job else "預設" # 如果沒填職業就給預設
     }
 def get_boss(name):
     for boss, aliases in alias_map.items():
@@ -3912,24 +3987,39 @@ def handle_message(event):
             db.get("__WAIT__", {}).pop(group_id, None)
             save_db(db)
 
-            # 6. 回覆 KPI 圖卡 (因為現在 is_peak_time 回傳 False，一定會出圖卡)
+            # --- 修改後的發送邏輯 ---
             if kpi_data:
                 ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
-                display = [(get_username(uid), count) for uid, count in ranking]
+                
+                # 重新封裝資料，包含名字與職業
+                display_full = []
+                for uid, count in ranking:
+                    profile = get_roster_profile(uid)
+                    name = profile["name"] if profile else get_username(uid)
+                    job = profile["job"] if profile and "job" in profile else "預設"
+                    display_full.append((name, count, job))
+                
+                # 準備要發送的資料
                 period_text = f"{start.strftime('%m/%d %H:%M')} ～ {end.strftime('%m/%d %H:%M')}"
                 
-                bubble = build_kpi_flex("📊 本週 KPI 結算", period_text, display)
+                # 1. 原本的總表 (只傳 名字、次數)
+                list_data = [(item[0], item[1]) for item in display_full]
+                list_bubble = build_kpi_flex("📊 本週 KPI 結算總表", period_text, list_data)
+                
+                # 2. 新的前三名卡片 (傳 名字、次數、職業)
+                top3_bubbles = build_top3_carousel(display_full)
+                
+                # 發送訊息
                 line_bot_api.reply_message(
                     event.reply_token,
                     [
-                        FlexSendMessage(alt_text="KPI 結算", contents=bubble),
+                        FlexSendMessage(alt_text="📊 KPI 結算總表", contents=list_bubble),
+                        FlexSendMessage(alt_text="🏆 前三名榮譽榜", contents={
+                            "type": "carousel",
+                            "contents": top3_bubbles
+                        }),
                         TextSendMessage("🗑️ 資料已完全清空，KPI 結算完畢。")
                     ]
-                )
-            else:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage("🗑️ 資料已清空 (本週無符合條件之 KPI 紀錄)。")
                 )
         except Exception as e:
             import traceback
@@ -4008,6 +4098,30 @@ def handle_message(event):
             conn.close()
         return
     #-------------------------------------------------------------KPI---------------------------------------
+    # ------------------------------------------------------------- 測試 KPI 卡片 ---------------------------------------
+    if msg == "測試kpi":
+        # 模擬測試數據 [(名字, 次數, 職業)]
+        test_display = [
+            ("測試玩家A", 50, "王族"),
+            ("測試玩家B", 35, "騎士"),
+            ("測試玩家C", 20, "妖精")
+        ]
+        
+        # 呼叫你的卡片產生函式
+        top3_bubbles = build_top3_carousel(test_display)
+        
+        if top3_bubbles:
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(
+                    alt_text="🏆 KPI 測試卡片",
+                    contents={
+                        "type": "carousel",
+                        "contents": top3_bubbles
+                    }
+                )
+            )
+        return
     if msg.upper() == "KPI":
         now = now_tw()
         start, end = get_kpi_range(now)
