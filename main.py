@@ -2395,7 +2395,64 @@ def build_shift_status_flex(group_id, current_uid, next_uid):
         }
     }
     return FlexSendMessage(alt_text="交接班狀態確認", contents=bubble)
+def build_record_success_flex(boss_name, status):
+    # 根據不同的狀態，給予不同的視覺顏色與圖示
+    if status == "我方擊殺":
+        status_color = "#4A90E2" # 質感藍色
+        icon = "✅"
+    elif status == "敵人吃":
+        status_color = "#FF5252" # 警示紅色
+        icon = "☠️"
+    else:
+        status_color = "#95A5A6" # 中性灰色 (漏掉或其他)
+        icon = "⚠️"
 
+    bubble = {
+        "type": "bubble",
+        "size": "kilo", # 輕量級小卡片
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "20px",
+            "contents": [
+                # 標題區
+                {
+                    "type": "text",
+                    "text": f"{icon} 紀錄成功",
+                    "weight": "bold",
+                    "color": "#888888",
+                    "size": "xs"
+                },
+                # 王名
+                {
+                    "type": "text",
+                    "text": boss_name,
+                    "weight": "bold",
+                    "size": "xl",
+                    "margin": "md",
+                    "wrap": True
+                },
+                {"type": "separator", "margin": "md"},
+                # 狀態結果
+                {
+                    "type": "box",
+                    "layout": "baseline",
+                    "margin": "md",
+                    "contents": [
+                        {"type": "text", "text": "狀態", "color": "#aaaaaa", "size": "sm", "flex": 2},
+                        {"type": "text", "text": status, "color": status_color, "size": "md", "weight": "bold", "flex": 5}
+                    ]
+                }
+            ]
+        },
+        "styles": {
+            "body": {
+                "backgroundColor": "#FAFAFA" # 帶有一點點微灰的質感白底
+            }
+        }
+    }
+    
+    return FlexSendMessage(alt_text=f"紀錄成功：{boss_name} {status}", contents=bubble)
 def build_shift_success_flex(user_name):
     # 簡潔的成功提示卡片
     return FlexSendMessage(
@@ -2923,39 +2980,55 @@ def handle_message(event):
         # 使用 split(" ", 2) 最多只切兩刀，這樣萬一王的名字裡面有空格也不會出錯
         parts = text.split(" ", 2) 
         
-        if len(parts) >= 3:
-            status = parts[1]      # 例如："我方擊殺", "敵吃", 或 "漏掉"
-            boss_name = parts[2]   # 例如："異界炎魔"
-            
-            try:
-                conn = get_pg_conn()
-                if conn:
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            "INSERT INTO fixed_boss_records2 (group_id, boss_name, status) VALUES (%s, %s, %s)",
-                            (group_id, boss_name, status)
-                        )
-                    conn.commit()
-                    conn.close()
-                    
-                    # 回覆登記成功
-                    line_bot_api.reply_message(
-                        event.reply_token,
-                        TextSendMessage(text=f"✅ 已記錄 [{boss_name}] 狀態為：{status}")
-                    )
-            except Exception as e:
-                # 如果資料庫出錯（例如資料表沒建好），在終端機印出錯誤並回覆給使用者
-                print(f"❌ 寫入 fixed_boss_records2 失敗: {e}")
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(text=f"❌ 紀錄寫入失敗，請檢查後台！錯誤訊息: {e}")
-                )
-        else:
-            # 如果切割後的文字長度不對，回報格式錯誤
+        # ==========================================
+        # 1. 檢查格式是否正確 (Early Return)
+        # ==========================================
+        # 如果切割後的文字長度不對，提早回報格式錯誤並結束
+        if len(parts) < 3:
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text="❌ 紀錄格式錯誤，請點擊卡片上的按鈕進行回報。")
             )
+            return
+
+        # ==========================================
+        # 2. 提取資料
+        # ==========================================
+        status = parts[1]      # 例如："我方擊殺", "敵吃", 或 "漏掉"
+        boss_name = parts[2]   # 例如："異界炎魔"
+
+        # ==========================================
+        # 3. 寫入資料庫與回覆 (保留你的原始核心邏輯)
+        # ==========================================
+        try:
+            conn = get_pg_conn()
+            if conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO fixed_boss_records2 (group_id, boss_name, status) VALUES (%s, %s, %s)",
+                        (group_id, boss_name, status)
+                    )
+                conn.commit()
+                conn.close()
+                
+                # 🌟 寫入成功後，改為發送 Flex 卡片 🌟
+                success_flex = build_record_success_flex(boss_name, status)
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    success_flex
+                )
+            else:
+                # 防呆機制：如果連線失敗，在終端機印出提示
+                print("❌ 寫入失敗: 無法取得資料庫連線 (get_pg_conn 回傳了 None)")
+
+        except Exception as e:
+            # 如果資料庫出錯（例如資料表沒建好），在終端機印出錯誤並回覆給使用者
+            print(f"❌ 寫入 fixed_boss_records2 失敗: {e}")
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"❌ 紀錄寫入失敗，請檢查後台！錯誤訊息: {e}")
+            )
+
         return
     
     # 【功能 C】處理統計指令
