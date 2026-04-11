@@ -519,31 +519,33 @@ def notify_boss_team(group_id, boss_name):
 def build_confirmation_flex(boss_name):
     bubble = {
         "type": "bubble",
-        "size": "kilo", 
+        "size": "kilo", # 保持小卡片的精緻感
         "header": {
             "type": "box", 
             "layout": "vertical", 
             "backgroundColor": "#2C3E50", 
             "paddingAll": "15px", 
             "contents": [
-                # 使用 span 來讓王名特別顯眼
+                # 第一行：較小的副標題
                 {
                     "type": "text", 
+                    "text": "⚔️ 擊殺確認", 
+                    "color": "#ffffff",
                     "weight": "bold",
                     "align": "center",
-                    "size": "lg", # 加大標題字體
-                    "contents": [
-                        {
-                            "type": "span", 
-                            "text": "⚔️ 擊殺確認：", 
-                            "color": "#ffffff"
-                        },
-                        {
-                            "type": "span", 
-                            "text": boss_name, 
-                            "color": "#FFD700" # 使用高對比的亮金色讓王名突顯
-                        }
-                    ]
+                    "size": "sm",
+                    "opacity": "0.8" # 稍微降低透明度，不搶主視覺
+                },
+                # 第二行：放大的王名，並允許自動換行
+                {
+                    "type": "text", 
+                    "text": boss_name, 
+                    "color": "#FFD700", # 亮金色
+                    "weight": "bold",
+                    "align": "center",
+                    "size": "xl", # 加大字體
+                    "wrap": True, # 🌟 關鍵：允許長文字自動換行
+                    "margin": "sm" # 與上一行保持一點點距離
                 }
             ]
         },
@@ -1519,6 +1521,71 @@ def build_boot_init_flex(base_time_str):
             ]
         }
     }
+def build_duplicate_warning_flex(boss_name, existing_status):
+    # 根據已經記錄的狀態，給予不同的顏色提示，讓卡片看起來更生動
+    if existing_status == "我方擊殺":
+        status_color = "#4A90E2" 
+    elif existing_status == "敵人吃":
+        status_color = "#FF5252" 
+    else:
+        status_color = "#95A5A6" 
+
+    bubble = {
+        "type": "bubble",
+        "size": "kilo", # 輕量級小卡片
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "20px",
+            "contents": [
+                # 標題區：使用橘色來表達「提醒、注意」
+                {
+                    "type": "text",
+                    "text": "⚠️ 晚了一步！",
+                    "weight": "bold",
+                    "color": "#FF9800", # 警告橘
+                    "size": "sm"
+                },
+                # 王名
+                {
+                    "type": "text",
+                    "text": boss_name,
+                    "weight": "bold",
+                    "size": "xl",
+                    "margin": "md",
+                    "wrap": True,
+                    "color": "#333333"
+                },
+                {"type": "separator", "margin": "md"},
+                # 提示文字
+                {
+                    "type": "text",
+                    "text": "這隻王已經被記錄過了，請勿重複登記喔！",
+                    "size": "xs",
+                    "color": "#888888",
+                    "wrap": True,
+                    "margin": "md"
+                },
+                # 目前狀態
+                {
+                    "type": "box",
+                    "layout": "baseline",
+                    "margin": "md",
+                    "contents": [
+                        {"type": "text", "text": "已記錄為", "color": "#aaaaaa", "size": "sm", "flex": 3},
+                        {"type": "text", "text": existing_status, "color": status_color, "size": "md", "weight": "bold", "flex": 4}
+                    ]
+                }
+            ]
+        },
+        "styles": {
+            "body": {
+                "backgroundColor": "#FFFDF5" # 非常淡的黃色背景，視覺上有警告意味但很柔和
+            }
+        }
+    }
+    
+    return FlexSendMessage(alt_text=f"重複登記提醒：{boss_name}", contents=bubble)
 def build_auction_flex(item_name, highest_bid, bidder_name):
     display_bidder = bidder_name if bidder_name else "目前尚無人出價"
     
@@ -3102,9 +3169,15 @@ def handle_message(event):
                     
                     # 如果已經有紀錄，就阻擋寫入並回覆提示，結束這回合
                     if existing_record:
+                        # 提取已存在的狀態
+                        existing_status = existing_record[0]
+                        
+                        # 🌟 呼叫重複登記的 Flex 卡片 🌟
+                        warning_flex = build_duplicate_warning_flex(boss_name, existing_status)
+                        
                         line_bot_api.reply_message(
                             event.reply_token,
-                            TextSendMessage(text=f"⚠️ 晚了一步！[{boss_name}] 已經被記錄為「{existing_record[0]}」囉，請勿重複登記。")
+                            warning_flex
                         )
                         return
                     
