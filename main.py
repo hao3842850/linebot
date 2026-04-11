@@ -3589,6 +3589,19 @@ def handle_message(event):
             
             note = rec.get("note", "").strip()
             line = f"{display_time.strftime('%H:%M:%S')} {boss}"
+
+            # --- 修改開始 ---
+            # 1. 先格式化原始時間字串
+            time_str = display_time.strftime('%H:%M:%S')
+            
+            # 2. 在冒號後方插入零寬空格 (Zero Width Space)，阻斷 LINE 的連結偵測
+            # 我們針對第一個冒號處理即可，或者全部替換
+            safe_time_str = time_str.replace(":", ":\u200b")
+            
+            # 3. 使用處理過的時間組合成 line
+            line = f"{safe_time_str} {boss}"
+            # --- 修改結束 ---
+
             if note:
                 line += f"（{note}）"
             if passed_minutes is not None and passed_minutes <= 30:
