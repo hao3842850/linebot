@@ -3063,7 +3063,7 @@ def handle_message(event):
         
         return
 
-    # 【功能 B：升級版】處理 Flex 卡片的按鈕回覆 (儲存至資料庫)
+    # 【功能 B：升級版+防重複登記】處理 Flex 卡片的按鈕回覆 (儲存至資料庫)
     if text.startswith("紀錄 "):
         # 使用 split(" ", 2) 最多只切兩刀，這樣萬一王的名字裡面有空格也不會出錯
         parts = text.split(" ", 2) 
@@ -3071,7 +3071,6 @@ def handle_message(event):
         # ==========================================
         # 1. 檢查格式是否正確 (Early Return)
         # ==========================================
-        # 如果切割後的文字長度不對，提早回報格式錯誤並結束
         if len(parts) < 3:
             line_bot_api.reply_message(
                 event.reply_token,
@@ -3086,12 +3085,30 @@ def handle_message(event):
         boss_name = parts[2]   # 例如："異界炎魔"
 
         # ==========================================
-        # 3. 寫入資料庫與回覆 (保留你的原始核心邏輯)
+        # 3. 寫入資料庫與回覆 (加入防重複機制)
         # ==========================================
         try:
             conn = get_pg_conn()
             if conn:
                 with conn.cursor() as cur:
+                    # 💡 新增防重複：先檢查 20 分鐘內，這隻王是否已經被登記過了
+                    cur.execute("""
+                        SELECT status FROM fixed_boss_records2 
+                        WHERE group_id = %s AND boss_name = %s 
+                        AND record_time >= NOW() - INTERVAL '20 minutes'
+                    """, (group_id, boss_name))
+                    
+                    existing_record = cur.fetchone()
+                    
+                    # 如果已經有紀錄，就阻擋寫入並回覆提示，結束這回合
+                    if existing_record:
+                        line_bot_api.reply_message(
+                            event.reply_token,
+                            TextSendMessage(text=f"⚠️ 晚了一步！[{boss_name}] 已經被記錄為「{existing_record[0]}」囉，請勿重複登記。")
+                        )
+                        return
+                    
+                    # 如果沒有紀錄，才正式寫入資料庫 (注意表名為 fixed_boss_records2)
                     cur.execute(
                         "INSERT INTO fixed_boss_records2 (group_id, boss_name, status) VALUES (%s, %s, %s)",
                         (group_id, boss_name, status)
@@ -3099,7 +3116,7 @@ def handle_message(event):
                 conn.commit()
                 conn.close()
                 
-                # 🌟 寫入成功後，改為發送 Flex 卡片 🌟
+                # 🌟 寫入成功後，發送您自訂的 Flex 卡片 🌟
                 success_flex = build_record_success_flex(boss_name, status)
                 line_bot_api.reply_message(
                     event.reply_token,
@@ -3110,7 +3127,7 @@ def handle_message(event):
                 print("❌ 寫入失敗: 無法取得資料庫連線 (get_pg_conn 回傳了 None)")
 
         except Exception as e:
-            # 如果資料庫出錯（例如資料表沒建好），在終端機印出錯誤並回覆給使用者
+            # 如果資料庫出錯，在終端機印出錯誤並回覆給使用者
             print(f"❌ 寫入 fixed_boss_records2 失敗: {e}")
             line_bot_api.reply_message(
                 event.reply_token,
@@ -3119,18 +3136,18 @@ def handle_message(event):
 
         return
     
-    # 【功能 C】處理統計指令
+    # 【功能 C：結合 Flex 卡片與顯示王名版】處理統計指令
     if text == "固定王統計":
         try:
             conn = get_pg_conn()
             if conn:
                 with conn.cursor() as cur:
-                    # 取得該群組的統計數據
+                    # 💡 修改點 1：利用 SQL 將 record_time 與 boss_name 串接在一起
                     cur.execute("""
                         SELECT 
                             status, 
                             COUNT(*),
-                            ARRAY_AGG(TO_CHAR(record_time, 'MM/DD HH24:MI'))
+                            ARRAY_AGG(TO_CHAR(record_time, 'MM/DD HH24:MI') || ' (' || boss_name || ')')
                         FROM fixed_boss_records2
                         WHERE group_id = %s
                         GROUP BY status
@@ -3138,22 +3155,23 @@ def handle_message(event):
                     rows = cur.fetchall()
                 conn.close()
 
-                # 整理文字報表
+                # 整理報表資料
                 stats_dict = {"我方擊殺": 0, "敵人吃": 0, "漏掉": 0}
                 details = {"敵人吃": [], "漏掉": []}
                 
                 for row in rows:
                     status_name = row[0]
                     count = row[1]
-                    time_list = row[2]
+                    time_list = row[2] # 💡 修改點 2：這裡現在會取得如 ["04/11 20:00 (異界炎魔)", ...] 的格式
                     
                     stats_dict[status_name] = count
-                    if status_name in details:
+                    # 加上 time_list 的防呆判斷，避免資料庫回傳 None 導致錯誤
+                    if status_name in details and time_list: 
                         details[status_name] = time_list
 
                 total = sum(stats_dict.values())
                 
-                # 🌟 呼叫剛剛寫好的 Flex 卡片函式 🌟
+                # 🌟 呼叫您寫好的 Flex 卡片函式 🌟
                 stats_flex = build_stats_report_flex(total, stats_dict, details)
                 
                 line_bot_api.reply_message(
