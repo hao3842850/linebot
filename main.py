@@ -587,7 +587,7 @@ def auto_mark_missed(group_id, boss_name):
             # 檢查過去 15 分鐘內，這個群組的這隻王是否已經有任何狀態的紀錄
             # (用 15 分鐘是為了確保涵蓋倒數的 10 分鐘加上一點緩衝時間)
             cur.execute("""
-                SELECT id FROM fixed_boss_records 
+                SELECT id FROM fixed_boss_records1 
                 WHERE group_id = %s AND boss_name = %s 
                 AND record_time >= NOW() - INTERVAL '15 minutes'
             """, (group_id, boss_name))
@@ -597,7 +597,7 @@ def auto_mark_missed(group_id, boss_name):
             # 如果找不到紀錄，代表沒有人點擊卡片回報
             if not row:
                 cur.execute("""
-                    INSERT INTO fixed_boss_records (group_id, boss_name, status) 
+                    INSERT INTO fixed_boss_records1 (group_id, boss_name, status) 
                     VALUES (%s, %s, '漏掉')
                 """, (group_id, boss_name))
                 conn.commit()
@@ -2904,7 +2904,7 @@ def handle_message(event):
                 if conn:
                     with conn.cursor() as cur:
                         cur.execute(
-                            "INSERT INTO fixed_boss_records (group_id, boss_name, status) VALUES (%s, %s, %s)",
+                            "INSERT INTO fixed_boss_records1 (group_id, boss_name, status) VALUES (%s, %s, %s)",
                             (group_id, boss_name, status)
                         )
                     conn.commit()
@@ -2917,7 +2917,7 @@ def handle_message(event):
                     )
             except Exception as e:
                 # 如果資料庫出錯（例如資料表沒建好），在終端機印出錯誤並回覆給使用者
-                print(f"❌ 寫入 fixed_boss_records 失敗: {e}")
+                print(f"❌ 寫入 fixed_boss_records1 失敗: {e}")
                 line_bot_api.reply_message(
                     event.reply_token,
                     TextSendMessage(text=f"❌ 紀錄寫入失敗，請檢查後台！錯誤訊息: {e}")
@@ -2941,7 +2941,7 @@ def handle_message(event):
                         status, 
                         COUNT(*),
                         ARRAY_AGG(TO_CHAR(record_time, 'MM/DD HH24:MI'))
-                    FROM fixed_boss_records
+                    FROM fixed_boss_records1
                     WHERE group_id = %s
                     GROUP BY status
                 """, (group_id,))
