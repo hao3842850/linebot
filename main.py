@@ -4098,29 +4098,48 @@ def handle_message(event):
             conn.close()
         return
     #-------------------------------------------------------------KPI---------------------------------------
-    # ------------------------------------------------------------- 測試 KPI 卡片 ---------------------------------------
-    if msg == "測試kpi":
-        # 模擬測試數據 [(名字, 次數, 職業)]
-        test_display = [
-            ("測試玩家A", 50, "王族"),
-            ("測試玩家B", 35, "騎士"),
-            ("測試玩家C", 20, "妖精")
-        ]
-        
-        # 呼叫你的卡片產生函式
-        top3_bubbles = build_top3_carousel(test_display)
-        
-        if top3_bubbles:
-            line_bot_api.reply_message(
-                event.reply_token,
-                FlexSendMessage(
-                    alt_text="🏆 KPI 測試卡片",
-                    contents={
-                        "type": "carousel",
-                        "contents": top3_bubbles
-                    }
+    # ------------------------------------------------------------- 查詢當前前三名 ---------------------------------------
+    if msg == "TOP KPI":
+        try:
+            now = now_tw()
+            start, end = get_kpi_range(now)
+            
+            # 1. 抓取該群組目前的登記資料
+            boss_db_for_kpi = get_all_records_for_kpi(group_id, start, end)
+            kpi_data = calculate_kpi(boss_db_for_kpi, start, end)
+
+            if kpi_data:
+                # 2. 排序並結合名冊抓取職業與名字
+                ranking = sorted(kpi_data.items(), key=lambda x: x[1], reverse=True)
+                
+                display_full = []
+                for uid, count in ranking[:3]: # 只取前三名
+                    profile = get_roster_profile(uid)
+                    p_name = profile["name"] if profile else get_username(uid)
+                    p_job = profile["job"] if profile and "job" in profile else "預設"
+                    display_full.append((p_name, count, p_job))
+                
+                # 3. 呼叫產生卡片函式
+                top3_bubbles = build_top3_carousel(display_full)
+                
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    FlexSendMessage(
+                        alt_text="🏆 當前 KPI 前三名",
+                        contents={
+                            "type": "carousel",
+                            "contents": top3_bubbles
+                        }
+                    )
                 )
-            )
+            else:
+                line_bot_api.reply_message(
+                    event.reply_token, 
+                    TextSendMessage("目前尚無 KPI 登記紀錄。")
+                )
+        except Exception as e:
+            print(f"TOP 指令錯誤: {e}")
+            line_bot_api.reply_message(event.reply_token, TextSendMessage("❌ 查詢排名時發生錯誤"))
         return
     if msg.upper() == "KPI":
         now = now_tw()
