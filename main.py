@@ -2123,11 +2123,14 @@ def build_roster_delete_confirm_flex(game_name):
             ]
         }
     }
+from linebot.models import FlexSendMessage, BubbleContainer
+
 def build_error_flex(title, message, boss_name):
     """
-    生成警告類型的 Flex Message
+    生成警告類型的 Flex Message (修正物件屬性問題)
     """
-    return {
+    # 1. 定義原始字典內容
+    flex_content = {
         "type": "bubble",
         "size": "mega",
         "header": {
@@ -2159,11 +2162,15 @@ def build_error_flex(title, message, boss_name):
                     "margin": "lg"
                 }
             ]
-        },
-        "styles": {
-            "footer": {"separator": True}
         }
     }
+
+    # 2. 關鍵修正：將 dict 轉換為 SDK 可識別的 FlexSendMessage 物件
+    # 使用 BubbleContainer.new_from_json_dict 將字典轉為容器物件
+    return FlexSendMessage(
+        alt_text=title,
+        contents=BubbleContainer.new_from_json_dict(flex_content)
+    )
 def build_roster_deleted_flex():
     return {
         "type": "bubble",
