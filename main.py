@@ -2817,44 +2817,62 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
             "note": "開機",
             "user": "__SYSTEM__"
         })
+
+
+from datetime import datetime, timedelta
+import pytz
+
 def handle_boss_skipped(event, group_id, boss_name, user_id, note):
     cd = cd_map.get(boss_name)
-    if cd is None: return
+    if cd is None: 
+        return
 
-    # 這裡會抓到「最後一次」登記的紀錄 (不論是手動還是輪空)
     latest_records = get_latest_boss_records(group_id)
-    
-    if boss_name in latest_records:
-        last_respawn_iso = latest_records[boss_name][0]["respawn"]
-        base_time = datetime.fromisoformat(last_respawn_iso)
-        if base_time.tzinfo is None:
-            base_time = base_time.replace(tzinfo=pytz.UTC).astimezone(TZ)
-        else:
-            base_time = base_time.astimezone(TZ)
-    else:
-        base_time = now_tw().replace(second=0, microsecond=0)
+    now = now_tw() # 取得當前台灣時間
 
+    # 1. 嚴格檢查歷史紀錄，確保有基準時間
+    if boss_name not in latest_records:
+        error_msg = f"❌ 找不到【{boss_name}】的歷史紀錄，無法進行輪空登記。\n請先使用「一般擊殺登記」建立初始時間基準。"
+        safe_reply(event, error_msg, None)
+        return
+
+    # 2. 解析上一趟的預期重生時間作為「基準點」 (保證週期絕對準確)
+    last_respawn_iso = latest_records[boss_name][0]["respawn"]
+    base_time = datetime.fromisoformat(last_respawn_iso)
+    
+    # 確保時區正確對齊
+    if base_time.tzinfo is None:
+        base_time = base_time.replace(tzinfo=pytz.UTC)
+    base_time = base_time.astimezone(TZ)
+
+    # 3. 阻擋機制：判斷是否已經處於「#過」狀態
+    # 如果當前時間已經大於預期重生時間，代表沒人打且已經逾時
+    if now > base_time:
+        error_msg = f"⚠️ 拒絕登記：【{boss_name}】目前已逾時（進入 #過 狀態）。\n為確保時間準確，請在確實擊殺後，改用「一般擊殺登記」來重新校正時間！"
+        safe_reply(event, error_msg, None)
+        return
+
+    # 4. 計算下次重生時間 (精準相加，不會有分鐘誤差)
     new_respawn = base_time + timedelta(hours=cd)
     
+    # 5. 儲存至資料庫
     save_boss_to_pg(
         group_id=group_id,
         boss_name=boss_name,
-        kill_time=base_time, 
+        kill_time=base_time, # 將這次的輪空點(預期重生時間)視為已處理
         respawn_time=new_respawn,
         user_id=user_id,
         note=note,
         source="skip" # 標記為輪空
     )
 
+    # 6. 準備回覆訊息
     registrar = get_username(user_id)
-    # 統一顯示格式為 %H:%M:%S 確保與正常登記一致
     kill_str = base_time.strftime("%H:%M:%S")
     resp_str = new_respawn.strftime("%H:%M:%S")
     
     flex_msg = build_register_boss_flex(boss_name, kill_str, resp_str, registrar, note, is_skip=True)
-    text_msg = f"⭕ 輪空登記：{boss_name}\n基準點：{kill_str}\n下趟重生：{resp_str}"
-    
-    safe_reply(event, text_msg, flex_msg)
+    text_msg = f"⭕ 輪空登記成功：{boss_name}\n基準點：{kill_str}\n下趟重生：{resp_str}"
     
     safe_reply(event, text_msg, flex_msg)
 def get_kpi_range(now):
@@ -3109,9 +3127,18 @@ def handle_message(event):
             )
         return
 
+    import threading
+    from datetime import datetime
+    import pytz
+
+    # 設定台灣時區
+    TZ = pytz.timezone('Asia/Taipei')
+
+    # --- 程式碼區塊開始 ---
+
     # 【功能 A】攔截 iOS 捷徑的提醒，並啟動 5 分鐘倒數
     if "⏰固定王提醒" in text and "倒數5️⃣分鐘" in text and "Boss" in text:
-    
+
         # 動態擷取 Boss 的名字
         boss_name = "未知王" # 給個預設防呆值
         for line in text.split('\n'):
@@ -3124,8 +3151,9 @@ def handle_message(event):
         flex_msg = build_confirmation_flex(boss_name)
         line_bot_api.reply_message(event.reply_token, flex_msg)
         
-        # 2. 啟動防呆計時器：600秒 (10分鐘) 後執行 auto_mark_missed 檢查
-        timer = threading.Timer(600.0, auto_mark_missed, args=[group_id, boss_name])
+        # 2. 啟動防呆計時器：900秒 (15分鐘) 後執行 auto_mark_missed 檢查
+        # 原程式碼註解寫 10 分鐘但數值是 900.0，此處維持 900.0 (15分鐘)
+        timer = threading.Timer(900.0, auto_mark_missed, args=[group_id, boss_name])
         timer.start()
         
         return
@@ -3158,30 +3186,28 @@ def handle_message(event):
             conn = get_pg_conn()
             if conn:
                 with conn.cursor() as cur:
-                    # 💡 新增防重複：先檢查 20 分鐘內，這隻王是否已經被登記過了
+                    # 💡 修正：確保資料庫使用台灣時間進行 20 分鐘內的重複檢查
                     cur.execute("""
                         SELECT status FROM fixed_boss_records2 
                         WHERE group_id = %s AND boss_name = %s 
-                        AND record_time >= NOW() - INTERVAL '20 minutes'
+                        AND record_time >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Taipei' - INTERVAL '20 minutes')
                     """, (group_id, boss_name))
                     
                     existing_record = cur.fetchone()
                     
-                    # 如果已經有紀錄，就阻擋寫入並回覆提示，結束這回合
+                    # 如果已經有紀錄，就阻擋寫入並回覆提示
                     if existing_record:
-                        # 提取已存在的狀態
                         existing_status = existing_record[0]
                         
-                        # 🌟 呼叫重複登記的 Flex 卡片 🌟
+                        # 🌟 呼叫重複登記的 Flex 卡片
                         warning_flex = build_duplicate_warning_flex(boss_name, existing_status)
-                        
                         line_bot_api.reply_message(
                             event.reply_token,
                             warning_flex
                         )
                         return
                     
-                    # 如果沒有紀錄，才正式寫入資料庫 (注意表名為 fixed_boss_records2)
+                    # 如果沒有紀錄，才正式寫入資料庫
                     cur.execute(
                         "INSERT INTO fixed_boss_records2 (group_id, boss_name, status) VALUES (%s, %s, %s)",
                         (group_id, boss_name, status)
@@ -3189,18 +3215,16 @@ def handle_message(event):
                 conn.commit()
                 conn.close()
                 
-                # 🌟 寫入成功後，發送您自訂的 Flex 卡片 🌟
+                # 🌟 寫入成功後，發送成功 Flex 卡片
                 success_flex = build_record_success_flex(boss_name, status)
                 line_bot_api.reply_message(
                     event.reply_token,
                     success_flex
                 )
             else:
-                # 防呆機制：如果連線失敗，在終端機印出提示
-                print("❌ 寫入失敗: 無法取得資料庫連線 (get_pg_conn 回傳了 None)")
+                print("❌ 寫入失敗: 無法取得資料庫連線")
 
         except Exception as e:
-            # 如果資料庫出錯，在終端機印出錯誤並回覆給使用者
             print(f"❌ 寫入 fixed_boss_records2 失敗: {e}")
             line_bot_api.reply_message(
                 event.reply_token,
@@ -3208,7 +3232,7 @@ def handle_message(event):
             )
 
         return
-    
+
     # 【功能 C：送出報表 + 12:00 靜默刪除版】
     if text == "固定王統計":
         try:
@@ -3216,13 +3240,13 @@ def handle_message(event):
             if conn:
                 with conn.cursor() as cur:
                     # ==========================================
-                    # 1. 先撈取統計數據 (確保 12:00 也能看到剛累積完的完整報表)
+                    # 1. 撈取統計數據 (使用 TO_CHAR 轉換時間顯示)
                     # ==========================================
                     cur.execute("""
                         SELECT 
                             status, 
                             COUNT(*),
-                            ARRAY_AGG(TO_CHAR(record_time, 'MM/DD HH24:MI') || ' (' || boss_name || ')')
+                            ARRAY_AGG(TO_CHAR(record_time AT TIME ZONE 'Asia/Taipei', 'MM/DD HH24:MI') || ' (' || boss_name || ')')
                         FROM fixed_boss_records2
                         WHERE group_id = %s
                         GROUP BY status
@@ -3250,16 +3274,16 @@ def handle_message(event):
                 line_bot_api.reply_message(event.reply_token, stats_flex)
                 
                 # ==========================================
-                # 3. 靜默刪除：報表送出後，如果是 12:00 就清空資料
+                # 3. 靜默刪除：報表送出後，如果是台灣時間 12:00 就清空資料
                 # ==========================================
-                current_dt = datetime.now(TZ) # 💡 已修正變數名稱
+                current_dt = datetime.now(TZ) 
                 current_time = current_dt.strftime("%H:%M")
                 
                 if current_time == "12:00":
                     with conn.cursor() as cur:
                         cur.execute("DELETE FROM fixed_boss_records2 WHERE group_id = %s", (group_id,))
                     conn.commit()
-                    print(f"🕛 12:00 靜默清空群組 {group_id} 的紀錄完成。")
+                    print(f"🕛 台灣時間 12:00 靜默清空群組 {group_id} 的紀錄完成。")
 
                 conn.close()
             else:
