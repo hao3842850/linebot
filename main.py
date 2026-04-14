@@ -2828,45 +2828,56 @@ def handle_boss_skipped(event, group_id, boss_name, user_id, note):
         return
 
     latest_records = get_latest_boss_records(group_id)
-    now = now_tw() # 取得當前台灣時間
+    now = now_tw()
 
-    # 1. 嚴格檢查歷史紀錄，確保有基準時間
+    # 1. 歷史紀錄檢查
     if boss_name not in latest_records:
         error_msg = f"❌ 找不到【{boss_name}】的歷史紀錄，無法進行輪空登記。\n請先使用「一般擊殺登記」建立初始時間基準。"
         safe_reply(event, error_msg, None)
         return
 
-    # 2. 解析上一趟的預期重生時間作為「基準點」 (保證週期絕對準確)
     last_respawn_iso = latest_records[boss_name][0]["respawn"]
     base_time = datetime.fromisoformat(last_respawn_iso)
     
-    # 確保時區正確對齊
     if base_time.tzinfo is None:
         base_time = base_time.replace(tzinfo=pytz.UTC)
     base_time = base_time.astimezone(TZ)
 
-    # 3. 阻擋機制：判斷是否已經處於「#過」狀態
-    # 如果當前時間已經大於預期重生時間，代表沒人打且已經逾時
-    if now > base_time:
-        error_msg = f"⚠️ 拒絕登記：【{boss_name}】目前已逾時（進入 #過 狀態）。\n為確保時間準確，請在確實擊殺後，改用「一般擊殺登記」來重新校正時間！"
+    # ==========================================
+    # 🛡️ 阻擋機制與緩衝時間設定
+    # ==========================================
+    # 設定允許輪空的區間：預計重生的「前 5 分鐘」到「後 15 分鐘」內
+    early_buffer = timedelta(minutes=5)
+    late_buffer = timedelta(minutes=15)
+
+    # 阻擋 A：太早按 (防呆：剛死就按輪空)
+    if now < (base_time - early_buffer):
+        error_msg = f"⚠️ 拒絕登記：【{boss_name}】還在冷卻中！\n預計 {base_time.strftime('%H:%M')} 才會重生，請等王出再進行操作。"
         safe_reply(event, error_msg, None)
         return
 
-    # 4. 計算下次重生時間 (精準相加，不會有分鐘誤差)
+    # 阻擋 B：太晚按 (防呆：已經 #過 很久)
+    if now > (base_time + late_buffer):
+        error_msg = f"⚠️ 拒絕登記：【{boss_name}】目前已逾時過久。\n為確保時間準確，請改用「一般擊殺登記」來重新校正時間！"
+        safe_reply(event, error_msg, None)
+        return
+    # ==========================================
+
+    # 計算下次重生時間 (依然維持基準點精準相加，時間不會跑掉)
     new_respawn = base_time + timedelta(hours=cd)
     
-    # 5. 儲存至資料庫
+    # 儲存至資料庫
     save_boss_to_pg(
         group_id=group_id,
         boss_name=boss_name,
-        kill_time=base_time, # 將這次的輪空點(預期重生時間)視為已處理
+        kill_time=base_time, 
         respawn_time=new_respawn,
         user_id=user_id,
         note=note,
-        source="skip" # 標記為輪空
+        source="skip" 
     )
 
-    # 6. 準備回覆訊息
+    # 準備回覆訊息
     registrar = get_username(user_id)
     kill_str = base_time.strftime("%H:%M:%S")
     resp_str = new_respawn.strftime("%H:%M:%S")
