@@ -2123,6 +2123,47 @@ def build_roster_delete_confirm_flex(game_name):
             ]
         }
     }
+def build_error_flex(title, message, boss_name):
+    """
+    生成警告類型的 Flex Message
+    """
+    return {
+        "type": "bubble",
+        "size": "mega",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": title, "weight": "bold", "color": "#E63946", "size": "xl"}
+            ],
+            "backgroundColor": "#F1FAEE",
+            "paddingAll": "20px"
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": f"Boss：{boss_name}",
+                    "weight": "bold",
+                    "size": "md",
+                    "margin": "md"
+                },
+                {
+                    "type": "text",
+                    "text": message,
+                    "wrap": True,
+                    "color": "#457B9D",
+                    "size": "sm",
+                    "margin": "lg"
+                }
+            ]
+        },
+        "styles": {
+            "footer": {"separator": True}
+        }
+    }
 def build_roster_deleted_flex():
     return {
         "type": "bubble",
@@ -2844,23 +2885,33 @@ def handle_boss_skipped(event, group_id, boss_name, user_id, note):
     base_time = base_time.astimezone(TZ)
 
     # ==========================================
-    # 🛡️ 阻擋機制與緩衝時間設定
+    # 🛡️ 阻擋機制與 Flex 警告
     # ==========================================
-    # 設定允許輪空的區間：預計重生的「前 5 分鐘」到「後 15 分鐘」內
     early_buffer = timedelta(minutes=5)
     late_buffer = timedelta(minutes=15)
 
     # 阻擋 A：太早按 (防呆：剛死就按輪空)
     if now < (base_time - early_buffer):
-        error_msg = f"⚠️ 拒絕登記：【{boss_name}】還在冷卻中！\n預計 {base_time.strftime('%H:%M')} 才會重生，請等王出再進行操作。"
-        safe_reply(event, error_msg, None)
+        title = "⚠️ 登記失敗：冷卻中"
+        msg = f"這隻王還沒重生喔！\n預計重生時間為：{base_time.strftime('%H:%M')}\n請等王出現後再進行輪空操作。"
+        
+        flex_msg = build_error_flex(title, msg, boss_name)
+        text_msg = f"⚠️ {title}\n{msg}" # 備援文字
+        
+        safe_reply(event, text_msg, flex_msg)
         return
 
     # 阻擋 B：太晚按 (防呆：已經 #過 很久)
     if now > (base_time + late_buffer):
-        error_msg = f"⚠️ 拒絕登記：【{boss_name}】目前已逾時過久。\n為確保時間準確，請改用「一般擊殺登記」來重新校正時間！"
-        safe_reply(event, error_msg, None)
+        title = "⚠️ 登記失敗：已逾時"
+        msg = f"此王已逾時超過 {late_buffer.seconds // 60} 分鐘。\n為確保時間準確，請在擊殺後改用「一般擊殺登記」來校正時間。"
+        
+        flex_msg = build_error_flex(title, msg, boss_name)
+        text_msg = f"⚠️ {title}\n{msg}" # 備援文字
+        
+        safe_reply(event, text_msg, flex_msg)
         return
+    # ==========================================
     # ==========================================
 
     # 計算下次重生時間 (依然維持基準點精準相加，時間不會跑掉)
