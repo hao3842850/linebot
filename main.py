@@ -239,46 +239,64 @@ def get_latest_boss_records(group_id):
     finally:
         conn.close()
 
-def init_cd_boss_with_given_time(group_id, base_time, user_id):
+from datetime import timedelta
+
+def init_cd_boss_with_given_time(group_id, base_time, user_id, cd_map):
     """
-    開機初始化：只針對『目前沒紀錄』的王補上開機時間。
+    開機初始化：只針對該群組中『目前完全沒紀錄』的王補上開機時間。
     """
     conn = get_pg_conn()
-    if not conn: return
+    if not conn: 
+        print("無法取得資料庫連線")
+        return
     
     try:
         cur = conn.cursor()
         
-        # 1. 先抓出目前該群組資料庫中所有王最新的紀錄清單
-        # 使用 DISTINCT ON 確保每隻王只會出現一筆最新的
+        # 1. 抓出該群組中所有已經存在的王名 (不重複)
+        # 建議: 如果你是要針對「當前沒在活耀 CD」的王，邏輯可能需要微調
+        # 目前維持你的邏輯：只要歷史紀錄有過這隻王，就不補
         cur.execute("""
-            SELECT boss_name 
+            SELECT DISTINCT boss_name 
             FROM boss_time 
             WHERE group_id = %s
         """, (group_id,))
         
-        # 取得所有已經有紀錄的王名集合
         recorded_bosses = {row[0] for row in cur.fetchall()}
         
-        # 2. 遍歷定義好的 cd_map，只處理不在 recorded_bosses 裡的王
+        # 2. 遍歷定義好的 cd_map
+        count = 0
         for boss, cd in cd_map.items():
             if boss in recorded_bosses:
-                # 只要有紀錄（不論時間點），就跳過，不覆蓋既有的狀態
+                # 已有紀錄，跳過
                 continue
             
-            # 沒紀錄的，才補上開機時間
+            # 計算重生時間
             respawn = base_time + timedelta(hours=cd)
+            
             insert_query = """
                 INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "伺服器開機補推", "boot"))
+            cur.execute(insert_query, (
+                group_id, 
+                boss, 
+                base_time, 
+                respawn, 
+                user_id, 
+                "伺服器開機補推", 
+                "boot"
+            ))
+            count += 1
             
         conn.commit()
-        cur.close()
+        print(f"成功初始化 {count} 隻 Boss 紀錄")
+        
     except Exception as e:
+        conn.rollback() # 出錯時回滾
         print(f"Error during selective boot init: {e}")
     finally:
+        cur.close()
         conn.close()
 
 def delete_boss_records_by_alias(group_id, input_text):
