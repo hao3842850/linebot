@@ -3948,7 +3948,7 @@ def handle_message(event):
         reply = build_roster_search_flex(keyword, result)
         line_bot_api.reply_message(event.reply_token, reply)
         return
-    #-------------------------------------------------------------失效!!!!!紀錄開機時間---------------------------------------
+  #-------------------------------------------------------------修正紀錄開機時間---------------------------------------
     if msg.startswith("開機 "):
         parts = msg.split(" ", 1)
         if len(parts) < 2: return
@@ -3963,15 +3963,19 @@ def handle_message(event):
             )
             return
             
-        # 取得 group_id
+        # 取得 group_id (如果在單人聊天室，可能沒有 group_id)
         group_id = getattr(event.source, 'group_id', 'default_group')
-        # 執行初始化邏輯
-        init_cd_boss_with_given_time(group_id, base_time, user)
         
-        # 1. 取得 Flex 字典內容 (確保 build_boot_init_flex 回傳的是 dict)
+        # 💡 關鍵修正 1：傳入正確的參數順序 (假設你的全域字典叫做 db)
+        # 如果你的變數叫做 database 或 active_auctions，請把下面的 db 換掉
+        init_cd_boss_with_given_time(db, group_id, base_time)
+        
+        # 1. 取得 Flex 字典內容
         flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
         
-        # 2. 關鍵修正：直接傳入字典，不要使用 BubbleContainer.new_from_json_dict
+        # 2. 確保 Flex 訊息格式正確
+        # 💡 小提醒：如果 flex_contents 回傳的是 JSON「字串」，需要 json.loads(flex_contents) 轉成字典喔！
+        # 如果它本身就是字典，這樣寫就完全沒問題：
         line_bot_api.reply_message(
             event.reply_token,
             FlexSendMessage(
