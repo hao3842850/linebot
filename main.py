@@ -241,10 +241,11 @@ def get_latest_boss_records(group_id):
 
 from datetime import timedelta
 
-def init_cd_boss_with_given_time(group_id, base_time, user_id, cd_map):
+def init_cd_boss_with_given_time(group_id, base_time, user_id):
     """
-    開機初始化：只針對該群組中『目前完全沒紀錄』的王補上開機時間。
+    開機初始化：將各王的開機時間寫入 PostgreSQL 資料庫。
     """
+    # 呼叫你專案中取得資料庫連線的函式
     conn = get_pg_conn()
     if not conn: 
         print("無法取得資料庫連線")
@@ -253,50 +254,40 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id, cd_map):
     try:
         cur = conn.cursor()
         
-        # 1. 抓出該群組中所有已經存在的王名 (不重複)
-        # 建議: 如果你是要針對「當前沒在活耀 CD」的王，邏輯可能需要微調
-        # 目前維持你的邏輯：只要歷史紀錄有過這隻王，就不補
+        # 1. 抓出該群組中已經有紀錄的王
         cur.execute("""
             SELECT DISTINCT boss_name 
             FROM boss_time 
             WHERE group_id = %s
         """, (group_id,))
-        
         recorded_bosses = {row[0] for row in cur.fetchall()}
         
-        # 2. 遍歷定義好的 cd_map
+        # 2. 遍歷 cd_map，將沒紀錄的王寫入資料庫
         count = 0
         for boss, cd in cd_map.items():
             if boss in recorded_bosses:
-                # 已有紀錄，跳過
-                continue
+                continue # 已有紀錄就跳過
             
-            # 計算重生時間
             respawn = base_time + timedelta(hours=cd)
             
+            # 寫入 PostgreSQL 的 boss_time 資料表
             insert_query = """
                 INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            cur.execute(insert_query, (
-                group_id, 
-                boss, 
-                base_time, 
-                respawn, 
-                user_id, 
-                "伺服器開機補推", 
-                "boot"
-            ))
+            cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "開機", "boot"))
             count += 1
             
+        # 3. 提交變更 (非常重要，沒這行不會存檔！)
         conn.commit()
-        print(f"成功初始化 {count} 隻 Boss 紀錄")
+        print(f"成功將 {count} 筆開機紀錄寫入 PostgreSQL 資料庫！")
         
     except Exception as e:
-        conn.rollback() # 出錯時回滾
-        print(f"Error during selective boot init: {e}")
+        conn.rollback() # 出錯時復原
+        print(f"寫入資料庫發生錯誤: {e}")
     finally:
-        cur.close()
+        if 'cur' in locals():
+            cur.close()
         conn.close()
 
 def delete_boss_records_by_alias(group_id, input_text):
@@ -3963,24 +3954,19 @@ def handle_message(event):
             )
             return
             
-        # 取得 group_id (如果在單人聊天室，可能沒有 group_id)
+        # 取得 group_id
         group_id = getattr(event.source, 'group_id', 'default_group')
         
-        # 💡 關鍵修正 1：傳入正確的參數順序 (假設你的全域字典叫做 db)
-        # 如果你的變數叫做 database 或 active_auctions，請把下面的 db 換掉
-        init_cd_boss_with_given_time(db, group_id, base_time)
+        # 💡 修正：使用 PostgreSQL 版本，只需傳入群組 ID、時間、使用者
+        init_cd_boss_with_given_time(group_id, base_time, user)
         
-        # 1. 取得 Flex 字典內容
+        # 取得 Flex 字典內容並回覆
         flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
-        
-        # 2. 確保 Flex 訊息格式正確
-        # 💡 小提醒：如果 flex_contents 回傳的是 JSON「字串」，需要 json.loads(flex_contents) 轉成字典喔！
-        # 如果它本身就是字典，這樣寫就完全沒問題：
         line_bot_api.reply_message(
             event.reply_token,
             FlexSendMessage(
                 alt_text=f"🔌 開機時間已紀錄：{base_time.strftime('%H:%M')}",
-                contents=flex_contents  # 直接傳字典進去
+                contents=flex_contents  
             )
         )
         return
