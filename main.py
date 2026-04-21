@@ -1314,14 +1314,14 @@ def build_join_roster_guide_flex():
         }
     )
 def build_boss_history_flex(boss_name, history):
-    """建立歷史紀錄的 Flex 卡片"""
+    """建立歷史紀錄的 Flex 卡片，並處理空值避免 LINE 400 錯誤"""
     if not history:
-        return TextSendMessage(text=f"❌ {boss_name} 目前沒有紀錄。")
+        return TextSendMessage(text=f"❌ 查無 {boss_name} 的紀錄。")
 
     contents = []
     for item in history:
-        # 這裡增加一個判斷：如果 note 是空的，就顯示 "-"
-        display_note = item["note"] if item["note"] and item["note"].strip() != "" else "-"
+        # 重要：確保 note 絕對不是空字串
+        display_note = item["note"] if item.get("note") and str(item["note"]).strip() else "-"
         
         contents.append({
             "type": "box",
@@ -1329,15 +1329,16 @@ def build_boss_history_flex(boss_name, history):
             "contents": [
                 {"type": "text", "text": item["time"], "size": "sm", "color": "#555555", "flex": 2},
                 {"type": "text", "text": item["user"], "size": "sm", "weight": "bold", "flex": 2},
-                # 修改這裡：使用 display_note
                 {"type": "text", "text": display_note, "size": "sm", "color": "#999999", "flex": 3, "wrap": True}
             ]
         })
+
+    # ... (其餘 Flex 結構不變)
     return FlexSendMessage(
         alt_text=f"{boss_name} 歷史紀錄",
         contents={
             "type": "bubble",
-            "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": f"📜 {boss_name} 近 5 筆紀錄", "weight": "bold"}]},
+            "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": f"📜 {boss_name} 近 5 筆紀錄", "weight": "bold", "color": "#111111"}]},
             "body": {"type": "box", "layout": "vertical", "spacing": "sm", "contents": contents}
         }
     )
@@ -2084,6 +2085,9 @@ def build_roster_delete_confirm_flex(game_name):
             ]
         }
     }
+def get_formal_name(name):
+    """將輸入名稱轉換為正式名稱，若無對照則回傳原名"""
+    return alias_map .get(name, name)
 from linebot.models import FlexSendMessage, BubbleContainer
 
 def build_error_flex(title, message, boss_name):
@@ -4031,12 +4035,20 @@ def handle_message(event):
         )
         return
    #-------------------------------------------------------------!!!!!!!   未完成 查詢王!!!!!!!---------------------------------------
-    # 假設使用者輸入： 紀錄查詢 四色
+    # 在 @handler.add(MessageEvent, TextMessage) 邏輯中
     if text.startswith("查 "):
-        boss_name = text.split(" ")[1]
+        # 1. 取得使用者輸入的名稱
+        input_name = text.split(" ")[1].strip()
+        
+        # 2. 轉換為正式名稱
+        formal_name = get_formal_name(input_name)
+        
+        # 3. 執行查詢
         group_id = get_source_id(event)
-        history = get_boss_history(group_id, boss_name)
-        flex_msg = build_boss_history_flex(boss_name, history)
+        history = get_boss_history(group_id, formal_name)
+        
+        # 4. 回覆 Flex Message (延用上一步修復過的函式)
+        flex_msg = build_boss_history_flex(formal_name, history)
         line_bot_api.reply_message(event.reply_token, flex_msg)
     #-------------------------------------------------------------KPI---------------------------------------
     if msg.upper() == "KPI":
