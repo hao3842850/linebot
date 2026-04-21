@@ -1320,16 +1320,19 @@ def build_boss_history_flex(boss_name, history):
 
     contents = []
     for item in history:
+        # 這裡增加一個判斷：如果 note 是空的，就顯示 "-"
+        display_note = item["note"] if item["note"] and item["note"].strip() != "" else "-"
+        
         contents.append({
             "type": "box",
             "layout": "horizontal",
             "contents": [
                 {"type": "text", "text": item["time"], "size": "sm", "color": "#555555", "flex": 2},
                 {"type": "text", "text": item["user"], "size": "sm", "weight": "bold", "flex": 2},
-                {"type": "text", "text": item["note"], "size": "sm", "color": "#999999", "flex": 3, "wrap": True}
+                # 修改這裡：使用 display_note
+                {"type": "text", "text": display_note, "size": "sm", "color": "#999999", "flex": 3, "wrap": True}
             ]
         })
-
     return FlexSendMessage(
         alt_text=f"{boss_name} 歷史紀錄",
         contents={
