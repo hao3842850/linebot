@@ -1313,82 +1313,31 @@ def build_join_roster_guide_flex():
             }
         }
     )
-def build_query_record_bubble(boss, rec):
-    respawn = datetime.fromisoformat(rec["respawn"]).astimezone(TZ)
-    registrar = get_username(rec.get("user"))
-    
-    # 標題與基礎樣式
-    contents = [
-        {
-            "type": "text",
-            "text": f"📋 歷史紀錄｜{boss}",
-            "weight": "bold",
-            "size": "lg",
-            "color": "#111111"
-        },
-        {
-            "type": "separator",
-            "margin": "md",
-            "color": "#EEEEEE"
-        }
-    ]
+def build_boss_history_flex(boss_name, history):
+    """建立歷史紀錄的 Flex 卡片"""
+    if not history:
+        return TextSendMessage(text=f"❌ {boss_name} 目前沒有紀錄。")
 
-    # 定義內部資料行模板
-    def create_info_row(label, value, value_color="#333333", is_bold=False):
-        return {
+    contents = []
+    for item in history:
+        contents.append({
             "type": "box",
             "layout": "horizontal",
             "contents": [
-                {"type": "text", "text": label, "size": "sm", "color": "#888888", "flex": 3},
-                {"type": "text", "text": value, "size": "sm", "color": value_color, "flex": 7, "weight": "bold" if is_bold else "regular", "align": "end"}
-            ]
-        }
-
-    # 資料區塊
-    info_box = {
-        "type": "box",
-        "layout": "vertical",
-        "margin": "lg",
-        "spacing": "sm",
-        "contents": [
-            create_info_row("📅 登記日期", rec['date']),
-            create_info_row("🕒 死亡時間", rec['kill']),
-            # 重生時間用藍色加粗，方便一眼識別
-            create_info_row("✨ 重生時間", respawn.strftime('%H:%M:%S'), value_color="#1756B7", is_bold=True),
-            create_info_row("👤 登記者", registrar)
-        ]
-    }
-    
-    contents.append(info_box)
-
-    # 備註區塊
-    if rec.get("note"):
-        contents.append({
-            "type": "box",
-            "layout": "vertical",
-            "margin": "md",
-            "paddingAll": "sm",
-            "backgroundColor": "#FDFDFD",
-            "contents": [
-                {
-                    "type": "text",
-                    "text": f"📌 {rec['note']}",
-                    "size": "xs",
-                    "color": "#999999",
-                    "wrap": True,
-                }
+                {"type": "text", "text": item["time"], "size": "sm", "color": "#555555", "flex": 2},
+                {"type": "text", "text": item["user"], "size": "sm", "weight": "bold", "flex": 2},
+                {"type": "text", "text": item["note"], "size": "sm", "color": "#999999", "flex": 3, "wrap": True}
             ]
         })
 
-    return {
-        "type": "bubble",
-        "body": {
-            "type": "box",
-            "layout": "vertical",
-            "contents": contents,
-            "paddingAll": "lg"
+    return FlexSendMessage(
+        alt_text=f"{boss_name} 歷史紀錄",
+        contents={
+            "type": "bubble",
+            "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": f"📜 {boss_name} 近 5 筆紀錄", "weight": "bold"}]},
+            "body": {"type": "box", "layout": "vertical", "spacing": "sm", "contents": contents}
         }
-    }
+    )
 def clear_confirm_flex():
     return {
       "type": "bubble",
@@ -2607,6 +2556,38 @@ def build_shift_status_flex(group_id, current_uid, next_uid):
         }
     }
     return FlexSendMessage(alt_text="交接班狀態確認", contents=bubble)
+def get_boss_history(group_id, boss_name):
+    """查詢該群組、該王的最近 5 筆擊殺紀錄"""
+    conn = get_pg_conn()
+    if not conn: return []
+    try:
+        cur = conn.cursor()
+        query = """
+            SELECT kill_time, user_id, note
+            FROM boss_time
+            WHERE group_id = %s AND boss_name = %s
+            ORDER BY kill_time DESC
+            LIMIT 5
+        """
+        cur.execute(query, (group_id, boss_name))
+        rows = cur.fetchall()
+        cur.close()
+        
+        history = []
+        for row in rows:
+            kt_raw = row[0]
+            kt_tw = kt_raw.astimezone(TZ) if kt_raw.tzinfo else pytz.utc.localize(kt_raw).astimezone(TZ)
+            history.append({
+                "time": kt_tw.strftime("%m/%d %H:%M"),
+                "user": get_username(row[1]), # 呼叫您既有的取名函式
+                "note": row[2] if row[2] else ""
+            })
+        return history
+    except Exception as e:
+        print(f"Error fetching history: {e}")
+        return []
+    finally:
+        conn.close()
 def build_record_success_flex(boss_name, status):
     # 根據不同的狀態，給予不同的視覺顏色與圖示
     if status == "我方擊殺":
@@ -4046,68 +4027,14 @@ def handle_message(event):
             TextSendMessage("❎ 已取消清除")
         )
         return
-    #-------------------------------------------------------------!!!!!!!   未完成 查詢王!!!!!!!---------------------------------------
-    if msg.startswith("查 "):
-        name = msg.split(" ", 1)[1]
-        boss = get_boss(name)
-        if not boss:
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage("找不到此王")
-            )
-            return
-
-        # 1. 從資料庫抓取該群組、該隻王的最近 5 筆紀錄
-        group_id = getattr(event.source, 'group_id', 'default_group')
-        conn = get_pg_conn()
-        if not conn: return
-        
-        try:
-            cur = conn.cursor()
-            # 抓取最近 5 筆，按時間由舊到新排序 (符合原本程式碼習慣)
-            query = """
-                SELECT kill_time, respawn_time, note, user_id
-                FROM (
-                    SELECT kill_time, respawn_time, note, user_id
-                    FROM boss_time
-                    WHERE group_id = %s AND boss_name = %s
-                    ORDER BY kill_time DESC
-                    LIMIT 5
-                ) sub
-                ORDER BY kill_time ASC
-            """
-            cur.execute(query, (group_id, boss))
-            rows = cur.fetchall()
-            cur.close()
-            
-            if not rows:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage("尚無紀錄")
-                )
-                return
-
-            # 2. 轉換為 Flex Message 接收的格式
-            records = []
-            for row in rows:
-                records.append({
-                    "kill": row[0].strftime("%H:%M:%S"),
-                    "respawn": row[1].isoformat(),
-                    "note": row[2] if row[2] else "",
-                    "user": row[3]
-                })
-
-            # 3. 呼叫原本的 Flex 產生器並送出
-            flex_msg = build_query_boss_flex(boss, records)
-            line_bot_api.reply_message(
-                event.reply_token,
-                flex_msg
-            )
-        except Exception as e:
-            print(f"Error querying boss records: {e}")
-        finally:
-            conn.close()
-        return
+   #-------------------------------------------------------------!!!!!!!   未完成 查詢王!!!!!!!---------------------------------------
+    # 假設使用者輸入： 紀錄查詢 四色
+    if text.startswith("查 "):
+        boss_name = text.split(" ")[1]
+        group_id = get_source_id(event)
+        history = get_boss_history(group_id, boss_name)
+        flex_msg = build_boss_history_flex(boss_name, history)
+        line_bot_api.reply_message(event.reply_token, flex_msg)
     #-------------------------------------------------------------KPI---------------------------------------
     if msg.upper() == "KPI":
         now = now_tw()
