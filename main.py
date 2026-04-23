@@ -1313,33 +1313,92 @@ def build_join_roster_guide_flex():
             }
         }
     )
+from linebot.models import FlexSendMessage, TextSendMessage
+
 def build_boss_history_flex(boss_name, history):
-    """建立歷史紀錄的 Flex 卡片，並處理空值避免 LINE 400 錯誤"""
+    """
+    建立左右滑動 (Carousel) 的 Boss 歷史紀錄卡片
+    """
     if not history:
         return TextSendMessage(text=f"❌ 查無 {boss_name} 的紀錄。")
 
-    contents = []
-    for item in history:
-        # 重要：確保 note 絕對不是空字串
-        display_note = item["note"] if item.get("note") and str(item["note"]).strip() else "-"
-        
-        contents.append({
-            "type": "box",
-            "layout": "horizontal",
-            "contents": [
-                {"type": "text", "text": item["time"], "size": "sm", "color": "#555555", "flex": 2},
-                {"type": "text", "text": item["user"], "size": "sm", "weight": "bold", "flex": 2},
-                {"type": "text", "text": display_note, "size": "sm", "color": "#999999", "flex": 3, "wrap": True}
-            ]
-        })
+    bubbles = []
 
-    # ... (其餘 Flex 結構不變)
+    for index, item in enumerate(history):
+        # 資料處理與空值檢查
+        display_time = str(item.get("time", "-"))
+        display_user = str(item.get("user", "未知"))
+        note_raw = item.get("note")
+        display_note = str(note_raw).strip() if note_raw and str(note_raw).strip() else "無備註內容"
+        
+        # 建立單個卡片 (Bubble)
+        bubble = {
+            "type": "bubble",
+            "size": "nano",  # 使用較小的尺寸，適合左右滑動預覽
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "backgroundColor": "#222222",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": f"第 {index + 1} 筆紀錄",
+                        "color": "#FFFFFF",
+                        "size": "xs",
+                        "weight": "bold"
+                    }
+                ]
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "spacing": "md",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": boss_name,
+                        "weight": "bold",
+                        "size": "md",
+                        "color": "#111111"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "spacing": "xs",
+                        "contents": [
+                            {"type": "text", "text": "登記者", "size": "xxs", "color": "#aaaaaa"},
+                            {"type": "text", "text": display_user, "size": "sm", "weight": "bold", "wrap": True}
+                        ]
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "spacing": "xs",
+                        "contents": [
+                            {"type": "text", "text": "時間", "size": "xxs", "color": "#aaaaaa"},
+                            {"type": "text", "text": display_time, "size": "sm", "wrap": True}
+                        ]
+                    },
+                    {"type": "separator"},
+                    {
+                        "type": "text",
+                        "text": display_note,
+                        "size": "xs",
+                        "color": "#666666",
+                        "wrap": True,
+                        "style": "italic"
+                    }
+                ]
+            }
+        }
+        bubbles.append(bubble)
+
+    # 返回 Carousel 結構
     return FlexSendMessage(
         alt_text=f"{boss_name} 歷史紀錄",
         contents={
-            "type": "bubble",
-            "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": f"📜 {boss_name} 近 5 筆紀錄", "weight": "bold", "color": "#111111"}]},
-            "body": {"type": "box", "layout": "vertical", "spacing": "sm", "contents": contents}
+            "type": "carousel",
+            "contents": bubbles
         }
     )
 def clear_confirm_flex():
