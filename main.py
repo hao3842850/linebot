@@ -2085,9 +2085,7 @@ def build_roster_delete_confirm_flex(game_name):
             ]
         }
     }
-def get_formal_name(name):
-    """將輸入名稱轉換為正式名稱，若無對照則回傳原名"""
-    return alias_map .get(name, name)
+
 from linebot.models import FlexSendMessage, BubbleContainer
 
 def build_error_flex(title, message, boss_name):
@@ -2774,6 +2772,10 @@ fixed_bosses = {
                   "13:00","15:00","17:00","19:00","21:00","23:00"]
     }
 }
+def get_formal_name(name):
+    """將輸入名稱轉換為正式名稱，若無對照則回傳原名"""
+    return alias_map .get(name, name)
+
 # 邏輯函式
 def get_roster_profile(user_id):
     row = roster_get_by_user(user_id)
