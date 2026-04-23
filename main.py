@@ -2989,7 +2989,7 @@ def init_cd_boss_with_given_time(group_id, base_time, user_id, cd_map):
                 INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """
-            cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "開機", "boot"))
+            cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "🔌開機", "boot"))
             count += 1
             
         # 3. 提交變更 (非常重要，沒這行不會存檔！)
