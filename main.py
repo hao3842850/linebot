@@ -2772,9 +2772,14 @@ fixed_bosses = {
                   "13:00","15:00","17:00","19:00","21:00","23:00"]
     }
 }
-def get_formal_name(name):
-    """將輸入名稱轉換為正式名稱，若無對照則回傳原名"""
-    return alias_map .get(name, name)
+def get_real_boss_name(input_name):
+    """
+    將使用者輸入的簡稱，轉換為 alias_map 中的正式名稱
+    """
+    for formal_name, aliases in alias_map.items():
+        if input_name in aliases:
+            return formal_name
+    return input_name # 如果找不到，回傳原本的輸入 (讓資料庫自己去比對)
 
 # 邏輯函式
 def get_roster_profile(user_id):
@@ -4038,20 +4043,34 @@ def handle_message(event):
         return
    #-------------------------------------------------------------!!!!!!!   未完成 查詢王!!!!!!!---------------------------------------
     # 在 @handler.add(MessageEvent, TextMessage) 邏輯中
+    # 這是你的訊息處理核心
     if text.startswith("查 "):
-        # 1. 取得使用者輸入的名稱
-        input_name = text.split(" ")[1].strip()
-        
-        # 2. 轉換為正式名稱
-        formal_name = get_formal_name(input_name)
-        
-        # 3. 執行查詢
-        group_id = get_source_id(event)
-        history = get_boss_history(group_id, formal_name)
-        
-        # 4. 回覆 Flex Message (延用上一步修復過的函式)
-        flex_msg = build_boss_history_flex(formal_name, history)
-        line_bot_api.reply_message(event.reply_token, flex_msg)
+        try:
+            input_name = text.replace("查 ", "").strip()
+            
+            # 1. 進行轉換
+            real_name = get_real_boss_name(input_name)
+            print(f"DEBUG: 使用者輸入 '{input_name}'，轉換為 '{real_name}'") # 查看轉換是否正確
+            
+            # 2. 查詢資料庫
+            group_id = event.source.group_id if hasattr(event.source, 'group_id') else event.source.user_id
+            history = get_boss_history(group_id, real_name)
+            
+            print(f"DEBUG: 查到的歷史紀錄數量: {len(history)}") # 查看是否真的有資料
+            
+            # 3. 建立並回覆
+            if not history:
+                line_bot_api.reply_message(
+                    event.reply_token, 
+                    TextSendMessage(text=f"找不到「{real_name}」的紀錄，請確認名稱是否正確。")
+                )
+            else:
+                flex_msg = build_boss_history_flex(real_name, history)
+                line_bot_api.reply_message(event.reply_token, flex_msg)
+                
+        except Exception as e:
+            print(f"查詢錯誤: {e}")
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="查詢過程發生錯誤，請稍後再試。"))
     #-------------------------------------------------------------KPI---------------------------------------
     if msg.upper() == "KPI":
         now = now_tw()
