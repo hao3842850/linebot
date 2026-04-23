@@ -4091,8 +4091,9 @@ def handle_message(event):
         # 取得 group_id
         group_id = getattr(event.source, 'group_id', 'default_group')
         
-        # 💡 修正：使用 PostgreSQL 版本，只需傳入群組 ID、時間、使用者
-        init_cd_boss_with_given_time(group_id, base_time, user)
+        # 💡 修正：補上 cd_map 參數，讓函式知道各王的冷卻時間
+        # (假設 cd_map 在你的程式碼中已經定義在全域，或者是可以取得的變數)
+        init_cd_boss_with_given_time(group_id, base_time, user, cd_map)
         
         # 取得 Flex 字典內容並回覆
         flex_contents = build_boot_init_flex(base_time.strftime('%H:%M'))
