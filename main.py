@@ -1313,89 +1313,108 @@ def build_join_roster_guide_flex():
             }
         }
     )
+
 from linebot.models import FlexSendMessage, TextSendMessage
 
 def build_boss_history_flex(boss_name, history):
     """
-    建立左右滑動 (Carousel) 的 Boss 歷史紀錄卡片
+    建立進階美化版左右滑動 (Carousel) Boss 紀錄卡片
     """
     if not history:
         return TextSendMessage(text=f"❌ 查無 {boss_name} 的紀錄。")
 
     bubbles = []
 
-    for index, item in enumerate(history):
-        # 資料處理與空值檢查
+    for index, item in enumerate(history[:10]):  # 限制最多 10 筆以確保效能
+        # 1. 資料清洗與預設值
         display_time = str(item.get("time", "-"))
         display_user = str(item.get("user", "未知"))
         note_raw = item.get("note")
-        display_note = str(note_raw).strip() if note_raw and str(note_raw).strip() else "無備註內容"
+        display_note = str(note_raw).strip() if note_raw and str(note_raw).strip() else "無額外資訊"
         
-        # 建立單個卡片 (Bubble)
+        # 2. 建立 Bubble 結構
         bubble = {
             "type": "bubble",
-            "size": "nano",  # 使用較小的尺寸，適合左右滑動預覽
+            "size": "micro",  # 調整為 micro，平衡寬度與滑動手感
             "header": {
                 "type": "box",
                 "layout": "vertical",
-                "backgroundColor": "#222222",
+                "backgroundColor": "#333333",
                 "contents": [
                     {
                         "type": "text",
-                        "text": f"第 {index + 1} 筆紀錄",
-                        "color": "#FFFFFF",
-                        "size": "xs",
-                        "weight": "bold"
+                        "text": f"RECORD #{index + 1}",
+                        "color": "#E6A23C",  # 使用金色/橘色強調序號
+                        "size": "xxs",
+                        "weight": "bold",
+                        "letterSpacing": "1px"
                     }
-                ]
+                ],
+                "paddingAll": "sm"
             },
             "body": {
                 "type": "box",
                 "layout": "vertical",
-                "spacing": "md",
+                "backgroundColor": "#FFFFFF",
                 "contents": [
+                    # Boss 名稱標題
                     {
                         "type": "text",
-                        "text": boss_name,
+                        "text": f"👾 {boss_name}",
                         "weight": "bold",
-                        "size": "md",
+                        "size": "sm",
                         "color": "#111111"
                     },
+                    # 資訊區塊：回報者
+                    {
+                        "type": "box",
+                        "layout": "horizontal",
+                        "margin": "lg",
+                        "contents": [
+                            {"type": "text", "text": "👤", "size": "xs", "flex": 1},
+                            {"type": "text", "text": display_user, "size": "xs", "color": "#444444", "flex": 4, "weight": "bold"}
+                        ]
+                    },
+                    # 資訊區塊：時間
+                    {
+                        "type": "box",
+                        "layout": "horizontal",
+                        "margin": "sm",
+                        "contents": [
+                            {"type": "text", "text": "🕒", "size": "xs", "flex": 1},
+                            {"type": "text", "text": display_time, "size": "xs", "color": "#666666", "flex": 4}
+                        ]
+                    },
+                    {"type": "separator", "margin": "md"},
+                    # 備註區塊
                     {
                         "type": "box",
                         "layout": "vertical",
-                        "spacing": "xs",
+                        "margin": "md",
+                        "backgroundColor": "#F8F9FA",
+                        "cornerRadius": "sm",
+                        "paddingAll": "sm",
                         "contents": [
-                            {"type": "text", "text": "登記者", "size": "xxs", "color": "#aaaaaa"},
-                            {"type": "text", "text": display_user, "size": "sm", "weight": "bold", "wrap": True}
+                            {
+                                "type": "text",
+                                "text": display_note,
+                                "size": "xxs",
+                                "color": "#888888",
+                                "wrap": True,
+                                "maxLines": 3 # 限制行數防止撐破卡片
+                            }
                         ]
-                    },
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "spacing": "xs",
-                        "contents": [
-                            {"type": "text", "text": "時間", "size": "xxs", "color": "#aaaaaa"},
-                            {"type": "text", "text": display_time, "size": "sm", "wrap": True}
-                        ]
-                    },
-                    {"type": "separator"},
-                    {
-                        "type": "text",
-                        "text": display_note,
-                        "size": "xs",
-                        "color": "#666666",
-                        "wrap": True,
-                        "style": "italic"
                     }
                 ]
+            },
+            "styles": {
+                "footer": {"separator": True}
             }
         }
         bubbles.append(bubble)
 
-    # 返回 Carousel 結構
     return FlexSendMessage(
-        alt_text=f"{boss_name} 歷史紀錄",
+        alt_text=f"📜 {boss_name} 歷史紀錄",
         contents={
             "type": "carousel",
             "contents": bubbles
