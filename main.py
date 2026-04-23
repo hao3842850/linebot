@@ -2155,7 +2155,7 @@ def build_stats_report_flex(total, stats_dict, details):
     
     return bubble
 
-    return FlexSendMessage(alt_text="固定王統計報表", contents=bubble)
+    
 def build_roster_delete_confirm_flex(game_name):
     return {
         "type": "bubble",
