@@ -3416,21 +3416,25 @@ def handle_message(event):
             )
 
         return
-
-    # 【功能 C：送出報表 + 12:00 靜默刪除版】
+#   【功能 C：送出報表 + 12:00 靜默刪除版】
     if text == "固定王統計":
         try:
             conn = get_pg_conn()
             if conn:
                 with conn.cursor() as cur:
                     # ==========================================
-                    # 1. 撈取統計數據 (使用 TO_CHAR 轉換時間顯示)
+                    # 1. 撈取統計數據 (防彈版：明確指定從 UTC 轉為台灣時間)
                     # ==========================================
                     cur.execute("""
                         SELECT 
                             status, 
                             COUNT(*),
-                            ARRAY_AGG(TO_CHAR(record_time AT TIME ZONE 'Asia/Taipei', 'MM/DD HH24:MI') || ' (' || boss_name || ')')
+                            ARRAY_AGG(
+                                TO_CHAR(
+                                    record_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Taipei', 
+                                    'MM/DD HH24:MI'
+                                ) || ' (' || boss_name || ')'
+                            )
                         FROM fixed_boss_records2
                         WHERE group_id = %s
                         GROUP BY status
@@ -3460,6 +3464,7 @@ def handle_message(event):
                 # ==========================================
                 # 3. 靜默刪除：報表送出後，如果是台灣時間 12:00 就清空資料
                 # ==========================================
+                # 確保你程式碼最上方有設定 TZ = pytz.timezone("Asia/Taipei")
                 current_dt = datetime.now(TZ) 
                 current_time = current_dt.strftime("%H:%M")
                 
