@@ -35,6 +35,17 @@ def is_peak_time():
 
     #h = now_tw().hour
     #return 19 <= h <= 23
+def safe_init_dict(parent_dict, key):
+    """
+    安全初始化字典：防止 'str' object has no attribute 'setdefault' 錯誤。
+    如果發現資料壞掉（變成字串），會自動把它修復成空字典。
+    """
+    # 如果 key 不存在，或者它裡面的值不是字典 (dict) 型態
+    if key not in parent_dict or not isinstance(parent_dict[key], dict):
+        # 強制幫它建立或覆寫成一個新的空字典
+        parent_dict[key] = {}
+        
+    return parent_dict[key]
 def init_fixed_boss_db():
     """自動建立固定王專用的資料表，並確保欄位長度足夠"""
     print("🔧 系統啟動：檢查並建立 fixed_boss_records 資料表...")
