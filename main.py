@@ -2050,13 +2050,7 @@ def build_roster_self_flex(game_name, clan):
             }
         }
     }
-from datetime import datetime, timezone, timedelta
-
 def build_stats_report_flex(total, stats_dict, details):
-    # 1. 取得目前的台灣時間 (UTC+8)
-    tw_tz = timezone(timedelta(hours=8))
-    current_tw_time = datetime.now(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
-
     body_contents = [
         # 總計區塊
         {
@@ -2103,6 +2097,7 @@ def build_stats_report_flex(total, stats_dict, details):
     ]
 
     # ===== 詳細時間清單 =====
+    # 為了避免畫面太長，我們用逗號分隔時間，並開啟 wrap 讓它自動換行
     if details.get("敵人吃"):
         body_contents.append({"type": "separator", "margin": "lg"})
         body_contents.append({
@@ -2121,21 +2116,10 @@ def build_stats_report_flex(total, stats_dict, details):
             "type": "text", "text": "、".join(details["漏掉"]), "size": "xs", "color": "#666666", "wrap": True, "margin": "sm"
         })
 
-    # ===== 2. 在底部加上台灣時間的標記 =====
-    body_contents.append({"type": "separator", "margin": "lg"})
-    body_contents.append({
-        "type": "text", 
-        "text": f"報表產生時間 (台灣時間): {current_tw_time}", 
-        "size": "xxs", 
-        "color": "#AAAAAA", 
-        "align": "center", 
-        "margin": "md"
-    })
-
     # 組裝成完整的 Flex 結構
     bubble = {
         "type": "bubble",
-        "size": "mega",
+        "size": "mega", # 由於可能會有時間清單，用大一點的卡片比較寬敞
         "header": {
             "type": "box",
             "layout": "vertical",
@@ -2152,10 +2136,8 @@ def build_stats_report_flex(total, stats_dict, details):
             "contents": body_contents
         }
     }
-    
-    return bubble
 
-    
+    return FlexSendMessage(alt_text="固定王統計報表", contents=bubble)
 def build_roster_delete_confirm_flex(game_name):
     return {
         "type": "bubble",
