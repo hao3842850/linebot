@@ -1329,7 +1329,7 @@ def build_boss_history_flex(boss_name, history):
         display_time = str(item.get("time", "-"))
         display_user = str(item.get("user", "未知"))
         note_raw = item.get("note")
-        display_note = str(note_raw).strip() if note_raw and str(note_raw).strip() else "無備註說明"
+        display_note = str(note_raw).strip() if note_raw and str(note_raw).strip() else "-"
         
         bubble = {
             "type": "bubble",
@@ -1341,7 +1341,7 @@ def build_boss_history_flex(boss_name, history):
                 "contents": [
                     {
                         "type": "text",
-                        "text": "TIME / 發生時間",
+                        "text": "TIME / 登記時間",
                         "color": "#A1A7B5",
                         "size": "xxs",
                         "weight": "bold"
@@ -1419,7 +1419,7 @@ def build_boss_history_flex(boss_name, history):
                         "contents": [
                             {
                                 "type": "text",
-                                "text": "REMARK",
+                                "text": "備註",
                                 "size": "xxs",
                                 "color": "#BBBBBB",
                                 "weight": "bold"
