@@ -254,7 +254,7 @@ from datetime import timedelta
 
 from datetime import timedelta  # 確保有匯入 timedelta
 
-def init_cd_boss_with_given_time(group_id, base_time, user_id, cd_map):
+def init_cd_boss_with_given_time(group_id, base_time, user_id, cd_map):   
     """
     開機初始化：將各王的開機時間寫入 PostgreSQL 資料庫。
     
