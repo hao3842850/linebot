@@ -254,64 +254,6 @@ from datetime import timedelta
 
 from datetime import timedelta  # 確保有匯入 timedelta
 
-def init_cd_boss_with_given_time(group_id, base_time, user_id, cd_map):   
-    """
-    開機初始化：將各王的開機時間寫入 PostgreSQL 資料庫。
-    
-    【參數說明】
-    - group_id: 群組的 ID (字串或數字)
-    - base_time: 基準時間 (datetime 物件，通常是現在時間)
-    - user_id: 執行此動作的使用者 ID
-    - cd_map: 記錄各王冷卻時間的字典，例如 {'巴風特': 2, '死神': 4}
-    """
-    # 呼叫你專案中取得資料庫連線的函式
-    conn = get_pg_conn()
-    if not conn: 
-        print("無法取得資料庫連線")
-        return
-    
-    try:
-        cur = conn.cursor()
-        
-        # 1. 抓出該群組中已經有紀錄的王
-        cur.execute("""
-            SELECT DISTINCT boss_name 
-            FROM boss_time 
-            WHERE group_id = %s
-        """, (group_id,))
-        
-        # 使用 Set Comprehension 整理已記錄的王，加快後續比對速度
-        recorded_bosses = {row[0] for row in cur.fetchall()}
-        
-        # 2. 遍歷 cd_map，將沒紀錄的王寫入資料庫
-        count = 0
-        for boss, cd in cd_map.items():
-            if boss in recorded_bosses:
-                continue # 已有紀錄就跳過
-            
-            # 計算重生時間
-            respawn = base_time + timedelta(hours=cd)
-            
-            # 寫入 PostgreSQL 的 boss_time 資料表
-            insert_query = """
-                INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """
-            cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "開機", "boot"))
-            count += 1
-            
-        # 3. 提交變更 (非常重要，沒這行不會存檔！)
-        conn.commit()
-        print(f"成功將 {count} 筆開機紀錄寫入 PostgreSQL 資料庫！")
-        
-    except Exception as e:
-        conn.rollback() # 出錯時復原，避免資料庫狀態異常
-        print(f"寫入資料庫發生錯誤: {e}")
-    finally:
-        # 確保正確關閉指標與連線，釋放資源
-        if 'cur' in locals():
-            cur.close()
-        conn.close()
 
 def delete_boss_records_by_alias(group_id, input_text):
     """
@@ -3004,6 +2946,64 @@ def init_cd_boss_with_given_time(db, group_id, base_time):
             "user": "__SYSTEM__"
         })
 
+def init_cd_boss_with_given_time(group_id, base_time, user_id, cd_map):   
+    """
+    開機初始化：將各王的開機時間寫入 PostgreSQL 資料庫。
+    
+    【參數說明】
+    - group_id: 群組的 ID (字串或數字)
+    - base_time: 基準時間 (datetime 物件，通常是現在時間)
+    - user_id: 執行此動作的使用者 ID
+    - cd_map: 記錄各王冷卻時間的字典，例如 {'巴風特': 2, '死神': 4}
+    """
+    # 呼叫你專案中取得資料庫連線的函式
+    conn = get_pg_conn()
+    if not conn: 
+        print("無法取得資料庫連線")
+        return
+    
+    try:
+        cur = conn.cursor()
+        
+        # 1. 抓出該群組中已經有紀錄的王
+        cur.execute("""
+            SELECT DISTINCT boss_name 
+            FROM boss_time 
+            WHERE group_id = %s
+        """, (group_id,))
+        
+        # 使用 Set Comprehension 整理已記錄的王，加快後續比對速度
+        recorded_bosses = {row[0] for row in cur.fetchall()}
+        
+        # 2. 遍歷 cd_map，將沒紀錄的王寫入資料庫
+        count = 0
+        for boss, cd in cd_map.items():
+            if boss in recorded_bosses:
+                continue # 已有紀錄就跳過
+            
+            # 計算重生時間
+            respawn = base_time + timedelta(hours=cd)
+            
+            # 寫入 PostgreSQL 的 boss_time 資料表
+            insert_query = """
+                INSERT INTO boss_time (group_id, boss_name, kill_time, respawn_time, user_id, note, source)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """
+            cur.execute(insert_query, (group_id, boss, base_time, respawn, user_id, "開機", "boot"))
+            count += 1
+            
+        # 3. 提交變更 (非常重要，沒這行不會存檔！)
+        conn.commit()
+        print(f"成功將 {count} 筆開機紀錄寫入 PostgreSQL 資料庫！")
+        
+    except Exception as e:
+        conn.rollback() # 出錯時復原，避免資料庫狀態異常
+        print(f"寫入資料庫發生錯誤: {e}")
+    finally:
+        # 確保正確關閉指標與連線，釋放資源
+        if 'cur' in locals():
+            cur.close()
+        conn.close()
 
 from datetime import datetime, timedelta
 import pytz
