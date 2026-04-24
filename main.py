@@ -4390,14 +4390,19 @@ def handle_message(event):
     # 在 handle_message 內判斷指令
     if msg_text.startswith("撤"):
         boss_name_input = msg_text[1:].strip()
-        # 呼叫修改後的函式，它現在會直接給我們包含最新資料的字串
-        success, result_message = undo_last_boss_record(group_id, boss_name_input)
         
-        # 直接回覆處理結果
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text=result_message)
-        )
+        # 💡 檢查輸入是否只有「撤」一個字
+        if not boss_name_input:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="請輸入要撤銷的王名，例如：撤 克特"))
+            return
+
+        success, result_obj = undo_last_boss_record(group_id, boss_name_input)
+        
+        # 💡 最終防線：確認 result_obj 存在
+        if result_obj:
+            line_bot_api.reply_message(event.reply_token, result_obj)
+        else:
+            print("錯誤：result_obj 為空")
     #-------------------------------------------------------------KPI---------------------------------------
     if msg.upper() == "KPI":
         now = now_tw()
