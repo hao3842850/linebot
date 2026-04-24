@@ -782,18 +782,40 @@ def build_kill_list_flex(title, display_items):
         "size": "mega", # 若內容較多，可以考慮使用 mega 尺寸讓畫面更寬敞
         "header": {
             "type": "box", 
-            "layout": "vertical", 
-            "backgroundColor": "#2C3E50", # 更有質感的深藍灰
-            "paddingAll": "15px", # 加大標題的上下留白
+            "layout": "horizontal",           # 【修改點】改為水平排列
+            "alignItems": "center",           # 【修改點】讓標題與按鈕垂直置中
+            "backgroundColor": "#2C3E50", 
+            "paddingAll": "15px", 
             "contents": [
-                {"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "md", "align": "center"}
+                # 左側：標題 (flex: 1 會佔滿剩餘空間)
+                {
+                    "type": "text", 
+                    "text": title, 
+                    "color": "#ffffff", 
+                    "weight": "bold", 
+                    "size": "md", 
+                    "flex": 1
+                },
+                # 右側：交班按鈕 (flex: 0 維持按鈕大小並靠右)
+                {
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "交班",
+                        "text": "交班"
+                    },
+                    "style": "primary",
+                    "color": "#1DB100",       # 使用 LINE 綠色以提高辨識度，你也可以改成喜歡的顏色
+                    "height": "sm",
+                    "flex": 0
+                }
             ]
         },
         "body": {
             "type": "box", 
             "layout": "vertical", 
             "spacing": "none", 
-            "paddingAll": "20px", # 讓主體內容不要太貼近視窗邊緣
+            "paddingAll": "20px", 
             "contents": rows if rows else [
                 {"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm", "margin": "xl"}
             ]
@@ -810,7 +832,7 @@ def build_kill_list_flex(title, display_items):
                         "label": "🔄 更新清單",
                         "text": "打王"
                     },
-                    "style": "secondary", # 改為 secondary，讓更新按鈕呈現輕量化的灰色底，不搶主視覺
+                    "style": "secondary", 
                     "height": "sm"
                 }
             ]
