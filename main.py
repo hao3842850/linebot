@@ -4328,14 +4328,21 @@ def handle_message(event):
         return
 
     #-------------------------------------------------------------重生列表---------------------------------------
-    is_force_full = (msg == "出出")
-    if msg in ("出", "出出"):
+    # 將訊息轉換為小寫，避免使用者不小心打成大寫 (例如 TJ) 而無法辨識
+    msg_lower = msg.lower()
+
+    # 檢查訊息是否為「出出」或其對應的英文錯字「tjtj」
+    is_force_full = (msg_lower in ("出出", "tjtj"))
+
+    # 將「tj」與「tjtj」加入主要的觸發條件中
+    if msg_lower in ("出", "出出", "tj", "tjtj"):
         now = now_tw()
         time_items = []
         unregistered = []
         
+        # 取得群組 ID 並撈取資料庫紀錄
         group_id = getattr(event.source, 'group_id', 'default_group')
-        boss_db_from_pg = get_latest_boss_records(group_id) 
+        boss_db_from_pg = get_latest_boss_records(group_id)
 
         for boss, cd in cd_map.items():
             if boss not in boss_db_from_pg or not boss_db_from_pg[boss]:
