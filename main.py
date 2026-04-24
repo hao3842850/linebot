@@ -906,6 +906,70 @@ def notify_boss_team_with_flex(group_id, boss_name):
     finally:
         cur.close()
         conn.close()
+
+
+def undo_last_boss_record(group_id, input_text):
+    """
+    撤銷最近一筆登記，並回傳該王目前的最新狀態。
+    """
+    target_boss = None
+    for full_name, aliases in alias_map.items():
+        if input_text in aliases or input_text == full_name:
+            target_boss = full_name
+            break
+            
+    if not target_boss:
+        return False, "❌ 找不到該王名，請確認輸入是否正確。"
+
+    conn = get_pg_conn()
+    if not conn: return False, "❌ 資料庫連線失敗"
+    
+    try:
+        cur = conn.cursor()
+        # 1. 找出並刪除該王最近的一筆紀錄 (id 最大者)
+        cur.execute("""
+            DELETE FROM boss_time 
+            WHERE id = (
+                SELECT id FROM boss_time 
+                WHERE group_id = %s AND boss_name = %s 
+                ORDER BY id DESC LIMIT 1
+            )
+            RETURNING id;
+        """, (group_id, target_boss))
+        
+        deleted_row = cur.fetchone()
+        if not deleted_row:
+            return False, f"❌ 找不到 {target_boss} 的任何登記紀錄可供撤銷。"
+        
+        conn.commit()
+
+        # 2. 刪除成功後，立即查詢該王目前的最新一筆紀錄 (即原先的「上一筆」)
+        cur.execute("""
+            SELECT kill_time, respawn_time, note 
+            FROM boss_time 
+            WHERE group_id = %s AND boss_name = %s 
+            ORDER BY id DESC LIMIT 1
+        """, (group_id, target_boss))
+        
+        new_record = cur.fetchone()
+        
+        if new_record:
+            k_time, r_time, note = new_record
+            note_str = f" ({note})" if note else ""
+            msg = (f"✅ 已撤銷 {target_boss} 的錯誤登記。\n"
+                   f"📊 目前最新紀錄：\n"
+                   f"擊殺：{k_time.strftime('%H:%M:%S')}\n"
+                   f"重生：{r_time.strftime('%H:%M:%S')}{note_str}")
+        else:
+            msg = f"✅ 已撤銷 {target_boss} 的唯一紀錄，目前該王已無登記資料。"
+            
+        return True, msg
+
+    except Exception as e:
+        print(f"撤銷邏輯出錯: {e}")
+        return False, "⚠️ 系統處理出錯，請稍後再試。"
+    finally:
+        conn.close()
 from datetime import datetime, timedelta
 import pytz # 記得 pip install pytz
 
@@ -4233,6 +4297,22 @@ def handle_message(event):
         except Exception as e:
             print(f"查詢錯誤: {e}")
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="查詢過程發生錯誤，請稍後再試。"))
+
+
+
+
+
+    # 在 handle_message 內判斷指令
+    if msg_text.startswith("撤"):
+        boss_name_input = msg_text[1:].strip()
+        # 呼叫修改後的函式，它現在會直接給我們包含最新資料的字串
+        success, result_message = undo_last_boss_record(group_id, boss_name_input)
+        
+        # 直接回覆處理結果
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=result_message)
+        )
     #-------------------------------------------------------------KPI---------------------------------------
     if msg.upper() == "KPI":
         now = now_tw()
