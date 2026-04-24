@@ -696,6 +696,86 @@ def build_all_boss_quick_flex():
     # 務必檢查這裡的 FlexSendMessage 拼字與結構
     return FlexSendMessage(alt_text="快速登記選單", contents=bubble_content)
 
+def build_undo_flex(boss_name, k_time_str, r_time_str, note=None):
+    """
+    建立撤銷成功的 Flex Message
+    """
+    # 備註欄位：如果有備註才顯示，否則回傳空元件
+    note_component = {
+        "type": "box",
+        "layout": "vertical",
+        "margin": "lg",
+        "spacing": "sm",
+        "contents": [
+            {
+                "type": "box",
+                "layout": "baseline",
+                "spacing": "sm",
+                "contents": [
+                    {"type": "text", "text": "備註", "color": "#aaaaaa", "size": "sm", "flex": 1},
+                    {"type": "text", "text": str(note), "wrap": True, "color": "#666666", "size": "sm", "flex": 4}
+                ]
+            }
+        ]
+    } if note else {"type": "filler"}
+
+    contents = {
+        "type": "bubble",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "撤銷成功", "weight": "bold", "color": "#FFFFFF", "size": "sm"},
+                {"type": "text", "text": boss_name, "weight": "bold", "size": "xxl", "margin": "md", "color": "#FFFFFF"}
+            ],
+            "backgroundColor": "#27ae60" # 成功色：綠色
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "📊 系統已回溯至上一筆紀錄", "size": "sm", "color": "#111111", "weight": "bold"},
+                {"type": "separator", "margin": "md"},
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "lg",
+                    "spacing": "sm",
+                    "contents": [
+                        {
+                            "type": "box",
+                            "layout": "baseline",
+                            "spacing": "sm",
+                            "contents": [
+                                {"type": "text", "text": "擊殺", "color": "#aaaaaa", "size": "sm", "flex": 1},
+                                {"type": "text", "text": k_time_str, "wrap": True, "color": "#666666", "size": "sm", "flex": 4}
+                            ]
+                        },
+                        {
+                            "type": "box",
+                            "layout": "baseline",
+                            "spacing": "sm",
+                            "contents": [
+                                {"type": "text", "text": "重生", "color": "#aaaaaa", "size": "sm", "flex": 1},
+                                {"type": "text", "text": r_time_str, "wrap": True, "color": "#666666", "size": "sm", "flex": 4}
+                            ]
+                        }
+                    ]
+                },
+                note_component
+            ]
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": "提示：輸入「打王」查看完整清單", "style": "italic", "size": "xs", "color": "#aaaaaa", "align": "center"}
+            ]
+        }
+    }
+    return contents
+
 def build_kill_list_flex(title, display_items):
     rows = []
     # 假設 now_tw() 已經在你的環境中定義好了
@@ -910,7 +990,7 @@ def notify_boss_team_with_flex(group_id, boss_name):
 
 def undo_last_boss_record(group_id, input_text):
     """
-    撤銷最近一筆登記，並回傳該王目前的最新狀態。
+    撤銷最近一筆登記，並回傳該王目前的最新狀態（Flex Message）。
     """
     target_boss = None
     for full_name, aliases in alias_map.items():
@@ -919,14 +999,14 @@ def undo_last_boss_record(group_id, input_text):
             break
             
     if not target_boss:
-        return False, "❌ 找不到該王名，請確認輸入是否正確。"
+        return False, TextSendMessage(text="❌ 找不到該王名，請確認輸入是否正確。")
 
     conn = get_pg_conn()
-    if not conn: return False, "❌ 資料庫連線失敗"
+    if not conn: return False, TextSendMessage(text="❌ 資料庫連線失敗")
     
     try:
         cur = conn.cursor()
-        # 1. 找出並刪除該王最近的一筆紀錄 (id 最大者)
+        # 1. 刪除最近一筆
         cur.execute("""
             DELETE FROM boss_time 
             WHERE id = (
@@ -937,13 +1017,12 @@ def undo_last_boss_record(group_id, input_text):
             RETURNING id;
         """, (group_id, target_boss))
         
-        deleted_row = cur.fetchone()
-        if not deleted_row:
-            return False, f"❌ 找不到 {target_boss} 的任何登記紀錄可供撤銷。"
+        if not cur.fetchone():
+            return False, TextSendMessage(text=f"❌ 找不到 {target_boss} 的任何登記紀錄可供撤銷。")
         
         conn.commit()
 
-        # 2. 刪除成功後，立即查詢該王目前的最新一筆紀錄 (即原先的「上一筆」)
+        # 2. 查詢更新後的最新紀錄
         cur.execute("""
             SELECT kill_time, respawn_time, note 
             FROM boss_time 
@@ -953,48 +1032,27 @@ def undo_last_boss_record(group_id, input_text):
         
         new_record = cur.fetchone()
         
-        # ... 前段刪除邏輯保持不變 ...
-
         if new_record:
             k_time, r_time, note = new_record
             
-            # --- 時區轉換處理 ---
-            # 假設資料庫存的是 UTC，將其轉換為 TZ (Asia/Taipei)
-            if k_time.tzinfo is None:
-                k_time = pytz.utc.localize(k_time).astimezone(TZ)
-            else:
-                k_time = k_time.astimezone(TZ)
-                
-            if r_time.tzinfo is None:
-                r_time = pytz.utc.localize(r_time).astimezone(TZ)
-            else:
-                r_time = r_time.astimezone(TZ)
+            # --- 台灣時區轉換 (Asia/Taipei) ---
+            k_tw = k_time.astimezone(TZ) if k_time.tzinfo else pytz.utc.localize(k_time).astimezone(TZ)
+            r_tw = r_time.astimezone(TZ) if r_time.tzinfo else pytz.utc.localize(r_time).astimezone(TZ)
 
-            # --- 訊息美化排版 ---
-            note_val = f"\n📝 備註：{note}" if note else ""
-            divider = "━━━━━━━━━━━━━━━"
-            
-            msg = (
-                f"✅ 撤銷成功：{target_boss}\n"
-                f"{divider}\n"
-                f"📊 系統已回溯至上一筆紀錄：\n\n"
-                f"🕒 擊殺時間：{k_time.strftime('%H:%M:%S')}\n"
-                f"⏳ 重生時間：{r_time.strftime('%H:%M:%S')}"
-                f"{note_val}\n"
-                f"{divider}\n"
+            # 產生卡片內容
+            flex_json = build_undo_flex(
+                target_boss, 
+                k_tw.strftime('%H:%M:%S'), 
+                r_tw.strftime('%H:%M:%S'), 
+                note
             )
+            return True, FlexSendMessage(alt_text=f"撤銷成功：{target_boss}", contents=flex_json)
         else:
-            msg = (
-                f"✅ 撤銷成功：{target_boss}\n"
-                f"{divider}\n"
-                f"目前資料庫已無該王的登記紀錄。"
-            )
-            
-        return True, msg
+            return True, TextSendMessage(text=f"✅ 已撤銷 {target_boss} 的唯一紀錄，目前無登記資料。")
 
     except Exception as e:
         print(f"撤銷邏輯出錯: {e}")
-        return False, "⚠️ 系統處理出錯，請稍後再試。"
+        return False, TextSendMessage(text="⚠️ 系統處理出錯，請稍後再試。")
     finally:
         conn.close()
 from datetime import datetime, timedelta
