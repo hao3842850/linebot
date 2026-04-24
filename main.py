@@ -953,15 +953,42 @@ def undo_last_boss_record(group_id, input_text):
         
         new_record = cur.fetchone()
         
+        # ... 前段刪除邏輯保持不變 ...
+
         if new_record:
             k_time, r_time, note = new_record
-            note_str = f" ({note})" if note else ""
-            msg = (f"✅ 已撤銷 {target_boss} 的錯誤登記。\n"
-                   f"📊 目前最新紀錄：\n"
-                   f"擊殺：{k_time.strftime('%H:%M:%S')}\n"
-                   f"重生：{r_time.strftime('%H:%M:%S')}{note_str}")
+            
+            # --- 時區轉換處理 ---
+            # 假設資料庫存的是 UTC，將其轉換為 TZ (Asia/Taipei)
+            if k_time.tzinfo is None:
+                k_time = pytz.utc.localize(k_time).astimezone(TZ)
+            else:
+                k_time = k_time.astimezone(TZ)
+                
+            if r_time.tzinfo is None:
+                r_time = pytz.utc.localize(r_time).astimezone(TZ)
+            else:
+                r_time = r_time.astimezone(TZ)
+
+            # --- 訊息美化排版 ---
+            note_val = f"\n📝 備註：{note}" if note else ""
+            divider = "━━━━━━━━━━━━━━━"
+            
+            msg = (
+                f"✅ 撤銷成功：{target_boss}\n"
+                f"{divider}\n"
+                f"📊 系統已回溯至上一筆紀錄：\n\n"
+                f"🕒 擊殺時間：{k_time.strftime('%H:%M:%S')}\n"
+                f"⏳ 重生時間：{r_time.strftime('%H:%M:%S')}"
+                f"{note_val}\n"
+                f"{divider}\n"
+            )
         else:
-            msg = f"✅ 已撤銷 {target_boss} 的唯一紀錄，目前該王已無登記資料。"
+            msg = (
+                f"✅ 撤銷成功：{target_boss}\n"
+                f"{divider}\n"
+                f"目前資料庫已無該王的登記紀錄。"
+            )
             
         return True, msg
 
