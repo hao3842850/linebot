@@ -2866,116 +2866,70 @@ def build_roster_flex(rows):
             "contents": body_contents
         }
     }
-def build_shift_status_flex(group_id, current_uid, next_uid):
-    current_name = get_username(current_uid) if current_uid else "目前空班中"
-    
-    if not next_uid:
-        next_display = "⚠️ 尚無人接班"
-        next_color = "#FF5252"
-        next_weight = "bold"
-    else:
-        next_display = get_username(next_uid)
-        next_color = "#555555"
-        next_weight = "bold"
-
-    bubble = {
+def build_error_flex(title, message, boss_name):
+    """
+    修正後的警告類型 Flex Message，確保符合 LINE 嚴格的 schema
+    """
+    flex_content = {
         "type": "bubble",
-        "size": "md",
+        "size": "mega",  # 這是正確的 size 位置
         "header": {
             "type": "box",
             "layout": "vertical",
-            "backgroundColor": "#2C3E50",
+            "backgroundColor": "#FF5252",
             "paddingAll": "20px",
             "contents": [
                 {
                     "type": "text",
-                    "text": "⚔️ 王表交接系統",
-                    "color": "#FFFFFF",
+                    "text": f"⚠️ {title}",
                     "weight": "bold",
-                    "size": "lg",
-                    "align": "center"
+                    "color": "#FFFFFF",
+                    "size": "lg" # Text 組件可以用 size
                 }
             ]
         },
         "body": {
             "type": "box",
             "layout": "vertical",
-            "spacing": "xl",
+            "spacing": "md",
             "paddingAll": "20px",
             "contents": [
                 {
                     "type": "box",
-                    "layout": "vertical",
+                    "layout": "horizontal",
                     "contents": [
-                        {"type": "text", "text": "當前值班員", "size": "xs", "color": "#aaaaaa", "margin": "none"},
-                        {
-                            "type": "box",
-                            "layout": "horizontal",
-                            "alignItems": "center",
-                            "margin": "sm",
-                            "contents": [
-                                # --- 修正點：改用 text 組件顯示圓點，避免 width/height 報錯 ---
-                                {
-                                    "type": "text",
-                                    "text": "●",
-                                    "size": "xs",
-                                    "color": "#66BB6A" if current_uid else "#FF5252",
-                                    "flex": 0
-                                },
-                                {
-                                    "type": "text",
-                                    "text": current_name,
-                                    "weight": "bold",
-                                    "size": "md",
-                                    "margin": "md",
-                                    "flex": 1
-                                }
-                            ]
-                        }
+                        {"type": "text", "text": "目標對象", "size": "sm", "color": "#aaaaaa", "flex": 2},
+                        {"type": "text", "text": boss_name, "weight": "bold", "size": "sm", "color": "#333333", "flex": 4, "align": "end"}
                     ]
                 },
-                {"type": "separator"},
+                {"type": "separator", "margin": "md"},
                 {
                     "type": "box",
                     "layout": "vertical",
+                    "margin": "lg",
+                    "paddingAll": "12px",
+                    "backgroundColor": "#F8F9FA",
+                    "cornerRadius": "md",
                     "contents": [
-                        {"type": "text", "text": "預計接班人員", "size": "xs", "color": "#aaaaaa"},
+                        {"type": "text", "text": "詳細資訊", "size": "xxs", "color": "#888888"},
                         {
                             "type": "text",
-                            "text": next_display,
-                            "color": next_color,
-                            "weight": next_weight,
-                            "size": "md",
-                            "margin": "sm"
+                            "text": message,
+                            "wrap": True,
+                            "color": "#E63946",
+                            "size": "sm", # Text 組件可以用 size
+                            "margin": "sm",
+                            "weight": "bold"
                         }
                     ]
+                    # ❌ 這裡千萬不能寫 size: "sm"
                 }
             ]
-        },
-        "footer": {
-            "type": "box",
-            "layout": "vertical",
-            "paddingAll": "15px",
-            "contents": [
-                {
-                    "type": "button",
-                    "action": {
-                        "type": "message",
-                        "label": "🙋 我要接班",
-                        "text": "接班"
-                    },
-                    "style": "primary",
-                    "color": "#1DB100",
-                    "height": "sm"
-                }
-            ]
-        },
-        "styles": {
-            "footer": {"separator": True}
         }
     }
-    
-    return FlexSendMessage(alt_text="📢 交接班狀態確認", contents=bubble)
+
+    # 這裡我們換一種更穩定的回傳方式，直接傳入字典
+    return FlexSendMessage(alt_text=f"錯誤: {title}", contents=flex_content)
 def get_boss_history(group_id, boss_name):
     """查詢該群組、該王的最近 5 筆擊殺紀錄"""
     conn = get_pg_conn()
