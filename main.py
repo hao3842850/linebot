@@ -797,13 +797,16 @@ def build_undo_flex(boss_name, k_time_str, r_time_str, note=None):
     }
     return contents
 
+# 這是暫時的名單，之後你可以隨時替換成你給我的真實名單
+MAYBE_SKIP_BOSSES = ["小紅", "小綠", "守護螞蟻", "巨大蜈蚣", "伊弗利特", "大腳瑪幽", "巨大飛龍", "力卡溫", "卡司特王", "變形怪首領", "古代巨人", "不死鳥", "克特", "賽尼斯的分身", "貝里斯", "烏勒庫斯", "奈克偌斯"] 
+
 def build_kill_list_flex(title, display_items):
     rows = []
+    # 假設你有一個取得現在時間的函式 now_tw()
     now = now_tw()
 
     for i, (dt, line_text) in enumerate(display_items):
         parts = line_text.split(" ", 1)
-        # --- 修改點：這裡保留原始含秒數的時間字串 ---
         time_str = parts[0] 
         boss_info = parts[1] if len(parts) > 1 else ""
         
@@ -818,76 +821,98 @@ def build_kill_list_flex(title, display_items):
             bg_color = "#66BB6A"
             status_text = "等待"
 
+        # 取得乾淨的王名，用來比對名單與發送指令
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
+        # --- 修改點：將內容獨立為一個陣列，方便動態調整 ---
+        row_contents = [
+            # 1. 時間色塊標籤
+            {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 4, 
+                "contents": [
+                    {
+                        "type": "text", 
+                        "text": time_str, 
+                        "size": "xxs", 
+                        "color": "#ffffff", 
+                        "weight": "bold", 
+                        "align": "center"
+                    },
+                    {
+                        "type": "text", 
+                        "text": status_text, 
+                        "size": "xxs", 
+                        "color": "#ffffff", 
+                        "align": "center", 
+                        "opacity": "0.9", 
+                        "margin": "2px"
+                    }
+                ],
+                "backgroundColor": bg_color,
+                "cornerRadius": "md",
+                "paddingAll": "4px" 
+            },
+            # 2. 王名 (預設 flex 為 6)
+            {
+                "type": "text", 
+                "text": boss_info, 
+                "size": "sm", 
+                "weight": "bold", 
+                "flex": 6, 
+                "gravity": "center", 
+                "wrap": True,
+                "margin": "md"
+            },
+            # 3. 擊殺按鈕
+            {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 2,
+                "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
+                "backgroundColor": "#4A90E2", 
+                "cornerRadius": "lg",
+                "paddingAll": "6px",
+                "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
+            }
+        ]
+
+        # --- 修改點：判斷是否為「可能沒出的王」 ---
+        if pure_name in MAYBE_SKIP_BOSSES:
+            # 為了塞下第二顆按鈕，將王名的 flex 從 6 縮小為 4
+            row_contents[1]["flex"] = 4
+            
+            # 新增輪空按鈕
+            row_contents.append({
+                "type": "box",
+                "layout": "vertical",
+                "flex": 2,
+                "contents": [{"type": "text", "text": "輪空", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
+                "backgroundColor": "#9E9E9E", # 使用灰色表示輪空/跳過
+                "cornerRadius": "lg",
+                "paddingAll": "6px",
+                "marginLeft": "sm", # 與擊殺按鈕稍微隔開
+                # 這裡的指令文字 f"輪空 {pure_name}" 可以改成你系統實際接收的輪空指令
+                "action": {"type": "message", "label": "Skip", "text": f"{pure_name} 空"} 
+            })
+
+        # 組合這個排版列
         row_box = {
             "type": "box",
             "layout": "horizontal",
             "margin": "md",
             "alignItems": "center",
-            "contents": [
-                # 1. 時間色塊標籤 (優化後的配置)
-                {
-                    "type": "box",
-                    "layout": "vertical",
-                    "flex": 4, # 【調整】稍微增加 flex，從 3 改為 4
-                    "contents": [
-                        {
-                            "type": "text", 
-                            "text": time_str, 
-                            "size": "xxs", # 【調整】字體改為 xxs，確保秒數不被裁切
-                            "color": "#ffffff", 
-                            "weight": "bold", 
-                            "align": "center"
-                        },
-                        {
-                            "type": "text", 
-                            "text": status_text, 
-                            "size": "xxs", 
-                            "color": "#ffffff", 
-                            "align": "center", 
-                            "opacity": "0.9", 
-                            "margin": "2px"
-                        }
-                    ],
-                    "backgroundColor": bg_color,
-                    "cornerRadius": "md",
-                    "paddingAll": "4px" # 【調整】稍微縮小內距
-                },
-                # 2. 王名
-                {
-                    "type": "text", 
-                    "text": boss_info, 
-                    "size": "sm", 
-                    "weight": "bold", 
-                    "flex": 6, # 【調整】維持 6，或視情況改為 5
-                    "gravity": "center", 
-                    "wrap": True,
-                    "margin": "md"
-                },
-                # 3. 擊殺按鈕
-                {
-                    "type": "box",
-                    "layout": "vertical",
-                    "flex": 2,
-                    "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
-                    "backgroundColor": "#4A90E2", 
-                    "cornerRadius": "lg",
-                    "paddingAll": "6px",
-                    "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
-                }
-            ]
+            "contents": row_contents
         }
 
         if i > 0:
             rows.append({"type": "separator", "margin": "lg", "color": "#ECECEC"})
-        
-        if i > 0:
             row_box["margin"] = "lg"
 
         rows.append(row_box)
 
-    # 組合整個 Bubble (其餘部分維持不變)
+    # 組合整個 Bubble
     bubble = {
         "type": "bubble",
         "size": "mega",
