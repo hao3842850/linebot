@@ -1686,6 +1686,59 @@ def clear_confirm_flex():
         }
       }
     }
+def ensure_roster_table():
+    """確保名冊資料表存在，並且包含最新的 new_jod 欄位"""
+    conn = get_pg_conn()
+    if not conn: 
+        return
+    try:
+        with conn.cursor() as cur:
+            # 1. 如果資料表還沒建立，先建立基本結構 (請根據你原有的欄位調整)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS roster (
+                    user_id VARCHAR(255) PRIMARY KEY,
+                    game_name VARCHAR(255),
+                    clan_name VARCHAR(255)
+                );
+            """)
+            
+            # 2. 安全地新增 new_jod 欄位 (IF NOT EXISTS 可以避免重複新增報錯)
+            cur.execute("""
+                ALTER TABLE roster 
+                ADD COLUMN IF NOT EXISTS new_jod VARCHAR(100);
+            """)
+        conn.commit()
+        print("✅ 名冊資料表 (roster) 與 new_jod 欄位確認完畢！")
+    except Exception as e:
+        print(f"❌ 名冊資料表設定失敗: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+def update_roster_job(user_id, job_name):
+    """單獨更新玩家的職業 (new_jod)"""
+    conn = get_pg_conn()
+    if not conn: 
+        return False
+    try:
+        with conn.cursor() as cur:
+            # 先確認玩家是否已經在名冊內
+            cur.execute("SELECT 1 FROM roster WHERE user_id = %s", (user_id,))
+            if cur.fetchone():
+                # 如果存在，就更新他的 new_jod
+                cur.execute("UPDATE roster SET new_jod = %s WHERE user_id = %s", (job_name, user_id))
+            else:
+                # 如果玩家還沒建立過名冊，可以直接幫他建立一筆只有 user_id 和職業的資料
+                cur.execute("INSERT INTO roster (user_id, new_jod) VALUES (%s, %s)", (user_id, job_name))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"❌ 更新職業失敗: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
 def build_boot_init_flex(base_time_str):
     return {
         "type": "bubble",
@@ -4339,6 +4392,33 @@ def handle_message(event):
                 event.reply_token,
                 TextSendMessage("❎ 已取消操作")
             )
+            return
+        
+# === 單獨更新職業功能 ===
+        if text.startswith("更新職業 "):
+            # 擷取「更新職業 」後面的字串作為職業名稱
+            new_job_name = text.split(" ", 1)[1].strip()
+            
+            if not new_job_name:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text="⚠️ 請輸入要更新的職業名稱！例如：更新職業 妖精")
+                )
+                return
+
+            # 呼叫我們剛剛寫好的函式
+            is_success = update_roster_job(user, new_job_name)
+            
+            if is_success:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=f"✅ 成功將您的職業更新為：【{new_job_name}】")
+                )
+            else:
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text="❌ 更新職業失敗，請稍後再試或聯繫管理員。")
+                )
             return
     #-------------------------------------------------------------查名冊 (未完成) 用LINE名稱查 去掉@抓後面字---------------------------------------
     if text.startswith("查名冊"):
