@@ -823,7 +823,7 @@ def build_kill_list_flex(title, display_items):
         # 乾淨的王名，用來比對清單
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
-        # 1. 擊殺按鈕 (排第一，Flex: 2)
+        # 1. 擊殺按鈕 (Flex: 2)
         kill_btn = {
             "type": "box",
             "layout": "vertical",
@@ -835,31 +835,31 @@ def build_kill_list_flex(title, display_items):
             "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
         }
 
-        # 2. 時間色塊標籤 (排第二，Flex: 4)
+        # 2. 時間色塊標籤 (Flex: 3，稍微縮小)
         time_box = {
             "type": "box",
             "layout": "vertical",
-            "flex": 4, 
+            "flex": 3, 
             "contents": [
                 {"type": "text", "text": time_str, "size": "xxs", "color": "#ffffff", "weight": "bold", "align": "center"},
                 {"type": "text", "text": status_text, "size": "xxs", "color": "#ffffff", "align": "center", "opacity": "0.9", "margin": "2px"}
             ],
             "backgroundColor": bg_color,
             "cornerRadius": "md",
-            "paddingAll": "4px",
-            "marginLeft": "xs" # 與左邊的擊殺按鈕稍微隔開
+            "paddingAll": "4px"
+            # 移除 marginLeft，交給外層統一管理
         }
 
-        # 3. 王名標籤 (排第三，預設 Flex: 6)
+        # 3. 王名標籤 (Flex: 7，給予更多空間避免換行過多)
         boss_name_box = {
             "type": "text", 
             "text": boss_info, 
             "size": "sm", 
             "weight": "bold", 
-            "flex": 6, 
+            "flex": 7, 
             "gravity": "center", 
-            "wrap": True,
-            "marginLeft": "sm" # 與左邊的時間標籤稍微隔開
+            "wrap": True
+            # 移除 marginLeft
         }
 
         # 開始組合這一列的內容 (順序：擊殺 -> 時間 -> 王名)
@@ -868,7 +868,7 @@ def build_kill_list_flex(title, display_items):
         # --- 判斷邏輯：如果符合輪空條件，將輪空按鈕加在最右邊 ---
         if pure_name in MAYBE_SKIP_BOSSES and "#過" not in boss_info:
             # 縮小王名空間，騰出位置給輪空按鈕
-            boss_name_box["flex"] = 4
+            boss_name_box["flex"] = 5
             
             # 建立輪空按鈕
             skip_btn = {
@@ -879,17 +879,18 @@ def build_kill_list_flex(title, display_items):
                 "backgroundColor": "#9E9E9E", 
                 "cornerRadius": "lg",
                 "paddingAll": "6px",
-                "marginLeft": "xs", # 與左邊的王名稍微隔開
                 "action": {"type": "message", "label": "Skip", "text": f"輪空 {pure_name}"} 
             }
             # 將輪空按鈕加入陣列的最尾端
             row_contents.append(skip_btn)
 
 
+        # 組合整列容器
         row_box = {
             "type": "box",
             "layout": "horizontal",
             "margin": "md",
+            "spacing": "sm", # 🔥 新增：利用官方內建的間距屬性，讓所有元件整齊排開
             "alignItems": "center",
             "contents": row_contents
         }
