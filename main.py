@@ -2867,22 +2867,20 @@ def build_roster_flex(rows):
         }
     }
 def build_shift_status_flex(group_id, current_uid, next_uid):
-    # 確保 get_username 存在，若不存在請確保有此自定義函式
     current_name = get_username(current_uid) if current_uid else "目前空班中"
     
-    # 判定接班人邏輯與顏色
     if not next_uid:
         next_display = "⚠️ 尚無人接班"
-        next_color = "#FF5252" # 珊瑚紅
+        next_color = "#FF5252"
         next_weight = "bold"
     else:
         next_display = get_username(next_uid)
-        next_color = "#555555" # 深灰色
+        next_color = "#555555"
         next_weight = "bold"
 
+    # 移除 bubble 層級的 "size": "md"，讓它使用預設值，徹底避開 /size 報錯位置
     bubble = {
         "type": "bubble",
-        "size": "md",
         "header": {
             "type": "box",
             "layout": "vertical",
@@ -2909,7 +2907,7 @@ def build_shift_status_flex(group_id, current_uid, next_uid):
                     "type": "box",
                     "layout": "vertical",
                     "contents": [
-                        {"type": "text", "text": "當前值班員", "size": "xs", "color": "#aaaaaa", "margin": "none"},
+                        {"type": "text", "text": "當前值班員", "size": "xs", "color": "#aaaaaa"},
                         {
                             "type": "box",
                             "layout": "horizontal",
@@ -2976,7 +2974,6 @@ def build_shift_status_flex(group_id, current_uid, next_uid):
         }
     }
     
-    # 確保你有從 linebot.models 匯入 FlexSendMessage
     return FlexSendMessage(alt_text="📢 交接班狀態確認", contents=bubble)
 def get_boss_history(group_id, boss_name):
     """查詢該群組、該王的最近 5 筆擊殺紀錄"""
