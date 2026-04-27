@@ -1,17 +1,38 @@
 # 天堂M 吃王小幫手
 
-import os, json, time, asyncio, threading, requests, pytz, psycopg2
+# === 1. 標準庫模組 (Standard Libraries) ===
+import asyncio
+import json
+import os
+import threading
+import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse
 from threading import Lock
-from fastapi import FastAPI, Request, Header
+from urllib.parse import urlparse
+
+# === 2. 第三方套件 (Third-party Libraries) ===
+import psycopg2
+import pytz
+import requests
+from fastapi import FastAPI, Header, Request
+
+# === 3. LINE Bot SDK 相關導入 ===
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
-    JoinEvent,  
-    MemberJoinedEvent, MessageEvent, TextMessage, TextSendMessage, FlexSendMessage
+    # 事件類
+    JoinEvent,
+    MemberJoinedEvent,
+    MessageEvent,
+    # 訊息類
+    TextMessage,
+    TextSendMessage,
+    # Flex Message 核心與容器
+    FlexSendMessage,
+    FlexContainer,
+    BubbleContainer
 )
-from linebot.models import FlexSendMessage, FlexContainer # 確保導入 FlexContainer
+
 # 基本設定
 db_lock = Lock()
 app = FastAPI()
@@ -2848,23 +2869,22 @@ def build_roster_flex(rows):
 def build_shift_status_flex(group_id, current_uid, next_uid):
     current_name = get_username(current_uid) if current_uid else "目前空班中"
     
-    # 判定接班人邏輯與顏色
     if not next_uid:
         next_display = "⚠️ 尚無人接班"
-        next_color = "#FF5252" # 珊瑚紅 (警示)
+        next_color = "#FF5252"
         next_weight = "bold"
     else:
         next_display = get_username(next_uid)
-        next_color = "#555555" # 深灰色 (穩重)
+        next_color = "#555555"
         next_weight = "bold"
 
     bubble = {
         "type": "bubble",
-        "size": "md",  # 使用中型尺寸，精緻不占版面
+        "size": "md",
         "header": {
             "type": "box",
             "layout": "vertical",
-            "backgroundColor": "#2C3E50", # 延續打王表的深色系
+            "backgroundColor": "#2C3E50",
             "paddingAll": "20px",
             "contents": [
                 {
@@ -2883,7 +2903,6 @@ def build_shift_status_flex(group_id, current_uid, next_uid):
             "spacing": "xl",
             "paddingAll": "20px",
             "contents": [
-                # 當前值班區塊
                 {
                     "type": "box",
                     "layout": "vertical",
@@ -2895,13 +2914,13 @@ def build_shift_status_flex(group_id, current_uid, next_uid):
                             "alignItems": "center",
                             "margin": "sm",
                             "contents": [
+                                # --- 修正點：改用 text 組件顯示圓點，避免 width/height 報錯 ---
                                 {
-                                    "type": "box",
-                                    "layout": "vertical",
-                                    "width": "10px",
-                                    "height": "10px",
-                                    "backgroundColor": "#66BB6A" if current_uid else "#FF5252", # 綠點表示運作中
-                                    "cornerRadius": "10px"
+                                    "type": "text",
+                                    "text": "●",
+                                    "size": "xs",
+                                    "color": "#66BB6A" if current_uid else "#FF5252",
+                                    "flex": 0
                                 },
                                 {
                                     "type": "text",
@@ -2916,7 +2935,6 @@ def build_shift_status_flex(group_id, current_uid, next_uid):
                     ]
                 },
                 {"type": "separator"},
-                # 下位接班區塊
                 {
                     "type": "box",
                     "layout": "vertical",
@@ -2947,7 +2965,7 @@ def build_shift_status_flex(group_id, current_uid, next_uid):
                         "text": "接班"
                     },
                     "style": "primary",
-                    "color": "#1DB100", # LINE 經典綠
+                    "color": "#1DB100",
                     "height": "sm"
                 }
             ]
