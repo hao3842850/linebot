@@ -823,7 +823,19 @@ def build_kill_list_flex(title, display_items):
         # 乾淨的王名，用來比對清單
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
-        # 1. 時間色塊標籤 (Flex: 4)
+        # 1. 擊殺按鈕 (排第一，Flex: 2)
+        kill_btn = {
+            "type": "box",
+            "layout": "vertical",
+            "flex": 2,
+            "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
+            "backgroundColor": "#4A90E2", 
+            "cornerRadius": "lg",
+            "paddingAll": "6px",
+            "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
+        }
+
+        # 2. 時間色塊標籤 (排第二，Flex: 4)
         time_box = {
             "type": "box",
             "layout": "vertical",
@@ -834,10 +846,11 @@ def build_kill_list_flex(title, display_items):
             ],
             "backgroundColor": bg_color,
             "cornerRadius": "md",
-            "paddingAll": "4px" 
+            "paddingAll": "4px",
+            "marginLeft": "xs" # 與左邊的擊殺按鈕稍微隔開
         }
 
-        # 2. 王名標籤 (預設 Flex: 6)
+        # 3. 王名標籤 (排第三，預設 Flex: 6)
         boss_name_box = {
             "type": "text", 
             "text": boss_info, 
@@ -846,26 +859,13 @@ def build_kill_list_flex(title, display_items):
             "flex": 6, 
             "gravity": "center", 
             "wrap": True,
-            "margin": "md"
+            "marginLeft": "sm" # 與左邊的時間標籤稍微隔開
         }
 
-        # 3. 擊殺按鈕 (Flex: 2) - 固定在最後
-        kill_btn = {
-            "type": "box",
-            "layout": "vertical",
-            "flex": 2,
-            "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
-            "backgroundColor": "#4A90E2", 
-            "cornerRadius": "lg",
-            "paddingAll": "6px",
-            "marginLeft": "xs",
-            "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
-        }
+        # 開始組合這一列的內容 (順序：擊殺 -> 時間 -> 王名)
+        row_contents = [kill_btn, time_box, boss_name_box]
 
-        # 開始組合這一列的內容
-        row_contents = [time_box, boss_name_box]
-
-        # --- 新增邏輯：如果是名單內的王，且「沒有」包含 #過 標籤，才顯示輪空按鈕 ---
+        # --- 判斷邏輯：如果符合輪空條件，將輪空按鈕加在最右邊 ---
         if pure_name in MAYBE_SKIP_BOSSES and "#過" not in boss_info:
             # 縮小王名空間，騰出位置給輪空按鈕
             boss_name_box["flex"] = 4
@@ -879,14 +879,12 @@ def build_kill_list_flex(title, display_items):
                 "backgroundColor": "#9E9E9E", 
                 "cornerRadius": "lg",
                 "paddingAll": "6px",
-                "marginLeft": "xs",
+                "marginLeft": "xs", # 與左邊的王名稍微隔開
                 "action": {"type": "message", "label": "Skip", "text": f"輪空 {pure_name}"} 
             }
-            # 將輪空按鈕加入陣列 (這時會排在王名之後、擊殺之前)
+            # 將輪空按鈕加入陣列的最尾端
             row_contents.append(skip_btn)
 
-        # 最後放上固定的擊殺按鈕
-        row_contents.append(kill_btn)
 
         row_box = {
             "type": "box",
