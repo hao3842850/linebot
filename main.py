@@ -803,7 +803,6 @@ def build_kill_list_flex(title, display_items):
 
     for i, (dt, line_text) in enumerate(display_items):
         parts = line_text.split(" ", 1)
-        # --- 修改點：這裡保留原始含秒數的時間字串 ---
         time_str = parts[0] 
         boss_info = parts[1] if len(parts) > 1 else ""
         
@@ -826,16 +825,16 @@ def build_kill_list_flex(title, display_items):
             "margin": "md",
             "alignItems": "center",
             "contents": [
-                # 1. 時間色塊標籤 (優化後的配置)
+                # 1. 時間色塊標籤 (Flex: 3.5)
                 {
                     "type": "box",
                     "layout": "vertical",
-                    "flex": 4, # 【調整】稍微增加 flex，從 3 改為 4
+                    "flex": 35, 
                     "contents": [
                         {
                             "type": "text", 
                             "text": time_str, 
-                            "size": "xxs", # 【調整】字體改為 xxs，確保秒數不被裁切
+                            "size": "xxs", 
                             "color": "#ffffff", 
                             "weight": "bold", 
                             "align": "center"
@@ -852,42 +851,58 @@ def build_kill_list_flex(title, display_items):
                     ],
                     "backgroundColor": bg_color,
                     "cornerRadius": "md",
-                    "paddingAll": "4px" # 【調整】稍微縮小內距
+                    "paddingAll": "4px"
                 },
-                # 2. 王名
+                # 2. 王名 (Flex: 4.5)
                 {
                     "type": "text", 
                     "text": boss_info, 
                     "size": "sm", 
                     "weight": "bold", 
-                    "flex": 6, # 【調整】維持 6，或視情況改為 5
+                    "flex": 45, 
                     "gravity": "center", 
                     "wrap": True,
                     "margin": "md"
                 },
-                # 3. 擊殺按鈕
+                # 3. 按鈕群組 (擊殺 + 輪空) (Flex: 4)
                 {
                     "type": "box",
-                    "layout": "vertical",
-                    "flex": 2,
-                    "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
-                    "backgroundColor": "#4A90E2", 
-                    "cornerRadius": "lg",
-                    "paddingAll": "6px",
-                    "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
+                    "layout": "horizontal",
+                    "flex": 40,
+                    "spacing": "xs",
+                    "contents": [
+                        # 擊殺按鈕
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "backgroundColor": "#4A90E2", 
+                            "cornerRadius": "md",
+                            "paddingAll": "6px",
+                            "contents": [{"type": "text", "text": "擊殺", "size": "xxs", "color": "#ffffff", "align": "center", "weight": "bold"}],
+                            "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
+                        },
+                        # 輪空按鈕
+                        {
+                            "type": "box",
+                            "layout": "vertical",
+                            "backgroundColor": "#9E9E9E", 
+                            "cornerRadius": "md",
+                            "paddingAll": "6px",
+                            "contents": [{"type": "text", "text": "輪空", "size": "xxs", "color": "#ffffff", "align": "center", "weight": "bold"}],
+                            "action": {"type": "message", "label": "S", "text": f"{pure_name} 空"}
+                        }
+                    ]
                 }
             ]
         }
 
         if i > 0:
             rows.append({"type": "separator", "margin": "lg", "color": "#ECECEC"})
-        
-        if i > 0:
             row_box["margin"] = "lg"
 
         rows.append(row_box)
 
-    # 組合整個 Bubble (其餘部分維持不變)
+    # 組合整個 Bubble (這部分維持你的原始設定)
     bubble = {
         "type": "bubble",
         "size": "mega",
