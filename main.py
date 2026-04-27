@@ -2231,30 +2231,48 @@ def build_stats_report_flex(total, stats_dict, details):
         }
     ]
 
-    # ===== 詳細時間清單 =====
-    # 為了避免畫面太長，我們用逗號分隔時間，並開啟 wrap 讓它自動換行
+    # ===== 詳細時間清單 (修正為換行顯示) =====
+    
+    # 敵人吃場次
     if details.get("敵人吃"):
+        # 建立清單字串，每一項前面加個小點並換行
+        list_text = "\n".join([f"• {t}" for t in details["敵人吃"]])
+        
         body_contents.append({"type": "separator", "margin": "lg"})
         body_contents.append({
-            "type": "text", "text": "⚠️ 敵人吃場次：", "size": "xs", "color": "#FF5252", "weight": "bold", "margin": "md"
+            "type": "text", "text": "⚠️ 敵人吃場次明細：", "size": "xs", "color": "#FF5252", "weight": "bold", "margin": "md"
         })
         body_contents.append({
-            "type": "text", "text": "、".join(details["敵人吃"]), "size": "xs", "color": "#666666", "wrap": True, "margin": "sm"
+            "type": "text", 
+            "text": list_text, 
+            "size": "xs", 
+            "color": "#666666", 
+            "wrap": True, 
+            "margin": "sm"
         })
 
+    # 漏掉場次
     if details.get("漏掉"):
+        # 建立清單字串，每一項前面加個小點並換行
+        list_text = "\n".join([f"• {t}" for t in details["漏掉"]])
+        
         body_contents.append({"type": "separator", "margin": "lg"})
         body_contents.append({
-            "type": "text", "text": "⚠️ 漏掉場次：", "size": "xs", "color": "#95A5A6", "weight": "bold", "margin": "md"
+            "type": "text", "text": "⚠️ 漏掉場次明細：", "size": "xs", "color": "#95A5A6", "weight": "bold", "margin": "md"
         })
         body_contents.append({
-            "type": "text", "text": "、".join(details["漏掉"]), "size": "xs", "color": "#666666", "wrap": True, "margin": "sm"
+            "type": "text", 
+            "text": list_text, 
+            "size": "xs", 
+            "color": "#666666", 
+            "wrap": True, 
+            "margin": "sm"
         })
 
-    # 組裝成完整的 Flex 結構
+    # 組裝
     bubble = {
         "type": "bubble",
-        "size": "mega", # 由於可能會有時間清單，用大一點的卡片比較寬敞
+        "size": "mega",
         "header": {
             "type": "box",
             "layout": "vertical",
@@ -2336,48 +2354,104 @@ from linebot.models import FlexSendMessage, BubbleContainer
 
 def build_error_flex(title, message, boss_name):
     """
-    生成警告類型的 Flex Message (修正物件屬性問題)
+    生成高質感警示類型 Flex Message
     """
-    # 1. 定義原始字典內容
     flex_content = {
         "type": "bubble",
         "size": "mega",
         "header": {
             "type": "box",
             "layout": "vertical",
+            "backgroundColor": "#FF5252", # 鮮明紅色背景
+            "paddingAll": "20px",
             "contents": [
-                {"type": "text", "text": title, "weight": "bold", "color": "#E63946", "size": "xl"}
-            ],
-            "backgroundColor": "#F1FAEE",
-            "paddingAll": "20px"
+                {
+                    "type": "text",
+                    "text": f"⚠️ {title}", # 加入圖示
+                    "weight": "bold",
+                    "color": "#FFFFFF", # 改為白字提升對比
+                    "size": "lg"
+                }
+            ]
         },
         "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "md",
+            "paddingAll": "20px",
+            "contents": [
+                # Boss 名稱標籤
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "目標對象",
+                            "size": "sm",
+                            "color": "#aaaaaa",
+                            "flex": 2
+                        },
+                        {
+                            "type": "text",
+                            "text": boss_name,
+                            "weight": "bold",
+                            "size": "sm",
+                            "color": "#333333",
+                            "flex": 4,
+                            "align": "end"
+                        }
+                    ]
+                },
+                {"type": "separator", "margin": "md"},
+                # 錯誤內容區塊
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "lg",
+                    "paddingAll": "12px",
+                    "backgroundColor": "#F8F9FA", # 淺灰色背景區塊
+                    "cornerRadius": "md",
+                    "contents": [
+                        {
+                            "type": "text",
+                            "text": "詳細資訊",
+                            "size": "xxs",
+                            "color": "#888888",
+                            "margin": "none"
+                        },
+                        {
+                            "type": "text",
+                            "text": message,
+                            "wrap": True,
+                            "color": "#E63946", # 訊息文字保持紅色警示
+                            "size": "sm",
+                            "margin": "sm",
+                            "weight": "bold"
+                        }
+                    ]
+                }
+            ]
+        },
+        "footer": {
             "type": "box",
             "layout": "vertical",
             "contents": [
                 {
                     "type": "text",
-                    "text": f"Boss：{boss_name}",
-                    "weight": "bold",
-                    "size": "md",
-                    "margin": "md"
-                },
-                {
-                    "type": "text",
-                    "text": message,
-                    "wrap": True,
-                    "color": "#457B9D",
-                    "size": "sm",
-                    "margin": "lg"
+                    "text": "請確認後重新輸入",
+                    "size": "xs",
+                    "color": "#aaaaaa",
+                    "align": "center"
                 }
-            ]
+            ],
+            "paddingBottom": "15px"
         }
     }
 
-    # 2. 關鍵修正：將 dict 轉換為 SDK 可識別的 FlexSendMessage 物件
-    # 使用 BubbleContainer.new_from_json_dict 將字典轉為容器物件
+    # 返回轉換後的 FlexSendMessage
     return FlexSendMessage(
-        alt_text=title,
+        alt_text=f"錯誤通知: {title}",
         contents=BubbleContainer.new_from_json_dict(flex_content)
     )
 def build_roster_deleted_flex():
@@ -2772,41 +2846,118 @@ def build_roster_flex(rows):
         }
     }
 def build_shift_status_flex(group_id, current_uid, next_uid):
-    current_name = get_username(current_uid) if current_uid else "🔴 目前空班中"
+    current_name = get_username(current_uid) if current_uid else "目前空班中"
     
-    # 重點：如果沒人接班，顯示提示文字
+    # 判定接班人邏輯與顏色
     if not next_uid:
-        next_display = "⚠️ 沒人接班 (請點擊下方)"
-        next_color = "#FF0000" # 紅色警告
+        next_display = "⚠️ 尚無人接班"
+        next_color = "#FF5252" # 珊瑚紅 (警示)
+        next_weight = "bold"
     else:
         next_display = get_username(next_uid)
-        next_color = "#000000"
+        next_color = "#555555" # 深灰色 (穩重)
+        next_weight = "bold"
 
     bubble = {
         "type": "bubble",
+        "size": "md",  # 使用中型尺寸，精緻不占版面
         "header": {
-            "type": "box", "layout": "vertical", "backgroundColor": "#1a237e",
-            "contents": [{"type": "text", "text": "⚔️ 王表交接系統", "color": "#FFFFFF", "weight": "bold"}]
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": "#2C3E50", # 延續打王表的深色系
+            "paddingAll": "20px",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "⚔️ 王表交接系統",
+                    "color": "#FFFFFF",
+                    "weight": "bold",
+                    "size": "lg",
+                    "align": "center"
+                }
+            ]
         },
         "body": {
-            "type": "box", "layout": "vertical", "spacing": "md",
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "xl",
+            "paddingAll": "20px",
             "contents": [
-                {"type": "text", "text": f"👤 當前：{current_name}", "weight": "bold"},
-                {"type": "text", "text": f"⏭️ 接班：{next_display}", "color": next_color, "size": "sm"},
-                {"type": "separator", "margin": "md"}
+                # 當前值班區塊
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": "當前值班員", "size": "xs", "color": "#aaaaaa", "margin": "none"},
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "alignItems": "center",
+                            "margin": "sm",
+                            "contents": [
+                                {
+                                    "type": "box",
+                                    "layout": "vertical",
+                                    "width": "10px",
+                                    "height": "10px",
+                                    "backgroundColor": "#66BB6A" if current_uid else "#FF5252", # 綠點表示運作中
+                                    "cornerRadius": "10px"
+                                },
+                                {
+                                    "type": "text",
+                                    "text": current_name,
+                                    "weight": "bold",
+                                    "size": "md",
+                                    "margin": "md",
+                                    "flex": 1
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {"type": "separator"},
+                # 下位接班區塊
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": "預計接班人員", "size": "xs", "color": "#aaaaaa"},
+                        {
+                            "type": "text",
+                            "text": next_display,
+                            "color": next_color,
+                            "weight": next_weight,
+                            "size": "md",
+                            "margin": "sm"
+                        }
+                    ]
+                }
             ]
         },
         "footer": {
-            "type": "box", "layout": "vertical",
+            "type": "box",
+            "layout": "vertical",
+            "paddingAll": "15px",
             "contents": [
                 {
-                    "type": "button", "style": "primary", "color": "#2E7D32",
-                    "action": {"type": "message", "label": "我要接班 🙋", "text": "接班"}
+                    "type": "button",
+                    "action": {
+                        "type": "message",
+                        "label": "🙋 我要接班",
+                        "text": "接班"
+                    },
+                    "style": "primary",
+                    "color": "#1DB100", # LINE 經典綠
+                    "height": "sm"
                 }
             ]
+        },
+        "styles": {
+            "footer": {"separator": True}
         }
     }
-    return FlexSendMessage(alt_text="交接班狀態確認", contents=bubble)
+    
+    return FlexSendMessage(alt_text="📢 交接班狀態確認", contents=bubble)
 def get_boss_history(group_id, boss_name):
     """查詢該群組、該王的最近 5 筆擊殺紀錄"""
     conn = get_pg_conn()
