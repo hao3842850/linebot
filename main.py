@@ -802,7 +802,6 @@ MAYBE_SKIP_BOSSES = ["小紅", "小綠", "守護螞蟻", "巨大蜈蚣", "伊弗
 
 def build_kill_list_flex(title, display_items):
     rows = []
-    # 假設你有一個取得現在時間的函式 now_tw()
     now = now_tw()
 
     for i, (dt, line_text) in enumerate(display_items):
@@ -821,83 +820,73 @@ def build_kill_list_flex(title, display_items):
             bg_color = "#66BB6A"
             status_text = "等待"
 
-        # 取得乾淨的王名，用來比對名單與發送指令
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
-        # --- 修改點：將內容獨立為一個陣列，方便動態調整 ---
-        row_contents = [
-            # 1. 時間色塊標籤
-            {
-                "type": "box",
-                "layout": "vertical",
-                "flex": 4, 
-                "contents": [
-                    {
-                        "type": "text", 
-                        "text": time_str, 
-                        "size": "xxs", 
-                        "color": "#ffffff", 
-                        "weight": "bold", 
-                        "align": "center"
-                    },
-                    {
-                        "type": "text", 
-                        "text": status_text, 
-                        "size": "xxs", 
-                        "color": "#ffffff", 
-                        "align": "center", 
-                        "opacity": "0.9", 
-                        "margin": "2px"
-                    }
-                ],
-                "backgroundColor": bg_color,
-                "cornerRadius": "md",
-                "paddingAll": "4px" 
-            },
-            # 2. 王名 (預設 flex 為 6)
-            {
-                "type": "text", 
-                "text": boss_info, 
-                "size": "sm", 
-                "weight": "bold", 
-                "flex": 6, 
-                "gravity": "center", 
-                "wrap": True,
-                "margin": "md"
-            },
-            # 3. 擊殺按鈕
-            {
-                "type": "box",
-                "layout": "vertical",
-                "flex": 2,
-                "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
-                "backgroundColor": "#4A90E2", 
-                "cornerRadius": "lg",
-                "paddingAll": "6px",
-                "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
-            }
-        ]
+        # 1. 時間色塊標籤 (Flex: 4)
+        time_box = {
+            "type": "box",
+            "layout": "vertical",
+            "flex": 4, 
+            "contents": [
+                {"type": "text", "text": time_str, "size": "xxs", "color": "#ffffff", "weight": "bold", "align": "center"},
+                {"type": "text", "text": status_text, "size": "xxs", "color": "#ffffff", "align": "center", "opacity": "0.9", "margin": "2px"}
+            ],
+            "backgroundColor": bg_color,
+            "cornerRadius": "md",
+            "paddingAll": "4px" 
+        }
 
-        # --- 修改點：判斷是否為「可能沒出的王」 ---
+        # 2. 王名標籤 (預設 Flex: 6)
+        boss_name_box = {
+            "type": "text", 
+            "text": boss_info, 
+            "size": "sm", 
+            "weight": "bold", 
+            "flex": 6, 
+            "gravity": "center", 
+            "wrap": True,
+            "margin": "md"
+        }
+
+        # 3. 擊殺按鈕 (Flex: 2) - 固定在最後
+        kill_btn = {
+            "type": "box",
+            "layout": "vertical",
+            "flex": 2,
+            "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
+            "backgroundColor": "#4A90E2", 
+            "cornerRadius": "lg",
+            "paddingAll": "6px",
+            "marginLeft": "xs",
+            "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
+        }
+
+        # 開始組合這一列的內容
+        row_contents = [time_box, boss_name_box]
+
+        # --- 邏輯判斷：如果是在名單內的王，在擊殺「左邊」插入輪空按鈕 ---
         if pure_name in MAYBE_SKIP_BOSSES:
-            # 為了塞下第二顆按鈕，將王名的 flex 從 6 縮小為 4
-            row_contents[1]["flex"] = 4
+            # 縮小王名空間，騰出位置給輪空按鈕
+            boss_name_box["flex"] = 4
             
-            # 新增輪空按鈕
-            row_contents.append({
+            # 建立輪空按鈕
+            skip_btn = {
                 "type": "box",
                 "layout": "vertical",
                 "flex": 2,
                 "contents": [{"type": "text", "text": "輪空", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
-                "backgroundColor": "#9E9E9E", # 使用灰色表示輪空/跳過
+                "backgroundColor": "#9E9E9E", 
                 "cornerRadius": "lg",
                 "paddingAll": "6px",
-                "marginLeft": "sm", # 與擊殺按鈕稍微隔開
-                # 這裡的指令文字 f"輪空 {pure_name}" 可以改成你系統實際接收的輪空指令
-                "action": {"type": "message", "label": "Skip", "text": f"{pure_name} 空"} 
-            })
+                "marginLeft": "xs",
+                "action": {"type": "message", "label": "Skip", "text": f"輪空 {pure_name}"} 
+            }
+            # 將輪空按鈕加入陣列 (這時會排在王名之後、擊殺之前)
+            row_contents.append(skip_btn)
 
-        # 組合這個排版列
+        # 最後放上固定的擊殺按鈕
+        row_contents.append(kill_btn)
+
         row_box = {
             "type": "box",
             "layout": "horizontal",
@@ -912,7 +901,7 @@ def build_kill_list_flex(title, display_items):
 
         rows.append(row_box)
 
-    # 組合整個 Bubble
+    # 組合整個 Bubble (其餘部分維持不變)
     bubble = {
         "type": "bubble",
         "size": "mega",
@@ -923,22 +912,8 @@ def build_kill_list_flex(title, display_items):
             "backgroundColor": "#2C3E50", 
             "paddingAll": "15px", 
             "contents": [
-                {
-                    "type": "text", 
-                    "text": title, 
-                    "color": "#ffffff", 
-                    "weight": "bold", 
-                    "size": "md", 
-                    "flex": 1
-                },
-                {
-                    "type": "button",
-                    "action": {"type": "message", "label": "交班", "text": "交班"},
-                    "style": "primary",
-                    "color": "#1DB100",
-                    "height": "sm",
-                    "flex": 0
-                }
+                {"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "md", "flex": 1},
+                {"type": "button", "action": {"type": "message", "label": "交班", "text": "交班"}, "style": "primary", "color": "#1DB100", "height": "sm", "flex": 0}
             ]
         },
         "body": {
@@ -946,26 +921,15 @@ def build_kill_list_flex(title, display_items):
             "layout": "vertical", 
             "spacing": "none", 
             "paddingAll": "20px", 
-            "contents": rows if rows else [
-                {"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm", "margin": "xl"}
-            ]
+            "contents": rows if rows else [{"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm", "margin": "xl"}]
         },
         "footer": {
             "type": "box",
             "layout": "vertical",
             "paddingAll": "10px",
-            "contents": [
-                {
-                    "type": "button",
-                    "action": {"type": "message", "label": "🔄 更新清單", "text": "打王"},
-                    "style": "secondary", 
-                    "height": "sm"
-                }
-            ]
+            "contents": [{"type": "button", "action": {"type": "message", "label": "🔄 更新清單", "text": "打王"}, "style": "secondary", "height": "sm"}]
         },
-        "styles": {
-            "footer": {"separator": True}
-        }
+        "styles": {"footer": {"separator": True}}
     }
     
     return FlexSendMessage(alt_text=title, contents=bubble)
