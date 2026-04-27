@@ -820,6 +820,7 @@ def build_kill_list_flex(title, display_items):
             bg_color = "#66BB6A"
             status_text = "等待"
 
+        # 乾淨的王名，用來比對清單
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
         # 1. 時間色塊標籤 (Flex: 4)
@@ -864,8 +865,8 @@ def build_kill_list_flex(title, display_items):
         # 開始組合這一列的內容
         row_contents = [time_box, boss_name_box]
 
-        # --- 邏輯判斷：如果是在名單內的王，在擊殺「左邊」插入輪空按鈕 ---
-        if pure_name in MAYBE_SKIP_BOSSES:
+        # --- 新增邏輯：如果是名單內的王，且「沒有」包含 #過 標籤，才顯示輪空按鈕 ---
+        if pure_name in MAYBE_SKIP_BOSSES and "#過" not in boss_info:
             # 縮小王名空間，騰出位置給輪空按鈕
             boss_name_box["flex"] = 4
             
@@ -901,7 +902,7 @@ def build_kill_list_flex(title, display_items):
 
         rows.append(row_box)
 
-    # 組合整個 Bubble (其餘部分維持不變)
+    # 組合整個 Bubble
     bubble = {
         "type": "bubble",
         "size": "mega",
