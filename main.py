@@ -778,61 +778,73 @@ def build_undo_flex(boss_name, k_time_str, r_time_str, note=None):
 
 def build_kill_list_flex(title, display_items):
     rows = []
-    # 假設 now_tw() 已經在你的環境中定義好了
     now = now_tw()
 
     for i, (dt, line_text) in enumerate(display_items):
         parts = line_text.split(" ", 1)
-        time_str = parts[0]
+        # --- 修改點：這裡保留原始含秒數的時間字串 ---
+        time_str = parts[0] 
         boss_info = parts[1] if len(parts) > 1 else ""
         
-        # 判定狀態色塊顏色 (使用更柔和且高質感的現代色系)
         diff = (dt - now).total_seconds()
         if diff < 0:
-            bg_color = "#FF5252"  # 珊瑚紅 (已過)
+            bg_color = "#FF5252"
             status_text = "已重生"
         elif diff < 1800:
-            bg_color = "#FFB74D"  # 柔和橘 (30分內)
+            bg_color = "#FFB74D"
             status_text = "即將"
         else:
-            bg_color = "#66BB6A"  # 清新綠 (尚未)
+            bg_color = "#66BB6A"
             status_text = "等待"
 
-        # 取得純王名
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
-        # 建立單行 Boss 資訊區塊
         row_box = {
             "type": "box",
             "layout": "horizontal",
             "margin": "md",
             "alignItems": "center",
             "contents": [
-                # 1. 時間色塊標籤 (增加 Padding 讓字不會太貼邊，調整圓角)
+                # 1. 時間色塊標籤 (優化後的配置)
                 {
                     "type": "box",
                     "layout": "vertical",
-                    "flex": 3,
+                    "flex": 4, # 【調整】稍微增加 flex，從 3 改為 4
                     "contents": [
-                        {"type": "text", "text": time_str, "size": "xs", "color": "#ffffff", "weight": "bold", "align": "center"},
-                        {"type": "text", "text": status_text, "size": "xxs", "color": "#ffffff", "align": "center", "opacity": "0.9", "margin": "2px"}
+                        {
+                            "type": "text", 
+                            "text": time_str, 
+                            "size": "xxs", # 【調整】字體改為 xxs，確保秒數不被裁切
+                            "color": "#ffffff", 
+                            "weight": "bold", 
+                            "align": "center"
+                        },
+                        {
+                            "type": "text", 
+                            "text": status_text, 
+                            "size": "xxs", 
+                            "color": "#ffffff", 
+                            "align": "center", 
+                            "opacity": "0.9", 
+                            "margin": "2px"
+                        }
                     ],
                     "backgroundColor": bg_color,
                     "cornerRadius": "md",
-                    "paddingAll": "5px"
+                    "paddingAll": "4px" # 【調整】稍微縮小內距
                 },
-                # 2. 王名 (移除自訂 color，讓 LINE 自動完美適配深淺色模式)
+                # 2. 王名
                 {
                     "type": "text", 
                     "text": boss_info, 
-                    "size": "sm", # 使用 sm 配合加粗，版面更精緻且不易被長名字撐破
+                    "size": "sm", 
                     "weight": "bold", 
-                    "flex": 6, 
+                    "flex": 6, # 【調整】維持 6，或視情況改為 5
                     "gravity": "center", 
                     "wrap": True,
                     "margin": "md"
                 },
-                # 3. 擊殺按鈕 (改用質感天空藍，讓動作按鈕更跳脫)
+                # 3. 擊殺按鈕
                 {
                     "type": "box",
                     "layout": "vertical",
@@ -846,28 +858,25 @@ def build_kill_list_flex(title, display_items):
             ]
         }
 
-        # 在清單項目之間加入淡淡的分隔線 (除了第一項之外)
         if i > 0:
             rows.append({"type": "separator", "margin": "lg", "color": "#ECECEC"})
         
-        # 加入上方 margin 確保與分隔線有足夠的呼吸空間
         if i > 0:
             row_box["margin"] = "lg"
 
         rows.append(row_box)
 
-    # 組合整個 Bubble
+    # 組合整個 Bubble (其餘部分維持不變)
     bubble = {
         "type": "bubble",
-        "size": "mega", # 若內容較多，可以考慮使用 mega 尺寸讓畫面更寬敞
+        "size": "mega",
         "header": {
             "type": "box", 
-            "layout": "horizontal",           # 【修改點】改為水平排列
-            "alignItems": "center",           # 【修改點】讓標題與按鈕垂直置中
+            "layout": "horizontal",
+            "alignItems": "center",
             "backgroundColor": "#2C3E50", 
             "paddingAll": "15px", 
             "contents": [
-                # 左側：標題 (flex: 1 會佔滿剩餘空間)
                 {
                     "type": "text", 
                     "text": title, 
@@ -876,16 +885,11 @@ def build_kill_list_flex(title, display_items):
                     "size": "md", 
                     "flex": 1
                 },
-                # 右側：交班按鈕 (flex: 0 維持按鈕大小並靠右)
                 {
                     "type": "button",
-                    "action": {
-                        "type": "message",
-                        "label": "交班",
-                        "text": "交班"
-                    },
+                    "action": {"type": "message", "label": "交班", "text": "交班"},
                     "style": "primary",
-                    "color": "#1DB100",       # 使用 LINE 綠色以提高辨識度，你也可以改成喜歡的顏色
+                    "color": "#1DB100",
                     "height": "sm",
                     "flex": 0
                 }
@@ -907,11 +911,7 @@ def build_kill_list_flex(title, display_items):
             "contents": [
                 {
                     "type": "button",
-                    "action": {
-                        "type": "message",
-                        "label": "🔄 更新清單",
-                        "text": "打王"
-                    },
+                    "action": {"type": "message", "label": "🔄 更新清單", "text": "打王"},
                     "style": "secondary", 
                     "height": "sm"
                 }
@@ -922,7 +922,6 @@ def build_kill_list_flex(title, display_items):
         }
     }
     
-    # 這裡假設你的環境有從 linebot 匯入 FlexSendMessage
     return FlexSendMessage(alt_text=title, contents=bubble)
 
 def notify_boss_team_with_flex(group_id, boss_name):
