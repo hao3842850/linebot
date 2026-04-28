@@ -879,7 +879,7 @@ def build_kill_list_flex(title, display_items):
                 "backgroundColor": "#9E9E9E", 
                 "cornerRadius": "lg",
                 "paddingAll": "6px",
-                "action": {"type": "message", "label": "Skip", "text": f"輪空 {pure_name}"} 
+                "action": {"type": "message", "label": "Skip", "text": f"{pure_name} 空"} 
             }
             # 將輪空按鈕加入陣列的最尾端
             row_contents.append(skip_btn)
