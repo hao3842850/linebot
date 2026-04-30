@@ -810,118 +810,126 @@ def build_kill_list_flex(title, display_items):
         boss_info = parts[1] if len(parts) > 1 else ""
         
         diff = (dt - now).total_seconds()
-        
-        # 狀態顏色邏輯
         if diff < 0:
-            bg_color = "#E53935"
+            bg_color = "#FF5252"
             status_text = "已重生"
-            time_color = "#ffffff"
         elif diff < 1800:
-            bg_color = "#FB8C00"
+            bg_color = "#FFB74D"
             status_text = "即將"
-            time_color = "#ffffff"
         else:
-            bg_color = "#F0F0F0"
+            bg_color = "#66BB6A"
             status_text = "等待"
-            time_color = "#757575"
 
+        # 乾淨的王名，用來比對清單
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
-        # 1. 擊殺按鈕
+        # 1. 擊殺按鈕 (Flex: 2)
         kill_btn = {
             "type": "box",
             "layout": "vertical",
             "flex": 2,
             "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
-            "backgroundColor": "#1E88E5", 
-            "cornerRadius": "md",
+            "backgroundColor": "#4A90E2", 
+            "cornerRadius": "lg",
             "paddingAll": "6px",
             "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
         }
 
-        # 2. 時間標籤
+        # 2. 時間色塊標籤 (Flex: 3，稍微縮小)
         time_box = {
             "type": "box",
             "layout": "vertical",
-            "flex": 3,
+            "flex": 3, 
             "contents": [
-                {"type": "text", "text": time_str, "size": "xs", "color": (time_color if diff < 1800 else "#333333"), "weight": "bold", "align": "center"},
-                {"type": "text", "text": status_text, "size": "xxs", "color": time_color, "align": "center", "margin": "xs"}
+                {"type": "text", "text": time_str, "size": "xxs", "color": "#ffffff", "weight": "bold", "align": "center"},
+                {"type": "text", "text": status_text, "size": "xxs", "color": "#ffffff", "align": "center", "opacity": "0.9", "margin": "2px"}
             ],
             "backgroundColor": bg_color,
             "cornerRadius": "md",
             "paddingAll": "4px"
+            # 移除 marginLeft，交給外層統一管理
         }
 
-        # 3. 王名區塊 (移除內容物的外層 box，直接使用 text 以減少層級)
-        boss_name_text = {
-            "type": "text",
-            "text": boss_info,
-            "size": "sm",
-            "weight": "bold",
-            "flex": 6,
-            "wrap": True,
-            "color": "#212121",
-            "gravity": "center", # 讓文字在行內垂直居中
-            "margin": "sm"
+        # 3. 王名標籤 (Flex: 7，給予更多空間避免換行過多)
+        boss_name_box = {
+            "type": "text", 
+            "text": boss_info, 
+            "size": "sm", 
+            "weight": "bold", 
+            "flex": 7, 
+            "gravity": "center", 
+            "wrap": True
+            # 移除 marginLeft
         }
 
-        row_contents = [kill_btn, time_box, boss_name_text]
+        # 開始組合這一列的內容 (順序：擊殺 -> 時間 -> 王名)
+        row_contents = [kill_btn, time_box, boss_name_box]
 
-        # 4. 輪空按鈕
+        # --- 判斷邏輯：如果符合輪空條件，將輪空按鈕加在最右邊 ---
         if pure_name in MAYBE_SKIP_BOSSES and "#過" not in boss_info:
-            boss_name_text["flex"] = 4
+            # 縮小王名空間，騰出位置給輪空按鈕
+            boss_name_box["flex"] = 5
+            
+            # 建立輪空按鈕
             skip_btn = {
                 "type": "box",
                 "layout": "vertical",
                 "flex": 2,
                 "contents": [{"type": "text", "text": "輪空", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
-                "backgroundColor": "#BDBDBD", 
-                "cornerRadius": "md",
+                "backgroundColor": "#9E9E9E", 
+                "cornerRadius": "lg",
                 "paddingAll": "6px",
                 "action": {"type": "message", "label": "Skip", "text": f"{pure_name} 空"} 
             }
+            # 將輪空按鈕加入陣列的最尾端
             row_contents.append(skip_btn)
 
-        # 修正：移除 row_box 中的 alignItems 屬性以避免 400 錯誤
+
+        # 組合整列容器
         row_box = {
             "type": "box",
             "layout": "horizontal",
-            "spacing": "md",
-            "contents": row_contents,
-            "margin": "md"
+            "margin": "md",
+            "spacing": "sm", # 🔥 新增：利用官方內建的間距屬性，讓所有元件整齊排開
+            "alignItems": "center",
+            "contents": row_contents
         }
 
         if i > 0:
-            rows.append({"type": "separator", "margin": "lg", "color": "#F0F0F0"})
-        
+            rows.append({"type": "separator", "margin": "lg", "color": "#ECECEC"})
+            row_box["margin"] = "lg"
+
         rows.append(row_box)
 
+    # 組合整個 Bubble
     bubble = {
         "type": "bubble",
         "size": "mega",
         "header": {
             "type": "box", 
             "layout": "horizontal",
-            "backgroundColor": "#263238", 
+            "alignItems": "center",
+            "backgroundColor": "#2C3E50", 
             "paddingAll": "15px", 
             "contents": [
-                {"type": "text", "text": f"📋 {title}", "color": "#ffffff", "weight": "bold", "size": "md", "flex": 1},
-                {"type": "button", "action": {"type": "message", "label": "交班", "text": "交班"}, "style": "primary", "color": "#43A047", "height": "sm", "flex": 0}
+                {"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "md", "flex": 1},
+                {"type": "button", "action": {"type": "message", "label": "交班", "text": "交班"}, "style": "primary", "color": "#1DB100", "height": "sm", "flex": 0}
             ]
         },
         "body": {
             "type": "box", 
             "layout": "vertical", 
-            "paddingAll": "15px", 
-            "contents": rows if rows else [{"type": "text", "text": "📭 目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm", "margin": "xl"}]
+            "spacing": "none", 
+            "paddingAll": "20px", 
+            "contents": rows if rows else [{"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm", "margin": "xl"}]
         },
         "footer": {
             "type": "box",
             "layout": "vertical",
             "paddingAll": "10px",
             "contents": [{"type": "button", "action": {"type": "message", "label": "🔄 更新清單", "text": "打王"}, "style": "secondary", "height": "sm"}]
-        }
+        },
+        "styles": {"footer": {"separator": True}}
     }
     
     return FlexSendMessage(alt_text=title, contents=bubble)
