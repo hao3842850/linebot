@@ -811,24 +811,23 @@ def build_kill_list_flex(title, display_items):
         
         diff = (dt - now).total_seconds()
         
-        # 狀態邏輯優化：加強色彩對比與狀態文字
+        # 狀態顏色邏輯
         if diff < 0:
-            bg_color = "#E53935"  # 更深一點的紅
+            bg_color = "#E53935"
             status_text = "已重生"
             time_color = "#ffffff"
         elif diff < 1800:
-            bg_color = "#FB8C00"  # 更明顯的橘
+            bg_color = "#FB8C00"
             status_text = "即將"
             time_color = "#ffffff"
         else:
-            bg_color = "#F0F0F0"  # 等待中改為淺灰色背景
+            bg_color = "#F0F0F0"
             status_text = "等待"
-            time_color = "#757575" # 灰色字
+            time_color = "#757575"
 
-        # 清理王名
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
-        # --- 1. 擊殺按鈕 (左側固定寬度) ---
+        # 1. 擊殺按鈕
         kill_btn = {
             "type": "box",
             "layout": "vertical",
@@ -840,42 +839,38 @@ def build_kill_list_flex(title, display_items):
             "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
         }
 
-        # --- 2. 時間與狀態標籤 ---
-        # 如果是「等待中」，我們讓它視覺上不那麼搶眼
-        time_box_content = [
-            {"type": "text", "text": time_str, "size": "xs", "color": time_color if diff < 1800 else "#333333", "weight": "bold", "align": "center"},
-            {"type": "text", "text": status_text, "size": "xxs", "color": time_color, "align": "center", "margin": "xs"}
-        ]
-        
+        # 2. 時間標籤
         time_box = {
             "type": "box",
             "layout": "vertical",
             "flex": 3,
-            "contents": time_box_content,
+            "contents": [
+                {"type": "text", "text": time_str, "size": "xs", "color": (time_color if diff < 1800 else "#333333"), "weight": "bold", "align": "center"},
+                {"type": "text", "text": status_text, "size": "xxs", "color": time_color, "align": "center", "margin": "xs"}
+            ],
             "backgroundColor": bg_color,
             "cornerRadius": "md",
-            "paddingAll": "4px",
-            "justifyContent": "center"
+            "paddingAll": "4px"
         }
 
-        # --- 3. 王名區塊 (增加垂直置中) ---
-        boss_name_box = {
-            "type": "box",
-            "layout": "vertical",
+        # 3. 王名區塊 (移除內容物的外層 box，直接使用 text 以減少層級)
+        boss_name_text = {
+            "type": "text",
+            "text": boss_info,
+            "size": "sm",
+            "weight": "bold",
             "flex": 6,
-            "contents": [
-                {"type": "text", "text": boss_info, "size": "sm", "weight": "bold", "wrap": True, "color": "#212121"}
-            ],
-            "justifyContent": "center",
-            "paddingStart": "sm"
+            "wrap": True,
+            "color": "#212121",
+            "gravity": "center", # 讓文字在行內垂直居中
+            "margin": "sm"
         }
 
-        # 組合基礎內容
-        row_contents = [kill_btn, time_box, boss_name_box]
+        row_contents = [kill_btn, time_box, boss_name_text]
 
-        # --- 4. 輪空按鈕處理 ---
+        # 4. 輪空按鈕
         if pure_name in MAYBE_SKIP_BOSSES and "#過" not in boss_info:
-            boss_name_box["flex"] = 4  # 騰出空間
+            boss_name_text["flex"] = 4
             skip_btn = {
                 "type": "box",
                 "layout": "vertical",
@@ -888,12 +883,11 @@ def build_kill_list_flex(title, display_items):
             }
             row_contents.append(skip_btn)
 
-        # 每一列的容器
+        # 修正：移除 row_box 中的 alignItems 屬性以避免 400 錯誤
         row_box = {
             "type": "box",
             "layout": "horizontal",
             "spacing": "md",
-            "alignItems": "stretch", # 讓高度一致
             "contents": row_contents,
             "margin": "md"
         }
@@ -903,7 +897,6 @@ def build_kill_list_flex(title, display_items):
         
         rows.append(row_box)
 
-    # 組合 Bubble
     bubble = {
         "type": "bubble",
         "size": "mega",
@@ -928,8 +921,7 @@ def build_kill_list_flex(title, display_items):
             "layout": "vertical",
             "paddingAll": "10px",
             "contents": [{"type": "button", "action": {"type": "message", "label": "🔄 更新清單", "text": "打王"}, "style": "secondary", "height": "sm"}]
-        },
-        "styles": {"footer": {"separator": True}}
+        }
     }
     
     return FlexSendMessage(alt_text=title, contents=bubble)
