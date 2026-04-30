@@ -810,118 +810,118 @@ def build_kill_list_flex(title, display_items):
         boss_info = parts[1] if len(parts) > 1 else ""
         
         diff = (dt - now).total_seconds()
+        
+        # 狀態邏輯優化：加強色彩對比與狀態文字
         if diff < 0:
-            bg_color = "#FF5252"
+            bg_color = "#E53935"  # 更深一點的紅
             status_text = "已重生"
+            time_color = "#ffffff"
         elif diff < 1800:
-            bg_color = "#FFB74D"
+            bg_color = "#FB8C00"  # 更明顯的橘
             status_text = "即將"
+            time_color = "#ffffff"
         else:
-            bg_color = "#66BB6A"
+            bg_color = "#F0F0F0"  # 等待中改為淺灰色背景
             status_text = "等待"
+            time_color = "#757575" # 灰色字
 
-        # 乾淨的王名，用來比對清單
+        # 清理王名
         pure_name = boss_info.split("（")[0].split(" <")[0].split(" #")[0].strip()
 
-        # 1. 擊殺按鈕 (Flex: 2)
+        # --- 1. 擊殺按鈕 (左側固定寬度) ---
         kill_btn = {
             "type": "box",
             "layout": "vertical",
             "flex": 2,
             "contents": [{"type": "text", "text": "擊殺", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
-            "backgroundColor": "#4A90E2", 
-            "cornerRadius": "lg",
+            "backgroundColor": "#1E88E5", 
+            "cornerRadius": "md",
             "paddingAll": "6px",
             "action": {"type": "message", "label": "K", "text": f"6666 {pure_name}"}
         }
 
-        # 2. 時間色塊標籤 (Flex: 3，稍微縮小)
+        # --- 2. 時間與狀態標籤 ---
+        # 如果是「等待中」，我們讓它視覺上不那麼搶眼
+        time_box_content = [
+            {"type": "text", "text": time_str, "size": "xs", "color": time_color if diff < 1800 else "#333333", "weight": "bold", "align": "center"},
+            {"type": "text", "text": status_text, "size": "xxs", "color": time_color, "align": "center", "margin": "xs"}
+        ]
+        
         time_box = {
             "type": "box",
             "layout": "vertical",
-            "flex": 3, 
-            "contents": [
-                {"type": "text", "text": time_str, "size": "xxs", "color": "#ffffff", "weight": "bold", "align": "center"},
-                {"type": "text", "text": status_text, "size": "xxs", "color": "#ffffff", "align": "center", "opacity": "0.9", "margin": "2px"}
-            ],
+            "flex": 3,
+            "contents": time_box_content,
             "backgroundColor": bg_color,
             "cornerRadius": "md",
-            "paddingAll": "4px"
-            # 移除 marginLeft，交給外層統一管理
+            "paddingAll": "4px",
+            "justifyContent": "center"
         }
 
-        # 3. 王名標籤 (Flex: 7，給予更多空間避免換行過多)
+        # --- 3. 王名區塊 (增加垂直置中) ---
         boss_name_box = {
-            "type": "text", 
-            "text": boss_info, 
-            "size": "sm", 
-            "weight": "bold", 
-            "flex": 7, 
-            "gravity": "center", 
-            "wrap": True
-            # 移除 marginLeft
+            "type": "box",
+            "layout": "vertical",
+            "flex": 6,
+            "contents": [
+                {"type": "text", "text": boss_info, "size": "sm", "weight": "bold", "wrap": True, "color": "#212121"}
+            ],
+            "justifyContent": "center",
+            "paddingStart": "sm"
         }
 
-        # 開始組合這一列的內容 (順序：擊殺 -> 時間 -> 王名)
+        # 組合基礎內容
         row_contents = [kill_btn, time_box, boss_name_box]
 
-        # --- 判斷邏輯：如果符合輪空條件，將輪空按鈕加在最右邊 ---
+        # --- 4. 輪空按鈕處理 ---
         if pure_name in MAYBE_SKIP_BOSSES and "#過" not in boss_info:
-            # 縮小王名空間，騰出位置給輪空按鈕
-            boss_name_box["flex"] = 5
-            
-            # 建立輪空按鈕
+            boss_name_box["flex"] = 4  # 騰出空間
             skip_btn = {
                 "type": "box",
                 "layout": "vertical",
                 "flex": 2,
                 "contents": [{"type": "text", "text": "輪空", "size": "xs", "color": "#ffffff", "align": "center", "weight": "bold"}],
-                "backgroundColor": "#9E9E9E", 
-                "cornerRadius": "lg",
+                "backgroundColor": "#BDBDBD", 
+                "cornerRadius": "md",
                 "paddingAll": "6px",
                 "action": {"type": "message", "label": "Skip", "text": f"{pure_name} 空"} 
             }
-            # 將輪空按鈕加入陣列的最尾端
             row_contents.append(skip_btn)
 
-
-        # 組合整列容器
+        # 每一列的容器
         row_box = {
             "type": "box",
             "layout": "horizontal",
-            "margin": "md",
-            "spacing": "sm", # 🔥 新增：利用官方內建的間距屬性，讓所有元件整齊排開
-            "alignItems": "center",
-            "contents": row_contents
+            "spacing": "md",
+            "alignItems": "stretch", # 讓高度一致
+            "contents": row_contents,
+            "margin": "md"
         }
 
         if i > 0:
-            rows.append({"type": "separator", "margin": "lg", "color": "#ECECEC"})
-            row_box["margin"] = "lg"
-
+            rows.append({"type": "separator", "margin": "lg", "color": "#F0F0F0"})
+        
         rows.append(row_box)
 
-    # 組合整個 Bubble
+    # 組合 Bubble
     bubble = {
         "type": "bubble",
         "size": "mega",
         "header": {
             "type": "box", 
             "layout": "horizontal",
-            "alignItems": "center",
-            "backgroundColor": "#2C3E50", 
+            "backgroundColor": "#263238", 
             "paddingAll": "15px", 
             "contents": [
-                {"type": "text", "text": title, "color": "#ffffff", "weight": "bold", "size": "md", "flex": 1},
-                {"type": "button", "action": {"type": "message", "label": "交班", "text": "交班"}, "style": "primary", "color": "#1DB100", "height": "sm", "flex": 0}
+                {"type": "text", "text": f"📋 {title}", "color": "#ffffff", "weight": "bold", "size": "md", "flex": 1},
+                {"type": "button", "action": {"type": "message", "label": "交班", "text": "交班"}, "style": "primary", "color": "#43A047", "height": "sm", "flex": 0}
             ]
         },
         "body": {
             "type": "box", 
             "layout": "vertical", 
-            "spacing": "none", 
-            "paddingAll": "20px", 
-            "contents": rows if rows else [{"type": "text", "text": "目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm", "margin": "xl"}]
+            "paddingAll": "15px", 
+            "contents": rows if rows else [{"type": "text", "text": "📭 目前尚無重生資料", "align": "center", "color": "#aaaaaa", "size": "sm", "margin": "xl"}]
         },
         "footer": {
             "type": "box",
