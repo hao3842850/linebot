@@ -3175,6 +3175,21 @@ fixed_bosses = {
                   "13:00","15:00","17:00","19:00","21:00","23:00"]
     }
 }
+ALLIANCE_MAP = {
+    "C111111111111111111": "ALLIANCE_A", # A盟主群
+    "C222222222222222222": "ALLIANCE_A", # A盟分盟群
+    "C333333333333333333": "ALLIANCE_B"  # B盟群組 (與A盟獨立)
+}
+def get_source_id(event):
+    if event.source.type == "group":
+        raw_id = event.source.group_id
+    elif event.source.type == "room":
+        raw_id = event.source.room_id
+    else:
+        raw_id = event.source.user_id
+        
+    # 如果在對應表中，就轉換成共用的 ID；否則保持原本的 ID
+    return ALLIANCE_MAP.get(raw_id, raw_id)
 def get_real_boss_name(input_name):
     """
     將使用者輸入的簡稱，轉換為 alias_map 中的正式名稱
@@ -3838,6 +3853,22 @@ def handle_message(event):
             except:
                 pass 
                 
+        return
+    
+
+
+    user_msg = event.message.text.strip()
+    
+    # === 新增取得群組代碼的指令 ===
+    if user_msg == "群組代碼" or user_msg == "!id":
+        # 呼叫你原本寫好的 get_source_id 函式來獲取 ID
+        source_id = get_source_id(event)
+        
+        # 組合要回覆的文字
+        reply_text = f"📍 此群組/聊天室的專屬代碼為：\n\n{source_id}\n\n(請長按複製上方代碼，用於設定共用王表)"
+        
+        # 呼叫你系統內建的 safe_reply 進行回覆
+        safe_reply(event, reply_text)
         return
 #-------------------------------------------------------------訂閱制---------------------------------------
     group_id = getattr(event.source, 'group_id', event.source.user_id)
