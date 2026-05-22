@@ -3176,9 +3176,8 @@ fixed_bosses = {
     }
 }
 ALLIANCE_MAP = {
-    "C111111111111111111": "ALLIANCE_A", # A盟主群
-    "C222222222222222222": "ALLIANCE_A", # A盟分盟群
-    "C333333333333333333": "ALLIANCE_B"  # B盟群組 (與A盟獨立)
+    "C5b59f9fe8a7c3b709742b8f765d8f95e": "ALLIANCE_A", # A盟主群
+    "Cfea8c07f23c410a1e328871f8573f5e5": "ALLIANCE_A", # A盟分盟群
 }
 def get_source_id(event):
     if event.source.type == "group":
