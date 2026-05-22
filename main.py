@@ -4662,7 +4662,7 @@ def handle_message(event):
     if msg.upper() == "KPI":
         now = now_tw()
         start, end = get_kpi_range(now)
-        group_id = get_source_id(event)
+        group_id = get_actual_group_id(raw_source_id)
         
         # 使用現有的 get_kpi_ranking 函式獲取資料
         # 注意：原本檔案內的 get_kpi_ranking 內部已經會呼叫 get_kpi_range
