@@ -185,12 +185,24 @@ def safe_reply(event, text_msg, flex_msg=None):
     except Exception as e:
         print("Reply failed:", e)
 def get_source_id(event):
+    # 1. 先取得原始的來源 ID
     if event.source.type == "group":
-        return event.source.group_id
+        source_id = event.source.group_id
     elif event.source.type == "room":
-        return event.source.room_id
+        source_id = event.source.room_id
     else:
-        return event.source.user_id
+        source_id = event.source.user_id
+        
+    # 2. 【核心修改】在這裡寫死：如果來源是 B 群，強制變成 A 群
+    # 注意：請把下面的字串換成你們真實的 LINE Group ID
+    GROUP_B_ID = "Cfea8c07f23c410a1e328871f8573f5e5"
+    GROUP_A_ID = "C5b59f9fe8a7c3b709742b8f765d8f95e"
+    
+    if source_id == GROUP_B_ID:
+        return GROUP_A_ID  # 狸貓換太子，把 B 騙成 A
+
+    # 其他情況正常回傳
+    return source_id
 def now_tw():
     return datetime.now(TZ)
 def get_username(user_id):
