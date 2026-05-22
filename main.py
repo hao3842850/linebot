@@ -45,10 +45,6 @@ handler = WebhookHandler(CHANNEL_SECRET)
 TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 DATABASE_URL = os.getenv("DATABASE_URL")
-# === 聯盟共用王表設定 ===
-# 填入想要共用的所有群組真實 ID (C開頭)
-SHARED_GROUPS = ["C5b59f9fe8a7c3b709742b8f765d8f95e", "Cfea8c07f23c410a1e328871f8573f5e5"] 
-MASTER_GROUP_ID = SHARED_GROUPS[0] # 資料庫統一存在第一個群組名下
 @app.on_event("startup")
 def startup_event():
     print("🚀 系統啟動，準備初始化資料庫...")
@@ -188,23 +184,13 @@ def safe_reply(event, text_msg, flex_msg=None):
             )
     except Exception as e:
         print("Reply failed:", e)
-# === 共用王表設定區 (ALLIANCE_MAP) ===
-# 請把下方的中文替換成你剛剛用指令取得的真實群組代碼 (C開頭那串)
-ALLIANCE_MAP = {
-    "C5b59f9fe8a7c3b709742b8f765d8f95e": "SHARED_BOSS_DB",
-    "Cfea8c07f23c410a1e328871f8573f5e5": "SHARED_BOSS_DB"
-}
-
 def get_source_id(event):
     if event.source.type == "group":
-        raw_id = event.source.group_id
+        return event.source.group_id
     elif event.source.type == "room":
-        raw_id = event.source.room_id
+        return event.source.room_id
     else:
-        raw_id = event.source.user_id
-        
-    # 如果這個群組有在 ALLIANCE_MAP 裡面，就轉換成共用的 ID (SHARED_BOSS_DB)
-    return ALLIANCE_MAP.get(raw_id, raw_id)
+        return event.source.user_id
 def now_tw():
     return datetime.now(TZ)
 def get_username(user_id):
@@ -3189,20 +3175,6 @@ fixed_bosses = {
                   "13:00","15:00","17:00","19:00","21:00","23:00"]
     }
 }
-ALLIANCE_MAP = {
-    "C5b59f9fe8a7c3b709742b8f765d8f95e": "ALLIANCE_A", # A盟主群
-    "Cfea8c07f23c410a1e328871f8573f5e5": "ALLIANCE_A", # A盟分盟群
-}
-def get_source_id(event):
-    if event.source.type == "group":
-        raw_id = event.source.group_id
-    elif event.source.type == "room":
-        raw_id = event.source.room_id
-    else:
-        raw_id = event.source.user_id
-        
-    # 如果在對應表中，就轉換成共用的 ID；否則保持原本的 ID
-    return ALLIANCE_MAP.get(raw_id, raw_id)
 def get_real_boss_name(input_name):
     """
     將使用者輸入的簡稱，轉換為 alias_map 中的正式名稱
@@ -3667,28 +3639,12 @@ def handle_message(event):
     # 只有包含「📦」或「備份」字眼的多行訊息，才判定為靜音備份模式
     is_backup_mode = is_multi_register and ("📦" in raw_text or "備份" in raw_text)
     db = load_db()
-    
+    group_id = get_source_id(event)
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
     text = event.message.text.strip()
-    user_msg = event.message.text.strip()
-    user = event.source.user_id
-    
-    # --- 關鍵修改：強制攔截群組 ID ---
-    if event.source.type == "group":
-        raw_id = event.source.group_id
-    elif event.source.type == "room":
-        raw_id = event.source.room_id
-    else:
-        raw_id = event.source.user_id
-        
-    # 如果發話的群組在共用名單內，強制把 group_id 變成 MASTER_GROUP_ID
-    if raw_id in SHARED_GROUPS:
-        group_id = MASTER_GROUP_ID
-    else:
-        group_id = raw_id
     # 【強制初始化資料庫的隱藏指令】
     if text == "初始化資料庫":
         try:
@@ -3882,22 +3838,6 @@ def handle_message(event):
             except:
                 pass 
                 
-        return
-    
-
-
-    user_msg = event.message.text.strip()
-    
-    # === 新增取得群組代碼的指令 ===
-    if user_msg == "群組代碼" or user_msg == "!id":
-        # 呼叫你原本寫好的 get_source_id 函式來獲取 ID
-        source_id = get_source_id(event)
-        
-        # 組合要回覆的文字
-        reply_text = f"📍 此群組/聊天室的專屬代碼為：\n\n{source_id}\n\n(請長按複製上方代碼，用於設定共用王表)"
-        
-        # 呼叫你系統內建的 safe_reply 進行回覆
-        safe_reply(event, reply_text)
         return
 #-------------------------------------------------------------訂閱制---------------------------------------
     group_id = getattr(event.source, 'group_id', event.source.user_id)
