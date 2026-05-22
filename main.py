@@ -67,6 +67,69 @@ def safe_init_dict(parent_dict, key):
         parent_dict[key] = {}
         
     return parent_dict[key]
+def init_alliance_db():
+    """建立群組共用(聯盟)資料表"""
+    print("🔧 檢查並建立 group_alliance_map 資料表...")
+    conn = get_pg_conn()
+    if not conn: return
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS group_alliance_map (
+                    line_group_id VARCHAR(255) PRIMARY KEY,
+                    alliance_id VARCHAR(255) NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+        conn.commit()
+    except Exception as e:
+        print(f"❌ 建立聯盟表失敗: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+def set_alliance_id(line_group_id, alliance_id):
+    """將真實群組 ID 綁定到自訂的共用代碼上 (UPSERT)"""
+    conn = get_pg_conn()
+    if not conn: return False
+    try:
+        with conn.cursor() as cur:
+            query = """
+                INSERT INTO group_alliance_map (line_group_id, alliance_id, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (line_group_id) 
+                DO UPDATE SET alliance_id = EXCLUDED.alliance_id, updated_at = NOW();
+            """
+            cur.execute(query, (line_group_id, alliance_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"綁定共用群組出錯: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_actual_group_id(line_group_id):
+    """
+    核心魔法 🪄：
+    去資料庫查這個群組有沒有綁定共用代碼。
+    有綁定 -> 回傳共用代碼 (例如: ALLIANCE_BOSS_1)
+    沒綁定 -> 回傳原本真實的 LINE Group ID (維持單群獨立運作)
+    """
+    conn = get_pg_conn()
+    if not conn: return line_group_id
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT alliance_id FROM group_alliance_map WHERE line_group_id = %s", (line_group_id,))
+            row = cur.fetchone()
+            return row[0] if row else line_group_id
+    except Exception as e:
+        print(f"查詢共用代碼出錯: {e}")
+        return line_group_id
+    finally:
+        conn.close()
+
+# 記得在 startup_event 裡加上 init_alliance_db()
 def init_fixed_boss_db():
     """自動建立固定王專用的資料表，並確保欄位長度足夠"""
     print("🔧 系統啟動：檢查並建立 fixed_boss_records 資料表...")
@@ -3645,6 +3708,8 @@ def handle_message(event):
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
     text = event.message.text.strip()
+    msg_type = event.source.type
+    raw_text = event.message.text.strip()
     # 【強制初始化資料庫的隱藏指令】
     if text == "初始化資料庫":
         try:
@@ -3660,7 +3725,38 @@ def handle_message(event):
                 TextSendMessage(text=f"❌ 初始化發生嚴重錯誤: {e}")
             )
         return
-
+    
+    # 1. 取得原始的來源 ID (群組或個人)
+    raw_source_id = event.source.group_id if hasattr(event.source, 'group_id') else user_id
+    
+    # =========================================================
+    # 🌟 指令：設定共用群組 (例如在 A群和 B群都輸入 "!綁定共用 123")
+    # =========================================================
+    if raw_text.startswith("!綁定共用"):
+        cmd_args = raw_text.split()
+        if len(cmd_args) < 2:
+            line_bot_api.reply_message(
+                event.reply_token, 
+                TextSendMessage(text="⚠️ 格式錯誤！請輸入: !綁定共用 [自訂代碼]\n範例: !綁定共用 777")
+            )
+            return
+            
+        alliance_code = cmd_args[1]
+        virtual_id = f"SHARED_{alliance_code}" # 加上前綴避免跟一般群組ID撞名
+        
+        if set_alliance_id(raw_source_id, virtual_id):
+            line_bot_api.reply_message(
+                event.reply_token, 
+                TextSendMessage(text=f"✅ 綁定成功！\n本群組已加入共用頻道【{alliance_code}】。\n請至另一個群組輸入相同的指令，即可實現王表共用！")
+            )
+        else:
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 系統錯誤，綁定失敗。"))
+    # =========================================================
+    # 🪄 核心魔法：轉換 ID
+    # 接下來的程式碼中，只要把您原本使用到 group_id 的地方，都改用這個轉換過後的 group_id！
+    # =========================================================
+    group_id = get_actual_group_id(raw_source_id)
+    
     import threading
     from datetime import datetime
     import pytz
