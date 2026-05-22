@@ -184,13 +184,23 @@ def safe_reply(event, text_msg, flex_msg=None):
             )
     except Exception as e:
         print("Reply failed:", e)
+# === 共用王表設定區 (ALLIANCE_MAP) ===
+# 請把下方的中文替換成你剛剛用指令取得的真實群組代碼 (C開頭那串)
+ALLIANCE_MAP = {
+    "C5b59f9fe8a7c3b709742b8f765d8f95e": "SHARED_BOSS_DB",
+    "Cfea8c07f23c410a1e328871f8573f5e5": "SHARED_BOSS_DB"
+}
+
 def get_source_id(event):
     if event.source.type == "group":
-        return event.source.group_id
+        raw_id = event.source.group_id
     elif event.source.type == "room":
-        return event.source.room_id
+        raw_id = event.source.room_id
     else:
-        return event.source.user_id
+        raw_id = event.source.user_id
+        
+    # 如果這個群組有在 ALLIANCE_MAP 裡面，就轉換成共用的 ID (SHARED_BOSS_DB)
+    return ALLIANCE_MAP.get(raw_id, raw_id)
 def now_tw():
     return datetime.now(TZ)
 def get_username(user_id):
