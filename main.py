@@ -3709,7 +3709,9 @@ def handle_message(event):
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
     text = event.message.text.strip()
-    msg_type = event.source.type
+    raw_text = event.message.text.strip()
+
+    user_id = event.source.user_id
     raw_text = event.message.text.strip()
     # 【強制初始化資料庫的隱藏指令】
     if text == "初始化資料庫":
@@ -3727,31 +3729,31 @@ def handle_message(event):
             )
         return
     
-    # 1. 取得原始的來源 ID (群組或個人)
-    raw_source_id = event.source.group_id if hasattr(event.source, 'group_id') else user_id
-    
+    # 1. 先取得 LINE 傳來的「原始真實 ID」
+    if hasattr(event.source, 'group_id'):
+        raw_source_id = event.source.group_id
+    elif hasattr(event.source, 'room_id'):
+        raw_source_id = event.source.room_id
+    else:
+        raw_source_id = user_id
+
     # =========================================================
-    # 🌟 指令：設定共用群組 (例如在 A群和 B群都輸入 "!綁定共用 123")
+    # 🌟 攔截點：處理綁定指令 (這裡必須用 raw_source_id 來綁定)
     # =========================================================
     if raw_text.startswith("!綁定共用"):
         cmd_args = raw_text.split()
         if len(cmd_args) < 2:
-            line_bot_api.reply_message(
-                event.reply_token, 
-                TextSendMessage(text="⚠️ 格式錯誤！請輸入: !綁定共用 [自訂代碼]\n範例: !綁定共用 777")
-            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 格式錯誤！範例: !綁定共用 777"))
             return
             
         alliance_code = cmd_args[1]
-        virtual_id = f"SHARED_{alliance_code}" # 加上前綴避免跟一般群組ID撞名
+        virtual_id = f"SHARED_{alliance_code}"
         
         if set_alliance_id(raw_source_id, virtual_id):
-            line_bot_api.reply_message(
-                event.reply_token, 
-                TextSendMessage(text=f"✅ 綁定成功！\n本群組已加入共用頻道【{alliance_code}】。\n請至另一個群組輸入相同的指令，即可實現王表共用！")
-            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 綁定成功！代碼【{alliance_code}】"))
         else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 系統錯誤，綁定失敗。"))
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 綁定失敗。"))
+        return
     # =========================================================
     # 🪄 核心魔法：轉換 ID
     # 接下來的程式碼中，只要把您原本使用到 group_id 的地方，都改用這個轉換過後的 group_id！
