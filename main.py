@@ -50,6 +50,7 @@ def startup_event():
     print("🚀 系統啟動，準備初始化資料庫...")
     init_db()
     init_fixed_boss_db()
+    init_alliance_db()  # <--- ⚠️ 請務必確認有加上這一行！
 # 工具函式
 def is_peak_time():
     return False # 暫時關閉，永遠允許 Flex 訊息
@@ -3756,7 +3757,7 @@ def handle_message(event):
     # 接下來的程式碼中，只要把您原本使用到 group_id 的地方，都改用這個轉換過後的 group_id！
     # =========================================================
     group_id = get_actual_group_id(raw_source_id)
-    
+
     import threading
     from datetime import datetime
     import pytz
