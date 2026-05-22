@@ -194,7 +194,6 @@ def get_source_id(event):
         source_id = event.source.user_id
         
     # 2. 【核心修改】在這裡寫死：如果來源是 B 群，強制變成 A 群
-    # 注意：請把下面的字串換成你們真實的 LINE Group ID
     GROUP_B_ID = "Cfea8c07f23c410a1e328871f8573f5e5"
     GROUP_A_ID = "C5b59f9fe8a7c3b709742b8f765d8f95e"
     
