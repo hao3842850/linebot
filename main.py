@@ -45,6 +45,10 @@ handler = WebhookHandler(CHANNEL_SECRET)
 TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 DATABASE_URL = os.getenv("DATABASE_URL")
+# === 聯盟共用王表設定 ===
+# 填入想要共用的所有群組真實 ID (C開頭)
+SHARED_GROUPS = ["C5b59f9fe8a7c3b709742b8f765d8f95e", "Cfea8c07f23c410a1e328871f8573f5e5"] 
+MASTER_GROUP_ID = SHARED_GROUPS[0] # 資料庫統一存在第一個群組名下
 @app.on_event("startup")
 def startup_event():
     print("🚀 系統啟動，準備初始化資料庫...")
@@ -3663,12 +3667,28 @@ def handle_message(event):
     # 只有包含「📦」或「備份」字眼的多行訊息，才判定為靜音備份模式
     is_backup_mode = is_multi_register and ("📦" in raw_text or "備份" in raw_text)
     db = load_db()
-    group_id = get_source_id(event)
+    
     db.setdefault("boss", {})
     db["boss"].setdefault(group_id, {})
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
     text = event.message.text.strip()
+    user_msg = event.message.text.strip()
+    user = event.source.user_id
+    
+    # --- 關鍵修改：強制攔截群組 ID ---
+    if event.source.type == "group":
+        raw_id = event.source.group_id
+    elif event.source.type == "room":
+        raw_id = event.source.room_id
+    else:
+        raw_id = event.source.user_id
+        
+    # 如果發話的群組在共用名單內，強制把 group_id 變成 MASTER_GROUP_ID
+    if raw_id in SHARED_GROUPS:
+        group_id = MASTER_GROUP_ID
+    else:
+        group_id = raw_id
     # 【強制初始化資料庫的隱藏指令】
     if text == "初始化資料庫":
         try:
