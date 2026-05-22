@@ -50,7 +50,6 @@ def startup_event():
     print("🚀 系統啟動，準備初始化資料庫...")
     init_db()
     init_fixed_boss_db()
-    init_alliance_db()  # <--- ⚠️ 請務必確認有加上這一行！
 # 工具函式
 def is_peak_time():
     return False # 暫時關閉，永遠允許 Flex 訊息
@@ -68,69 +67,6 @@ def safe_init_dict(parent_dict, key):
         parent_dict[key] = {}
         
     return parent_dict[key]
-def init_alliance_db():
-    """建立群組共用(聯盟)資料表"""
-    print("🔧 檢查並建立 group_alliance_map 資料表...")
-    conn = get_pg_conn()
-    if not conn: return
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS group_alliance_map (
-                    line_group_id VARCHAR(255) PRIMARY KEY,
-                    alliance_id VARCHAR(255) NOT NULL,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-        conn.commit()
-    except Exception as e:
-        print(f"❌ 建立聯盟表失敗: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
-
-def set_alliance_id(line_group_id, alliance_id):
-    """將真實群組 ID 綁定到自訂的共用代碼上 (UPSERT)"""
-    conn = get_pg_conn()
-    if not conn: return False
-    try:
-        with conn.cursor() as cur:
-            query = """
-                INSERT INTO group_alliance_map (line_group_id, alliance_id, updated_at)
-                VALUES (%s, %s, NOW())
-                ON CONFLICT (line_group_id) 
-                DO UPDATE SET alliance_id = EXCLUDED.alliance_id, updated_at = NOW();
-            """
-            cur.execute(query, (line_group_id, alliance_id))
-        conn.commit()
-        return True
-    except Exception as e:
-        print(f"綁定共用群組出錯: {e}")
-        return False
-    finally:
-        conn.close()
-
-def get_actual_group_id(line_group_id):
-    """
-    核心魔法 🪄：
-    去資料庫查這個群組有沒有綁定共用代碼。
-    有綁定 -> 回傳共用代碼 (例如: ALLIANCE_BOSS_1)
-    沒綁定 -> 回傳原本真實的 LINE Group ID (維持單群獨立運作)
-    """
-    conn = get_pg_conn()
-    if not conn: return line_group_id
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT alliance_id FROM group_alliance_map WHERE line_group_id = %s", (line_group_id,))
-            row = cur.fetchone()
-            return row[0] if row else line_group_id
-    except Exception as e:
-        print(f"查詢共用代碼出錯: {e}")
-        return line_group_id
-    finally:
-        conn.close()
-
-# 記得在 startup_event 裡加上 init_alliance_db()
 def init_fixed_boss_db():
     """自動建立固定王專用的資料表，並確保欄位長度足夠"""
     print("🔧 系統啟動：檢查並建立 fixed_boss_records 資料表...")
@@ -3709,10 +3645,6 @@ def handle_message(event):
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
     text = event.message.text.strip()
-    raw_text = event.message.text.strip()
-
-    user_id = event.source.user_id
-    raw_text = event.message.text.strip()
     # 【強制初始化資料庫的隱藏指令】
     if text == "初始化資料庫":
         try:
@@ -3728,37 +3660,6 @@ def handle_message(event):
                 TextSendMessage(text=f"❌ 初始化發生嚴重錯誤: {e}")
             )
         return
-    
-    # 1. 先取得 LINE 傳來的「原始真實 ID」
-    if hasattr(event.source, 'group_id'):
-        raw_source_id = event.source.group_id
-    elif hasattr(event.source, 'room_id'):
-        raw_source_id = event.source.room_id
-    else:
-        raw_source_id = user_id
-
-    # =========================================================
-    # 🌟 攔截點：處理綁定指令 (這裡必須用 raw_source_id 來綁定)
-    # =========================================================
-    if raw_text.startswith("!綁定共用"):
-        cmd_args = raw_text.split()
-        if len(cmd_args) < 2:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="⚠️ 格式錯誤！範例: !綁定共用 777"))
-            return
-            
-        alliance_code = cmd_args[1]
-        virtual_id = f"SHARED_{alliance_code}"
-        
-        if set_alliance_id(raw_source_id, virtual_id):
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✅ 綁定成功！代碼【{alliance_code}】"))
-        else:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="❌ 綁定失敗。"))
-        return
-    # =========================================================
-    # 🪄 核心魔法：轉換 ID
-    # 接下來的程式碼中，只要把您原本使用到 group_id 的地方，都改用這個轉換過後的 group_id！
-    # =========================================================
-    group_id = get_actual_group_id(raw_source_id)
 
     import threading
     from datetime import datetime
@@ -4662,7 +4563,7 @@ def handle_message(event):
     if msg.upper() == "KPI":
         now = now_tw()
         start, end = get_kpi_range(now)
-        group_id = get_actual_group_id(raw_source_id)
+        group_id = get_source_id(event)
         
         # 使用現有的 get_kpi_ranking 函式獲取資料
         # 注意：原本檔案內的 get_kpi_ranking 內部已經會呼叫 get_kpi_range
