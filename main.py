@@ -1123,8 +1123,8 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
     
     # 🌟 修改點：根據 is_b_group 決定不同的樣式與前綴
     if is_b_group:
-        group_tag = "【分區】" # 你可以換成 B 群的聯盟名字或代號
-        boss_color = "#9C27B0" if is_skip else "#00BCD4"  # B群專屬色：輪空紫 / 登記藍
+        group_tag = "【特殊】" # 你可以換成 B 群的聯盟名字或代號
+        boss_color = "#A020F086" if is_skip else "#00BCD4"  # B群專屬色：輪空紫 / 登記藍
         card_bg_color = "#F3E5F5" # B群專屬淡紫色背景，若不想改背景可填 "#FFFFFF"
     else:
         group_tag = ""
