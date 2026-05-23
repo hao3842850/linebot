@@ -4844,6 +4844,14 @@ def handle_message(event):
         line_bot_api.reply_message(event.reply_token, flex_msg)
         return
 
+
+    # 請將此段邏輯加入您的訊息處理器中
+    if event.message.text == "查詢代碼":
+        group_id = event.source.group_id
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=f"本群組的聊天室代碼為：\n{group_id}")
+        )
     #-------------------------------------------------------------登記王---------------------------------------
     restored_kpi = {}
     skip_kpi = False
