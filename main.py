@@ -3656,6 +3656,9 @@ def handle_message(event):
     raw_text = event.message.text.strip()
     msg_text_no_space = raw_text.replace(" ", "")
     text = event.message.text.strip()
+    # 🌟 關鍵：確保 group_id 是透過轉換函式取得的共用 ID
+    group_id = get_source_id(event) 
+    user_id = event.source.user_id
     # 【強制初始化資料庫的隱藏指令】
     if text == "初始化資料庫":
         try:
