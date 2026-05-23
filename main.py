@@ -32,37 +32,7 @@ from linebot.models import (
     FlexContainer,
     BubbleContainer
 )
-def drop_my_tables():
-    # 連接資料庫
-    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-    cur = conn.cursor()
-    
-    # 要刪除的資料表列表
-    tables_to_drop = [
-        "boss_record", 
-        "fixed_boss_records", 
-        "fixed_boss_records1", 
-        "group_alliance_map", 
-        "group_presence", 
-        "transactions"
-    ]
-    
-    for table in tables_to_drop:
-        try:
-            # IF EXISTS 可以避免因為資料表不存在而報錯
-            cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
-            print(f"✅ 已成功刪除資料表: {table}")
-        except Exception as e:
-            print(f"❌ 刪除 {table} 時發生錯誤: {e}")
-    
-    # 提交變更並關閉連接
-    conn.commit()
-    cur.close()
-    conn.close()
-    print("🎉 所有指定資料表已處理完畢。")
 
-if __name__ == "__main__":
-    drop_my_tables()
 # 基本設定
 db_lock = Lock()
 app = FastAPI()
