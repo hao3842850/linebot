@@ -4427,7 +4427,10 @@ def handle_message(event):
             return
             
         # 取得 group_id
-        group_id = getattr(event.source, 'group_id', 'default_group')
+        # 取得群組 ID 並撈取資料庫紀錄
+        # 🌟 這裡改成呼叫 get_source_id 來取得共用的群組 ID
+        group_id = get_source_id(event)
+        boss_db_from_pg = get_latest_boss_records(group_id)
         
         # 💡 修正：補上 cd_map 參數，讓函式知道各王的冷卻時間
         # (假設 cd_map 在你的程式碼中已經定義在全域，或者是可以取得的變數)
@@ -4678,7 +4681,9 @@ def handle_message(event):
         unregistered = []
         
         # 取得群組 ID 並撈取資料庫紀錄
-        group_id = getattr(event.source, 'group_id', 'default_group')
+        # 取得群組 ID 並撈取資料庫紀錄
+        # 🌟 這裡改成呼叫 get_source_id 來取得共用的群組 ID
+        group_id = get_source_id(event)
         boss_db_from_pg = get_latest_boss_records(group_id)
 
         for boss, cd in cd_map.items():
@@ -4767,7 +4772,10 @@ def handle_message(event):
         now = now_tw()
         time_items = []
         
-        group_id = getattr(event.source, 'group_id', 'default_group')
+        # 取得群組 ID 並撈取資料庫紀錄
+        # 🌟 這裡改成呼叫 get_source_id 來取得共用的群組 ID
+        group_id = get_source_id(event)
+        boss_db_from_pg = get_latest_boss_records(group_id)
         boss_db_from_pg = get_latest_boss_records(group_id) 
 
         for boss, cd in cd_map.items():
