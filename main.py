@@ -1078,33 +1078,23 @@ def undo_last_boss_record(group_id, input_text):
 from datetime import datetime, timedelta
 import pytz # 記得 pip install pytz
 
-def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None, is_skip=False):
-    # --- 1. 時間檢查邏輯 ---
+# 🌟 新增 is_b_group=False 參數
+def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None, is_skip=False, is_b_group=False):
+    # --- 1. 時間檢查邏輯 (維持不變) ---
     warning_box = None
     try:
-        # 設定台灣時區
         tz = pytz.timezone('Asia/Taipei')
         now = datetime.now(tz)
-        
-        # 1. 解析死亡時間 (kill_time)
-        # 這裡有個細節：kill_time 是字串 "15:52:33"
-        # 我們將其結合今天的日期
         record_time = datetime.strptime(kill_time.strip(), "%H:%M:%S")
         record_time = tz.localize(datetime(
             year=now.year, month=now.month, day=now.day,
             hour=record_time.hour, minute=record_time.minute, second=record_time.second
         ))
 
-        # 2. 跨日補正 (如果登記時間比現在晚很多，代表那是昨天的死亡時間)
         if record_time > now + timedelta(minutes=10):
             record_time -= timedelta(days=1)
 
-        # 3. 判斷邏輯：
-        # 如果你是要判斷「這筆資料是否太舊」，則應該比對發送當下的時間。
-        # 如果 record_time (死亡時間) 距離現在已經超過 30 分鐘 (1800秒)
         diff_seconds = (now - record_time).total_seconds()
-        
-        # 只有在超過 30 分鐘且小於 12 小時(避免舊資料干擾)時顯示
         if 1800 < diff_seconds < 43200: 
             warning_box = {
                 "type": "box",
@@ -1124,15 +1114,24 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
                     }
                 ]
             }
-            
     except Exception as e:
         print(f"DEBUG - 時間解析失敗: {e}")
 
     # --- 2. 原始 UI 構建邏輯 ---
     map_list = BOSS_MAP.get(boss, [])
     map_text = "、".join(map_list) if map_list else "未知"
-    header_prefix = "⭕ 輪空登記 " if is_skip else "🔥 已登記 "
-    boss_color = "#A020F0" if is_skip else "#FF6D18"
+    
+    # 🌟 修改點：根據 is_b_group 決定不同的樣式與前綴
+    if is_b_group:
+        group_tag = "【分區】" # 你可以換成 B 群的聯盟名字或代號
+        boss_color = "#9C27B0" if is_skip else "#00BCD4"  # B群專屬色：輪空紫 / 登記藍
+        card_bg_color = "#F3E5F5" # B群專屬淡紫色背景，若不想改背景可填 "#FFFFFF"
+    else:
+        group_tag = ""
+        boss_color = "#A020F0" if is_skip else "#FF6D18"  # A群/預設色：輪空紫 / 登記橘
+        card_bg_color = "#FFFFFF" # 預設白底
+
+    header_prefix = f"{group_tag}⭕ 輪空登記 " if is_skip else f"{group_tag}🔥 已登記 "
     time_label = "🕒 輪空：" if is_skip else "🕒 死亡："
 
     contents = [
@@ -1190,6 +1189,12 @@ def build_register_boss_flex(boss, kill_time, respawn_time, registrar, note=None
         alt_text=f"{header_prefix}{boss}",
         contents={
             "type": "bubble",
+            # 🌟 新增 styles 來控制卡片底色
+            "styles": {
+                "body": {
+                    "backgroundColor": card_bg_color
+                }
+            },
             "body": {
                 "type": "box",
                 "layout": "vertical",
@@ -4907,8 +4912,26 @@ def handle_message(event):
             kill_str = t.strftime("%H:%M:%S")
             resp_str = respawn.strftime('%H:%M:%S')
             
+            # 🌟 1. 抓取真實來源 ID (注意不要用到已經被狸貓換太子的 group_id)
+            real_group_id = getattr(event.source, 'group_id', None)
+            
+            # 🌟 2. 判斷是否為 B 群 (請填入 B 群真實的 ID)
+            B_GROUP_ID = "Cfea8c07f23c410a1e328871f8573f5e5" 
+            is_b = (real_group_id == B_GROUP_ID)
+            
             text_msg = build_register_boss_text(boss, kill_str, resp_str, registrar, note)
-            flex_msg = build_register_boss_flex(boss, kill_str, resp_str, registrar, note)
+            
+            # 🌟 3. 將 is_b_group 參數傳遞給 Flex 函式
+            flex_msg = build_register_boss_flex(
+                boss=boss, 
+                kill_time=kill_str, 
+                respawn_time=resp_str, 
+                registrar=registrar, 
+                note=note, 
+                is_skip=False, # 視你的原本邏輯而定
+                is_b_group=is_b # 傳入判斷結果
+            )
+            
             safe_reply(event, text_msg, flex_msg)
 
     # 5. 迴圈結束後的回覆 (不再需要針對 boss_db 做 save_db)
