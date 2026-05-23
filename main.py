@@ -193,12 +193,14 @@ def get_source_id(event):
     else:
         source_id = event.source.user_id
         
-    # 2. 【核心修改】在這裡寫死：如果來源是 B 群，強制變成 A 群
-    GROUP_B_ID = "Cfea8c07f23c410a1e328871f8573f5e5"
+    # 2. 設定群組代碼
     GROUP_A_ID = "C5b59f9fe8a7c3b709742b8f765d8f95e"
+    GROUP_B_ID = "Cfea8c07f23c410a1e328871f8573f5e5"
+    GROUP_C_ID = "Cd75e1fb0598bb3508483751253707845" # 這裡填入 C 的 ID
     
-    if source_id == GROUP_B_ID:
-        return GROUP_A_ID  # 狸貓換太子，把 B 騙成 A
+    # 3. 如果來源是 B 或 C，強制變成 A
+    if source_id in [GROUP_B_ID, GROUP_C_ID]:
+        return GROUP_A_ID  # 狸貓換太子
 
     # 其他情況正常回傳
     return source_id
