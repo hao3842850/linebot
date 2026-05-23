@@ -3637,6 +3637,8 @@ def build_kpi_backup_text(kpi_db):
 #-------------------------------------------------------------****訊息判斷****---------------------------------------
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
+    group_id = get_source_id(event) 
+    text = event.message.text
     user = event.source.user_id
     user_id = event.source.user_id
     text = event.message.text.strip()
@@ -3936,6 +3938,10 @@ def handle_message(event):
                 return
             
     #-------------------------------------------------------------輪空登記 未完成 判斷重生30分鐘內輸入空才有效---------------------------------------
+    # 🌟 關鍵：確保 group_id 是透過轉換函式取得的共用 ID
+    group_id = get_source_id(event) 
+    user_id = event.source.user_id
+
     msg_text = event.message.text.strip()
     parts = msg_text.split()
 
@@ -3952,7 +3958,7 @@ def handle_message(event):
                 break
         
         if boss_name:
-            # 呼叫處理函式
+            # 🌟 這裡帶入的 group_id 就會是共用 ID 了！
             handle_boss_skipped(event, group_id, boss_name, user_id, note)
             return
         else:
@@ -3962,7 +3968,11 @@ def handle_message(event):
     if msg_text.startswith("刪 "):
         name_input = msg_text[2:].strip()
         if name_input:
-            success, final_name = delete_boss_records_by_alias(group_id, name_input)
+            # 🌟 關鍵修改：確保這裡使用的是經過轉換的共用 ID
+            shared_group_id = get_source_id(event)
+            
+            # 傳入轉換後的 shared_group_id，不論在 A 群或 B 群執行，都會刪除共用資料庫的紀錄
+            success, final_name = delete_boss_records_by_alias(shared_group_id, name_input)
             
             # 使用新定義的函式取得 Flex 內容
             delete_flex_content = get_delete_result_flex(
@@ -4525,7 +4535,7 @@ def handle_message(event):
             TextSendMessage("❎ 已取消清除")
         )
         return
-   #-------------------------------------------------------------!!!!!!!   未完成 查詢王!!!!!!!---------------------------------------
+   #-------------------------------------------------------------!!!!!!!查詢王!!!!!!!---------------------------------------
     # 在 @handler.add(MessageEvent, TextMessage) 邏輯中
     # 這是你的訊息處理核心
     if text.startswith("查 "):
