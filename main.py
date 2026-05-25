@@ -1576,7 +1576,7 @@ def handle_message(event):
             passed = int((now - (disp_t - timedelta(hours=cd))).total_seconds() // 60) if missed == 0 else None
             
             # 組裝字串 (利用 \u200b 防連結)
-            line = f"{disp_t.strftime('%H:%M:%S').replace(':', ':\u200b')} {boss}"
+            line = f"{disp_t.strftime('%H:%M:%S').replace(':', ':' + chr(0x200b))} {boss}"
             if rec.get("note"): line += f"（{rec['note'].strip()}）"
             if passed is not None and passed <= 30: line += f" <{passed}分未打>"
             if missed > 0: line += f" #過{missed}"
@@ -1674,6 +1674,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 8000))
     )
-    
+
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL 未設定")
