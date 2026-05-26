@@ -45,6 +45,7 @@ handler = WebhookHandler(CHANNEL_SECRET)
 TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 DATABASE_URL = os.getenv("DATABASE_URL")
+MY_ADMIN_ID = "U68c2e4197ef63a2c7fc923baae1f3667" 
 @app.on_event("startup")
 def startup_event():
     print("🚀 系統啟動，準備初始化資料庫...")
@@ -1077,6 +1078,20 @@ def undo_last_boss_record(group_id, input_text):
         return False, TextSendMessage(text="⚠️ 系統處理出錯，請稍後再試。")
     finally:
         conn.close()
+def global_clear_all_records():
+    """清除所有群組的 boss_time 資料"""
+    if not (conn := get_pg_conn()): return
+    try:
+        with conn.cursor() as cur:
+            # 刪除所有紀錄
+            cur.execute("DELETE FROM boss_time")
+            conn.commit()
+            print("✅ 已執行全域清除：所有群組紀錄皆已刪除")
+    except Exception as e:
+        print(f"❌ 全域刪除失敗: {e}")
+    finally:
+        conn.close()
+        
 from datetime import datetime, timedelta
 import pytz # 記得 pip install pytz
 
@@ -4085,6 +4100,39 @@ def handle_message(event):
             
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=msg))
 
+    # ========================================================================
+    # 👑 管理員指令：全域資料清除
+    # ========================================================================
+    if raw_text == "Clear ALL" and user_id == MY_ADMIN_ID:
+        global_clear_all_records()
+        
+        flex_msg = FlexSendMessage(
+            altText="⚠️ 全域資料已清除",
+            contents={
+            "type": "bubble",
+            "header": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [{"type": "text", "text": "系統公告", "color": "#ffffff", "size": "sm", "weight": "bold"}],
+                "backgroundColor": "#FF3344"
+            },
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                {"type": "text", "text": "資料清除完成", "weight": "bold", "size": "xl", "margin": "md"},
+                {"type": "text", "text": "所有群組的 Boss 紀錄已全數重置。", "size": "sm", "color": "#666666", "margin": "sm", "wrap": True}
+                ]
+            },
+            "footer": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [{"type": "text", "text": "系統指令已執行", "size": "xs", "color": "#aaaaaa", "align": "center"}]
+            }
+            }
+        )
+        
+        return line_bot_api.reply_message(event.reply_token, flex_msg)
     #-------------------------------------------------------------加入名冊---------------------------------------
     db.setdefault("__ROSTER_WAIT__", {})
     if msg.startswith("加入名冊"):
