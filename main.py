@@ -4103,35 +4103,31 @@ def handle_message(event):
     # ========================================================================
     # 👑 管理員指令：全域資料清除
     # ========================================================================
-    if raw_text == "Clear ALL" and user_id == MY_ADMIN_ID:
+    if raw_text == "clear ALL" and user_id == MY_ADMIN_ID:
         global_clear_all_records()
         
+        # 修正 altText 為 alt_text
         flex_msg = FlexSendMessage(
-            altText="⚠️ 全域資料已清除",
+            alt_text="⚠️ 全域資料已清除",
             contents={
-            "type": "bubble",
-            "header": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [{"type": "text", "text": "系統公告", "color": "#ffffff", "size": "sm", "weight": "bold"}],
-                "backgroundColor": "#FF3344"
-            },
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                {"type": "text", "text": "資料清除完成", "weight": "bold", "size": "xl", "margin": "md"},
-                {"type": "text", "text": "所有群組的 Boss 紀錄已全數重置。", "size": "sm", "color": "#666666", "margin": "sm", "wrap": True}
-                ]
-            },
-            "footer": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [{"type": "text", "text": "系統指令已執行", "size": "xs", "color": "#aaaaaa", "align": "center"}]
-            }
+                "type": "bubble",
+                "header": {
+                    "type": "box", "layout": "vertical", "backgroundColor": "#FF3344",
+                    "contents": [{"type": "text", "text": "系統公告", "color": "#ffffff", "size": "sm", "weight": "bold"}]
+                },
+                "body": {
+                    "type": "box", "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": "資料清除完成", "weight": "bold", "size": "xl", "margin": "md"},
+                        {"type": "text", "text": "所有群組的 Boss 紀錄已全數重置。", "size": "sm", "color": "#666666", "margin": "sm", "wrap": True}
+                    ]
+                },
+                "footer": {
+                    "type": "box", "layout": "vertical",
+                    "contents": [{"type": "text", "text": "系統指令已執行", "size": "xs", "color": "#aaaaaa", "align": "center"}]
+                }
             }
         )
-        
         return line_bot_api.reply_message(event.reply_token, flex_msg)
     #-------------------------------------------------------------加入名冊---------------------------------------
     db.setdefault("__ROSTER_WAIT__", {})
