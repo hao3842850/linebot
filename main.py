@@ -5005,5 +5005,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 8000))
     )
+    
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL 未設定")
