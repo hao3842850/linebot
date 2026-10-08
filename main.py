@@ -411,41 +411,61 @@ def get_all_records_for_kpi(group_id, start_time, end_time):
     finally:
         conn.close()
     return records
+notified_respawns = set()  # 記錄已通知過的 (群組, 王, 該輪重生時間)
+
 def background_check():
     while True:
+        conn = None
         try:
             conn = get_pg_conn()
             cur = conn.cursor()
             now = now_tw()
-            
-            # 撈取所有還沒重生的紀錄
-            cur.execute("SELECT group_id, boss_name, respawn_time FROM boss_time")
+
+            # 每個群組、每隻大王只取最新一筆當基準點
+            cur.execute("""
+                SELECT DISTINCT ON (group_id, boss_name)
+                       group_id, boss_name, respawn_time
+                FROM boss_time
+                WHERE boss_name = ANY(%s)
+                ORDER BY group_id, boss_name, id DESC
+            """, (MAJOR_BOSSES,))
             rows = cur.fetchall()
-            
-            for row in rows:
-                group_id, boss_name, respawn_time = row
-                
-                # 確保時區一致
+            cur.close()
+
+            for group_id, boss_name, respawn_time in rows:
+                cd = cd_map.get(boss_name)
+                if not cd:
+                    continue
                 if respawn_time.tzinfo is None:
                     respawn_time = TZ.localize(respawn_time)
-                
-                # 計算距離重生的秒數
-                time_diff = (respawn_time - now).total_seconds()
 
-                # 判斷是否在 5 分鐘左右 (270~330 秒)
-                if 270 <= time_diff < 330:
-                    # 【核心修改】：只針對大王清單內的王進行處理
-                    if boss_name in MAJOR_BOSSES:
-                        # 執行標記通知
-                        notify_boss_team(group_id, boss_name)
-                    # 一般王直接跳過，不做任何動作 (不用發送普通推播)
-            
-            cur.close()
-            conn.close()
+                # 推算「下一輪」重生時間（跟「出」列表同樣的 CD 推算）
+                step = timedelta(hours=cd)
+                if now < respawn_time:
+                    next_respawn = respawn_time
+                else:
+                    rounds = int((now - respawn_time) // step) + 1
+                    next_respawn = respawn_time + rounds * step
+
+                diff = (next_respawn - now).total_seconds()
+                key = (group_id, boss_name, int(next_respawn.timestamp()))
+
+                # 重生前 5 分鐘內，且這一輪還沒通知過
+                if 0 < diff <= 300 and key not in notified_respawns:
+                    notified_respawns.add(key)
+                    notify_boss_team(group_id, boss_name)
+
+            # 清掉 1 小時前的舊記錄，避免集合越長越大
+            limit = now.timestamp() - 3600
+            notified_respawns.difference_update(
+                {k for k in notified_respawns if k[2] < limit}
+            )
         except Exception as e:
             print(f"背景檢查發生錯誤: {e}")
-        
-        # 每 60 秒檢查一次
+        finally:
+            if conn:
+                conn.close()
+
         time.sleep(60)
 
 # 啟動背景執行緒 (放在檔案最下方)
@@ -457,69 +477,13 @@ t.start()
 MAJOR_BOSSES = ["古代巨人", "不死鳥", "死亡騎士", "克特"]
 
 def notify_boss_team(group_id, boss_name):
-    conn = get_pg_conn()
-    cur = conn.cursor()
     try:
-        # 1. 抓取成員
-        cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
-        rows = cur.fetchall()
-        
-        # 2. 基礎訊息文字
-        base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
-        
-        if rows:
-            user_ids = [r[0] for r in rows]
-            text_prefix = "📢 打王組集合！ "
-            mentionees = []
-            
-            # 3. 嚴格計算每個人的 Index 位址
-            for i, uid in enumerate(user_ids[:50]):
-                mentionees.append({
-                    "index": len(text_prefix) + i,
-                    "length": 1,
-                    "userId": str(uid)
-                })
-
-            # 組合最終文字：前綴 + 空格預留位 + 訊息內容
-            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
-
-            # 4. 手動建構 Payload (不依賴 SDK 類別)
-            payload = {
-                "to": group_id,
-                "messages": [
-                    {
-                        "type": "text",
-                        "text": full_text,
-                        "mention": {
-                            "mentionees": mentionees
-                        }
-                    }
-                ]
-            }
-
-            # 5. 直接發送 Post 請求到 LINE API
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}"
-            }
-            
-            response = requests.post(
-                "https://api.line.me/v2/bot/message/push",
-                headers=headers,
-                data=json.dumps(payload)
-            )
-            
-            if response.status_code != 200:
-                print(f"LINE API 報錯: {response.text}")
-        else:
-            # 沒人時發送普通訊息
-            line_bot_api.push_message(group_id, TextSendMessage(text=f"⏰ {base_msg}"))
-            
+        line_bot_api.push_message(
+            group_id,
+            TextSendMessage(text=f"⏰【{boss_name}】即將在 5 分鐘後重生！")
+        )
     except Exception as e:
         print(f"通知過程發生錯誤: {e}")
-    finally:
-        cur.close()
-        conn.close()
 
 
 
