@@ -473,70 +473,7 @@ def background_check():
 MAJOR_BOSSES = ["古代巨人", "不死鳥", "死亡騎士", "克特"]
 
 def notify_boss_team(group_id, boss_name):
-    """只提及 boss_team 指定成員；沒有名單時發一般群組提醒。"""
-    member_ids = []
-    conn = None
-
-    try:
-        conn = get_pg_conn()
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT DISTINCT user_id FROM boss_team WHERE group_id = %s",
-                (group_id,),
-            )
-            member_ids = [
-                row[0]
-                for row in cur.fetchall()
-                if isinstance(row[0], str)
-                and re.fullmatch(r"U[0-9a-fA-F]{32}", row[0])
-            ]
-    except Exception as e:
-        print(f"讀取打王組名單失敗，改用一般群組提醒: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-    if member_ids:
-        print(f"特殊王提醒：群組 {group_id}，指定成員 {len(member_ids)} 人")
-        # LINE textV2 每則最多提及 20 人、單次 push 最多包含 5 則訊息。
-        # 超過上限時分批發送，確保所有指定成員都能收到提及。
-        mention_messages = []
-        for start in range(0, len(member_ids), 20):
-            selected_ids = member_ids[start:start + 20]
-            placeholders = [f"{{member{i}}}" for i in range(len(selected_ids))]
-            substitutions = {
-                f"member{i}": {
-                    "type": "mention",
-                    "mentionee": {"type": "user", "userId": selected_user_id},
-                }
-                for i, selected_user_id in enumerate(selected_ids)
-            }
-            mention_messages.append({
-                "type": "textV2",
-                "text": "%s\n⏰【%s】即將在 5 分鐘後重生！"
-                % (" ".join(placeholders), boss_name),
-                "substitution": substitutions,
-            })
-
-        try:
-            for start in range(0, len(mention_messages), 5):
-                response = requests.post(
-                    "https://api.line.me/v2/bot/message/push",
-                    headers={
-                        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "to": group_id,
-                        "messages": mention_messages[start:start + 5],
-                    },
-                    timeout=10,
-                )
-                response.raise_for_status()
-            return True
-        except Exception as e:
-            print(f"打王組成員提及失敗，改用一般群組提醒: {e}")
-
+    """在群組發送一則普通的特殊王提醒。"""
     try:
         line_bot_api.push_message(
             group_id,
@@ -2629,22 +2566,6 @@ def ensure_shift_table():
             """)
             conn.commit()
 
-def ensure_boss_team_table():
-    with get_pg_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS boss_team (
-                    group_id TEXT NOT NULL,
-                    user_id TEXT NOT NULL,
-                    joined_at TIMESTAMPTZ DEFAULT NOW()
-                );
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_boss_team_group
-                ON boss_team (group_id);
-            """)
-            conn.commit()
-
 # 在啟動區（如 init_db 附近）執行一次
 ensure_shift_table()
 def get_line_display_name(user_id):
@@ -3615,7 +3536,6 @@ def roster_delete(user_id):
 @app.on_event("startup")
 async def startup():
     ensure_roster_table()
-    ensure_boss_team_table()
 @app.post("/callback")
 async def callback(request: Request, x_line_signature: str = Header(None)):
     body = await request.body()
@@ -3993,109 +3913,6 @@ def handle_message(event):
 
     msg_text = event.message.text.strip()
     parts = msg_text.split()
-
-    #-------------------------------------------------------------打王組名單---------------------------------------
-    if msg_text in ("加入打王組", "退出打王組", "打王組名單", "測試打王組提醒"):
-        if event.source.type not in ("group", "room"):
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text="此功能只能在群組中使用。")
-            )
-            return
-
-        try:
-            # 部分部署方式不一定會先跑完 FastAPI startup；指令執行時再確認一次。
-            ensure_boss_team_table()
-
-            if msg_text == "測試打王組提醒":
-                sent = notify_boss_team(group_id, "測試特殊王")
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(
-                        text="✅ 測試提醒已送出。" if sent else "❌ 測試提醒發送失敗，請查看後台日誌。"
-                    )
-                )
-                return
-
-            with get_pg_conn() as conn:
-                with conn.cursor() as cur:
-                    if msg_text == "加入打王組":
-                        # 相容舊資料表的 UNIQUE(user_id)：同一使用者若已存在，
-                        # 直接把名單歸屬更新到目前群組，避免 UniqueViolation。
-                        cur.execute(
-                            "SELECT group_id FROM boss_team WHERE user_id = %s LIMIT 1",
-                            (user_id,),
-                        )
-                        existing = cur.fetchone()
-
-                        if existing and existing[0] == group_id:
-                            added = False
-                            moved = False
-                        elif existing:
-                            cur.execute("""
-                                UPDATE boss_team
-                                SET group_id = %s
-                                WHERE user_id = %s
-                            """, (group_id, user_id))
-                            added = True
-                            moved = True
-                        else:
-                            cur.execute(
-                                "INSERT INTO boss_team (group_id, user_id) VALUES (%s, %s)",
-                                (group_id, user_id),
-                            )
-                            added = True
-                            moved = False
-
-                        conn.commit()
-                        if moved:
-                            reply_text = "✅ 已將你的打王組設定更新到目前群組。"
-                        elif added:
-                            reply_text = "✅ 已加入打王組，特殊王提醒會指定通知你。"
-                        else:
-                            reply_text = "ℹ️ 你已經在打王組名單內。"
-
-                    elif msg_text == "退出打王組":
-                        cur.execute(
-                            "DELETE FROM boss_team WHERE group_id = %s AND user_id = %s",
-                            (group_id, user_id),
-                        )
-                        removed = cur.rowcount > 0
-                        conn.commit()
-                        reply_text = "✅ 已退出打王組。" if removed else "ℹ️ 你目前不在打王組名單內。"
-
-                    else:
-                        cur.execute(
-                            "SELECT DISTINCT user_id FROM boss_team WHERE group_id = %s ORDER BY user_id",
-                            (group_id,),
-                        )
-                        member_ids = [row[0] for row in cur.fetchall()]
-                        if member_ids:
-                            names = [get_username(uid) for uid in member_ids]
-                            reply_text = "⚔️ 打王組名單\n" + "\n".join(
-                                f"{index}. {name}" for index, name in enumerate(names, 1)
-                            )
-                        else:
-                            reply_text = "目前尚無打王組成員。\n輸入「加入打王組」即可加入。"
-
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=reply_text)
-            )
-        except Exception as e:
-            import traceback
-            print(f"打王組名單操作失敗: {e}")
-            print(traceback.format_exc())
-            error_text = str(e).replace("\n", " ").strip()
-            if len(error_text) > 180:
-                error_text = error_text[:180] + "…"
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(
-                    text=f"⚠️ 打王組名單操作失敗\n{type(e).__name__}: {error_text}"
-                )
-            )
-        return
 
     # 2. 判斷是否為輪空指令 (例如：四色 空)
     if len(parts) >= 2 and ("空" in parts[1] or "輪空" in parts[1]):
