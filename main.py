@@ -4001,6 +4001,8 @@ def handle_message(event):
             return
 
         try:
+            # 部分部署方式不一定會先跑完 FastAPI startup；指令執行時再確認一次。
+            ensure_boss_team_table()
             with get_pg_conn() as conn:
                 with conn.cursor() as cur:
                     if msg_text == "加入打王組":
@@ -4044,7 +4046,9 @@ def handle_message(event):
                 TextSendMessage(text=reply_text)
             )
         except Exception as e:
+            import traceback
             print(f"打王組名單操作失敗: {e}")
+            print(traceback.format_exc())
             line_bot_api.reply_message(
                 event.reply_token,
                 TextSendMessage(text="⚠️ 打王組名單操作失敗，請稍後再試。")
