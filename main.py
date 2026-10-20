@@ -4049,9 +4049,14 @@ def handle_message(event):
             import traceback
             print(f"打王組名單操作失敗: {e}")
             print(traceback.format_exc())
+            error_text = str(e).replace("\n", " ").strip()
+            if len(error_text) > 180:
+                error_text = error_text[:180] + "…"
             line_bot_api.reply_message(
                 event.reply_token,
-                TextSendMessage(text="⚠️ 打王組名單操作失敗，請稍後再試。")
+                TextSendMessage(
+                    text=f"⚠️ 打王組名單操作失敗\n{type(e).__name__}: {error_text}"
+                )
             )
         return
 
