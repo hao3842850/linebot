@@ -473,6 +473,36 @@ def background_check():
 MAJOR_BOSSES = ["古代巨人", "不死鳥", "死亡騎士", "克特"]
 
 def notify_boss_team(group_id, boss_name):
+    """用 textV2 在群組真正提及全體；失敗時退回一般群組提醒。"""
+    try:
+        response = requests.post(
+            "https://api.line.me/v2/bot/message/push",
+            headers={
+                "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "to": group_id,
+                "messages": [
+                    {
+                        "type": "textV2",
+                        "text": "{all}\n⏰【%s】即將在 5 分鐘後重生！" % boss_name,
+                        "substitution": {
+                            "all": {
+                                "type": "mention",
+                                "mentionee": {"type": "all"},
+                            }
+                        },
+                    }
+                ],
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        return
+    except Exception as e:
+        print(f"特殊王 @All 提醒失敗，改用一般群組提醒: {e}")
+
     try:
         line_bot_api.push_message(
             group_id,
