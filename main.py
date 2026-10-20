@@ -4,6 +4,7 @@
 import asyncio
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -468,11 +469,6 @@ def background_check():
 
         time.sleep(60)
 
-# 啟動背景執行緒 (放在檔案最下方)
-t = threading.Thread(target=background_check)
-t.daemon = True
-t.start()
-
 # 1. 定義需要 @標記 的大王清單 (名稱需與 cd_map 一致)
 MAJOR_BOSSES = ["古代巨人", "不死鳥", "死亡騎士", "克特"]
 
@@ -507,7 +503,7 @@ def build_confirmation_flex(boss_name):
                     "weight": "bold",
                     "align": "center",
                     "size": "sm",
-                    "opacity": "0.8" # 稍微降低透明度，不搶主視覺
+                    "opacity": 0.8 # 稍微降低透明度，不搶主視覺
                 },
                 # 第二行：放大的王名，並允許自動換行
                 {
@@ -569,6 +565,55 @@ def build_confirmation_flex(boss_name):
     }
     return FlexSendMessage(alt_text=f"{boss_name} 擊殺確認", contents=bubble)
 
+
+def parse_special_boss_reminder(text):
+    """解析固定／特殊王的五分鐘提醒，並回傳乾淨的王名。"""
+    if not isinstance(text, str):
+        return None
+
+    if "固定王提醒" not in text and "特殊王提醒" not in text:
+        return None
+
+    # 相容 iOS 捷徑可能產生的 5、5️⃣、空白及不同大小寫。
+    if not re.search(r"倒數\s*5(?:\ufe0f?\u20e3)?\s*分鐘", text):
+        return None
+
+    for line in text.splitlines():
+        match = re.search(r"(?:boss|王名)\s*[:：]?\s*(.+)", line, re.IGNORECASE)
+        if match:
+            boss_name = match.group(1).strip().strip("：:｜|－-")
+            if boss_name:
+                return boss_name
+
+    return None
+
+
+special_boss_timers = {}
+special_boss_timers_lock = Lock()
+
+
+def schedule_auto_mark_missed(group_id, boss_name, delay_seconds=900.0):
+    """每個群組、每隻特殊王只保留一個自動漏掉計時器。"""
+    key = (group_id, boss_name)
+
+    def run_check():
+        try:
+            auto_mark_missed(group_id, boss_name)
+        finally:
+            with special_boss_timers_lock:
+                special_boss_timers.pop(key, None)
+
+    timer = threading.Timer(delay_seconds, run_check)
+    timer.daemon = True
+
+    with special_boss_timers_lock:
+        previous = special_boss_timers.get(key)
+        if previous:
+            previous.cancel()
+        special_boss_timers[key] = timer
+
+    timer.start()
+
 # 2. 5分鐘後執行的推播函式
 def send_delayed_confirmation(group_id, boss_name):
     try:
@@ -587,12 +632,12 @@ def auto_mark_missed(group_id, boss_name):
     
     try:
         with conn.cursor() as cur:
-            # 檢查過去 15 分鐘內，這個群組的這隻王是否已經有任何狀態的紀錄
-            # (用 15 分鐘是為了確保涵蓋倒數的 10 分鐘加上一點緩衝時間)
+            # 計時器可能有數秒排程延遲，因此保留 16 分鐘視窗，
+            # 避免剛好在提醒出現時完成的回報被錯判成「漏掉」。
             cur.execute("""
                 SELECT id FROM fixed_boss_records2
                 WHERE group_id = %s AND boss_name = %s 
-                AND record_time >= NOW() - INTERVAL '15 minutes'
+                AND record_time >= CURRENT_TIMESTAMP - INTERVAL '16 minutes'
             """, (group_id, boss_name))
             
             row = cur.fetchone()
@@ -3172,6 +3217,11 @@ fixed_bosses = {
                   "13:00","15:00","17:00","19:00","21:00","23:00"]
     }
 }
+
+# 等特殊王清單與 CD 設定都載入後才啟動，避免程式啟動時的競態錯誤。
+t = threading.Thread(target=background_check, name="special-boss-reminder", daemon=True)
+t.start()
+
 def get_real_boss_name(input_name):
     """
     將使用者輸入的簡稱，轉換為 alias_map 中的正式名稱
@@ -3587,8 +3637,6 @@ def handle_member_joined(event):
         event.reply_token,
         build_join_roster_guide_flex()
     )
-import re
-
 def sanitize_register_line(line: str) -> str:
     """
     清理備份 / 多行貼上的單行內容
@@ -3672,25 +3720,16 @@ def handle_message(event):
 
     # --- 程式碼區塊開始 ---
 
-    # 【功能 A】攔截 iOS 捷徑的提醒，並啟動 5 分鐘倒數
-    if "⏰固定王提醒" in text and "倒數5️⃣分鐘" in text and "Boss" in text:
-
-        # 動態擷取 Boss 的名字
-        boss_name = "未知王" # 給個預設防呆值
-        for line in text.split('\n'):
-            if "Boss" in line:
-                # 將該行用 'Boss' 切割，取後面的文字，並清除多餘的空白
-                boss_name = line.split("Boss")[1].strip()
-                break # 找到名字就跳出迴圈
+    # 【功能 A】攔截 iOS 捷徑的固定／特殊王提醒，並啟動回報倒數
+    boss_name = parse_special_boss_reminder(text)
+    if boss_name:
         
         # 1. 立即使用 reply_message 回傳 Flex 卡片，省下推播額度
         flex_msg = build_confirmation_flex(boss_name)
         line_bot_api.reply_message(event.reply_token, flex_msg)
         
-        # 2. 啟動防呆計時器：900秒 (15分鐘) 後執行 auto_mark_missed 檢查
-        # 原程式碼註解寫 10 分鐘但數值是 900.0，此處維持 900.0 (15分鐘)
-        timer = threading.Timer(900.0, auto_mark_missed, args=[group_id, boss_name])
-        timer.start()
+        # 2. 900 秒（15 分鐘）後檢查；相同提醒重送時不會產生多個計時器。
+        schedule_auto_mark_missed(group_id, boss_name)
         
         return
 
@@ -3718,15 +3757,17 @@ def handle_message(event):
         # ==========================================
         # 3. 寫入資料庫與回覆 (加入防重複機制)
         # ==========================================
+        conn = None
         try:
             conn = get_pg_conn()
             if conn:
                 with conn.cursor() as cur:
-                    # 💡 修正：確保資料庫使用台灣時間進行 20 分鐘內的重複檢查
+                    # record_time 與 CURRENT_TIMESTAMP 都依資料庫 session 時區比較，
+                    # 避免額外轉成台灣時間後造成八小時偏差。
                     cur.execute("""
                         SELECT status FROM fixed_boss_records2 
                         WHERE group_id = %s AND boss_name = %s 
-                        AND record_time >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Taipei' - INTERVAL '20 minutes')
+                        AND record_time >= CURRENT_TIMESTAMP - INTERVAL '20 minutes'
                     """, (group_id, boss_name))
                     
                     existing_record = cur.fetchone()
@@ -3749,7 +3790,6 @@ def handle_message(event):
                         (group_id, boss_name, status)
                     )
                 conn.commit()
-                conn.close()
                 
                 # 🌟 寫入成功後，發送成功 Flex 卡片
                 success_flex = build_record_success_flex(boss_name, status)
@@ -3766,6 +3806,9 @@ def handle_message(event):
                 event.reply_token,
                 TextSendMessage(text=f"❌ 紀錄寫入失敗，請檢查後台！錯誤訊息: {e}")
             )
+        finally:
+            if conn:
+                conn.close()
 
         return
 #   【功能 C：送出報表 + 12:00 靜默刪除版】
