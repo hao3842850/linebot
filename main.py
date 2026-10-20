@@ -497,6 +497,7 @@ def notify_boss_team(group_id, boss_name):
             conn.close()
 
     if member_ids:
+        print(f"特殊王提醒：群組 {group_id}，指定成員 {len(member_ids)} 人")
         # LINE textV2 每則最多提及 20 人、單次 push 最多包含 5 則訊息。
         # 超過上限時分批發送，確保所有指定成員都能收到提及。
         mention_messages = []
@@ -532,7 +533,7 @@ def notify_boss_team(group_id, boss_name):
                     timeout=10,
                 )
                 response.raise_for_status()
-            return
+            return True
         except Exception as e:
             print(f"打王組成員提及失敗，改用一般群組提醒: {e}")
 
@@ -541,8 +542,10 @@ def notify_boss_team(group_id, boss_name):
             group_id,
             TextSendMessage(text=f"⏰【{boss_name}】即將在 5 分鐘後重生！")
         )
+        return True
     except Exception as e:
         print(f"通知過程發生錯誤: {e}")
+        return False
 
 
 
@@ -3992,7 +3995,7 @@ def handle_message(event):
     parts = msg_text.split()
 
     #-------------------------------------------------------------打王組名單---------------------------------------
-    if msg_text in ("加入打王組", "退出打王組", "打王組名單"):
+    if msg_text in ("加入打王組", "退出打王組", "打王組名單", "測試打王組提醒"):
         if event.source.type not in ("group", "room"):
             line_bot_api.reply_message(
                 event.reply_token,
@@ -4003,6 +4006,17 @@ def handle_message(event):
         try:
             # 部分部署方式不一定會先跑完 FastAPI startup；指令執行時再確認一次。
             ensure_boss_team_table()
+
+            if msg_text == "測試打王組提醒":
+                sent = notify_boss_team(group_id, "測試特殊王")
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(
+                        text="✅ 測試提醒已送出。" if sent else "❌ 測試提醒發送失敗，請查看後台日誌。"
+                    )
+                )
+                return
+
             with get_pg_conn() as conn:
                 with conn.cursor() as cur:
                     if msg_text == "加入打王組":
