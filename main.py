@@ -473,35 +473,68 @@ def background_check():
 MAJOR_BOSSES = ["古代巨人", "不死鳥", "死亡騎士", "克特"]
 
 def notify_boss_team(group_id, boss_name):
-    """用 textV2 在群組真正提及全體；失敗時退回一般群組提醒。"""
+    """只提及 boss_team 指定成員；沒有名單時發一般群組提醒。"""
+    member_ids = []
+    conn = None
+
     try:
-        response = requests.post(
-            "https://api.line.me/v2/bot/message/push",
-            headers={
-                "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "to": group_id,
-                "messages": [
-                    {
-                        "type": "textV2",
-                        "text": "{all}\n⏰【%s】即將在 5 分鐘後重生！" % boss_name,
-                        "substitution": {
-                            "all": {
-                                "type": "mention",
-                                "mentionee": {"type": "all"},
-                            }
-                        },
-                    }
-                ],
-            },
-            timeout=10,
-        )
-        response.raise_for_status()
-        return
+        conn = get_pg_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT user_id FROM boss_team WHERE group_id = %s",
+                (group_id,),
+            )
+            member_ids = [
+                row[0]
+                for row in cur.fetchall()
+                if isinstance(row[0], str)
+                and re.fullmatch(r"U[0-9a-fA-F]{32}", row[0])
+            ]
     except Exception as e:
-        print(f"特殊王 @All 提醒失敗，改用一般群組提醒: {e}")
+        print(f"讀取打王組名單失敗，改用一般群組提醒: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    if member_ids:
+        # LINE textV2 每則最多提及 20 人、單次 push 最多包含 5 則訊息。
+        # 超過上限時分批發送，確保所有指定成員都能收到提及。
+        mention_messages = []
+        for start in range(0, len(member_ids), 20):
+            selected_ids = member_ids[start:start + 20]
+            placeholders = [f"{{member{i}}}" for i in range(len(selected_ids))]
+            substitutions = {
+                f"member{i}": {
+                    "type": "mention",
+                    "mentionee": {"type": "user", "userId": selected_user_id},
+                }
+                for i, selected_user_id in enumerate(selected_ids)
+            }
+            mention_messages.append({
+                "type": "textV2",
+                "text": "%s\n⏰【%s】即將在 5 分鐘後重生！"
+                % (" ".join(placeholders), boss_name),
+                "substitution": substitutions,
+            })
+
+        try:
+            for start in range(0, len(mention_messages), 5):
+                response = requests.post(
+                    "https://api.line.me/v2/bot/message/push",
+                    headers={
+                        "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "to": group_id,
+                        "messages": mention_messages[start:start + 5],
+                    },
+                    timeout=10,
+                )
+                response.raise_for_status()
+            return
+        except Exception as e:
+            print(f"打王組成員提及失敗，改用一般群組提醒: {e}")
 
     try:
         line_bot_api.push_message(
@@ -986,69 +1019,6 @@ def build_kill_list_flex(title, display_items):
     }
     
     return FlexSendMessage(alt_text=title, contents=bubble)
-
-def notify_boss_team_with_flex(group_id, boss_name):
-    conn = get_pg_conn()
-    cur = conn.cursor()
-    try:
-        # 1. 抓取打王組成員
-        cur.execute("SELECT user_id FROM boss_team WHERE group_id = %s", (group_id,))
-        rows = cur.fetchall()
-        
-        base_msg = f"【{boss_name}】即將在 5 分鐘後重生！"
-        full_text = f"⏰ 提醒：{base_msg}"
-        mention_payload = None  # 用來存標記資料的變數
-
-        # 2. 手動建構標記 (使用字典而非類別)
-        if rows:
-            user_ids = [r[0] for r in rows]
-            text_prefix = "📢 打王組集合！ "
-            mentionees = []
-            
-            # 手動計算每個人的標記位置
-            for i, uid in enumerate(user_ids[:50]): # LINE 限制上限 50 人
-                mentionees.append({
-                    "index": len(text_prefix) + i,
-                    "length": 1,
-                    "userId": uid
-                })
-            
-            # 組合最終文字：前綴 + 空格(標記位) + 訊息
-            full_text = f"{text_prefix}{' ' * len(mentionees)}\n{base_msg}"
-            # 這就是 LINE API 需要的標記字典格式
-            mention_payload = {"mentionees": mentionees}
-
-        # 3. 定義 bubble (卡片內容)
-        bubble = {
-            "type": "bubble",
-            "size": "sm",
-            "header": {
-                "type": "box", "layout": "vertical", "backgroundColor": "#E74C3C",
-                "contents": [{"type": "text", "text": "⚔️ 大王警告", "color": "#ffffff", "weight": "bold", "size": "sm", "align": "center"}]
-            },
-            "body": {
-                "type": "box", "layout": "vertical", 
-                "contents": [
-                    {"type": "text", "text": f"{boss_name}", "weight": "bold", "size": "xl", "align": "center", "margin": "md"},
-                    {"type": "text", "text": "準備重生", "size": "sm", "color": "#aaaaaa", "align": "center"}
-                ]
-            }
-        }
-
-        # 4. 發送訊息 (直接將字典丟入 mention 參數)
-        messages = [
-            TextSendMessage(text=full_text, mention=mention_payload),
-            FlexSendMessage(alt_text=f"警報: {boss_name}", contents=bubble)
-        ]
-        
-        line_bot_api.push_message(group_id, messages)
-            
-    except Exception as e:
-        print(f"通知出錯: {e}")
-    finally:
-        cur.close()
-        conn.close()
-
 
 def undo_last_boss_record(group_id, input_text):
     """
@@ -2656,6 +2626,22 @@ def ensure_shift_table():
             """)
             conn.commit()
 
+def ensure_boss_team_table():
+    with get_pg_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS boss_team (
+                    group_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    joined_at TIMESTAMPTZ DEFAULT NOW()
+                );
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_boss_team_group
+                ON boss_team (group_id);
+            """)
+            conn.commit()
+
 # 在啟動區（如 init_db 附近）執行一次
 ensure_shift_table()
 def get_line_display_name(user_id):
@@ -3625,7 +3611,8 @@ def roster_delete(user_id):
 # FastAPI Webhook
 @app.on_event("startup")
 async def startup():
-    ensure_roster_table()# asyncio.create_task(boss_reminder_loop())
+    ensure_roster_table()
+    ensure_boss_team_table()
 @app.post("/callback")
 async def callback(request: Request, x_line_signature: str = Header(None)):
     body = await request.body()
@@ -4003,6 +3990,66 @@ def handle_message(event):
 
     msg_text = event.message.text.strip()
     parts = msg_text.split()
+
+    #-------------------------------------------------------------打王組名單---------------------------------------
+    if msg_text in ("加入打王組", "退出打王組", "打王組名單"):
+        if event.source.type not in ("group", "room"):
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="此功能只能在群組中使用。")
+            )
+            return
+
+        try:
+            with get_pg_conn() as conn:
+                with conn.cursor() as cur:
+                    if msg_text == "加入打王組":
+                        cur.execute("""
+                            INSERT INTO boss_team (group_id, user_id)
+                            SELECT %s, %s
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM boss_team
+                                WHERE group_id = %s AND user_id = %s
+                            )
+                        """, (group_id, user_id, group_id, user_id))
+                        added = cur.rowcount > 0
+                        conn.commit()
+                        reply_text = "✅ 已加入打王組，特殊王提醒會指定通知你。" if added else "ℹ️ 你已經在打王組名單內。"
+
+                    elif msg_text == "退出打王組":
+                        cur.execute(
+                            "DELETE FROM boss_team WHERE group_id = %s AND user_id = %s",
+                            (group_id, user_id),
+                        )
+                        removed = cur.rowcount > 0
+                        conn.commit()
+                        reply_text = "✅ 已退出打王組。" if removed else "ℹ️ 你目前不在打王組名單內。"
+
+                    else:
+                        cur.execute(
+                            "SELECT DISTINCT user_id FROM boss_team WHERE group_id = %s ORDER BY user_id",
+                            (group_id,),
+                        )
+                        member_ids = [row[0] for row in cur.fetchall()]
+                        if member_ids:
+                            names = [get_username(uid) for uid in member_ids]
+                            reply_text = "⚔️ 打王組名單\n" + "\n".join(
+                                f"{index}. {name}" for index, name in enumerate(names, 1)
+                            )
+                        else:
+                            reply_text = "目前尚無打王組成員。\n輸入「加入打王組」即可加入。"
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=reply_text)
+            )
+        except Exception as e:
+            print(f"打王組名單操作失敗: {e}")
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="⚠️ 打王組名單操作失敗，請稍後再試。")
+            )
+        return
 
     # 2. 判斷是否為輪空指令 (例如：四色 空)
     if len(parts) >= 2 and ("空" in parts[1] or "輪空" in parts[1]):
