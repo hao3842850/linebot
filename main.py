@@ -4006,17 +4006,40 @@ def handle_message(event):
             with get_pg_conn() as conn:
                 with conn.cursor() as cur:
                     if msg_text == "加入打王組":
-                        cur.execute("""
-                            INSERT INTO boss_team (group_id, user_id)
-                            SELECT %s, %s
-                            WHERE NOT EXISTS (
-                                SELECT 1 FROM boss_team
-                                WHERE group_id = %s AND user_id = %s
+                        # 相容舊資料表的 UNIQUE(user_id)：同一使用者若已存在，
+                        # 直接把名單歸屬更新到目前群組，避免 UniqueViolation。
+                        cur.execute(
+                            "SELECT group_id FROM boss_team WHERE user_id = %s LIMIT 1",
+                            (user_id,),
+                        )
+                        existing = cur.fetchone()
+
+                        if existing and existing[0] == group_id:
+                            added = False
+                            moved = False
+                        elif existing:
+                            cur.execute("""
+                                UPDATE boss_team
+                                SET group_id = %s
+                                WHERE user_id = %s
+                            """, (group_id, user_id))
+                            added = True
+                            moved = True
+                        else:
+                            cur.execute(
+                                "INSERT INTO boss_team (group_id, user_id) VALUES (%s, %s)",
+                                (group_id, user_id),
                             )
-                        """, (group_id, user_id, group_id, user_id))
-                        added = cur.rowcount > 0
+                            added = True
+                            moved = False
+
                         conn.commit()
-                        reply_text = "✅ 已加入打王組，特殊王提醒會指定通知你。" if added else "ℹ️ 你已經在打王組名單內。"
+                        if moved:
+                            reply_text = "✅ 已將你的打王組設定更新到目前群組。"
+                        elif added:
+                            reply_text = "✅ 已加入打王組，特殊王提醒會指定通知你。"
+                        else:
+                            reply_text = "ℹ️ 你已經在打王組名單內。"
 
                     elif msg_text == "退出打王組":
                         cur.execute(
