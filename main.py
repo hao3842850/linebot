@@ -47,6 +47,13 @@ TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 DATABASE_URL = os.getenv("DATABASE_URL")
 BOSSPLUS_GROUP_ID = "C5b59f9fe8a7c3b709742b8f765d8f95e"
+
+def boss_cd_map_for_group(group_id):
+    """Keep the Boss+ verification boss isolated to its designated LINE group."""
+    result = dict(cd_map)
+    if group_id == BOSSPLUS_GROUP_ID:
+        result["測試王"] = 5 / 60
+    return result
 MY_ADMIN_ID = "U68c2e4197ef63a2c7fc923baae1f3667" 
 @app.on_event("startup")
 def startup_event():
@@ -4698,7 +4705,7 @@ def handle_message(event):
         group_id = get_source_id(event)
         boss_db_from_pg = get_latest_boss_records(group_id)
 
-        for boss, cd in cd_map.items():
+        for boss, cd in boss_cd_map_for_group(group_id).items():
             if boss not in boss_db_from_pg or not boss_db_from_pg[boss]:
                 unregistered.append(boss)
                 continue
@@ -4790,7 +4797,7 @@ def handle_message(event):
         boss_db_from_pg = get_latest_boss_records(group_id)
         boss_db_from_pg = get_latest_boss_records(group_id) 
 
-        for boss, cd in cd_map.items():
+        for boss, cd in boss_cd_map_for_group(group_id).items():
             # 若沒登記則跳過，不顯示在「打出」列表中
             if boss not in boss_db_from_pg or not boss_db_from_pg[boss]:
                 continue
