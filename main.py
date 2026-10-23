@@ -46,6 +46,7 @@ handler = WebhookHandler(CHANNEL_SECRET)
 TZ = pytz.timezone("Asia/Taipei")
 DB_FILE = "database.json"
 DATABASE_URL = os.getenv("DATABASE_URL")
+BOSSPLUS_GROUP_ID = "C5b59f9fe8a7c3b709742b8f765d8f95e"
 MY_ADMIN_ID = "U68c2e4197ef63a2c7fc923baae1f3667" 
 @app.on_event("startup")
 def startup_event():
@@ -4946,6 +4947,8 @@ def api_get_boss_times(group_id: str):
     """Return the latest boss_time row for every boss in one LINE group."""
     if not group_id or len(group_id) > 255:
         raise HTTPException(status_code=400, detail="invalid group_id")
+    if group_id != BOSSPLUS_GROUP_ID:
+        raise HTTPException(status_code=403, detail="group is not allowed")
     conn = get_pg_conn()
     try:
         with conn.cursor() as cur:
@@ -4997,6 +5000,8 @@ async def api_record_boss_death(request: Request):
     note = str(body.get("note") or "").strip()
     if not group_id or len(group_id) > 255 or not boss_name or len(boss_name) > 255:
         raise HTTPException(status_code=400, detail="group_id and boss_name are required")
+    if group_id != BOSSPLUS_GROUP_ID:
+        raise HTTPException(status_code=403, detail="group is not allowed")
     try:
         cooldown_minutes = int(body.get("cooldown_minutes") or 0)
     except (TypeError, ValueError):
