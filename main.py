@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import psycopg2
 import pytz
 import requests
-from fastapi import FastAPI, Header, Request
+from fastapi import FastAPI, Header, Request, HTTPException
 
 # === 3. LINE Bot SDK 相關導入 ===
 from linebot import LineBotApi, WebhookHandler
@@ -4941,6 +4941,105 @@ def handle_message(event):
         if failed_lines:
             summary_msg += f"\n⚠️ 失敗 {len(failed_lines)} 行"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(summary_msg))
+@app.get("/api/boss-times")
+def api_get_boss_times(group_id: str):
+    """Return the latest boss_time row for every boss in one LINE group."""
+    if not group_id or len(group_id) > 255:
+        raise HTTPException(status_code=400, detail="invalid group_id")
+    conn = get_pg_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (boss_name)
+                       id, boss_name, kill_time, respawn_time, note,
+                       user_id, source, cooldown_minutes, created_at
+                FROM boss_time
+                WHERE group_id = %s
+                ORDER BY boss_name, id DESC
+            """, (group_id,))
+            rows = cur.fetchall()
+        bosses = []
+        for row in rows:
+            kill_time = row[2]
+            respawn_time = row[3]
+            created_at = row[8]
+            bosses.append({
+                "id": row[0],
+                "boss_name": row[1],
+                "kill_at_ms": int(kill_time.timestamp() * 1000) if kill_time else None,
+                "respawn_at_ms": int(respawn_time.timestamp() * 1000) if respawn_time else None,
+                "note": row[4] or "",
+                "user_id": row[5] or "",
+                "source": row[6] or "",
+                "cooldown_minutes": row[7],
+                "created_at_ms": int(created_at.timestamp() * 1000) if created_at else None,
+            })
+        bosses.sort(key=lambda item: item.get("respawn_at_ms") or 0)
+        return {
+            "group_id": group_id,
+            "server_time_ms": int(time.time() * 1000),
+            "bosses": bosses,
+        }
+    except Exception as error:
+        print(f"BossPlus API read error: {error}")
+        raise HTTPException(status_code=500, detail="failed to read boss table")
+    finally:
+        conn.close()
+
+
+@app.post("/api/boss-times/death")
+async def api_record_boss_death(request: Request):
+    """Append a Boss+ death record while preserving the bot's history model."""
+    body = await request.json()
+    group_id = str(body.get("group_id") or "").strip()
+    boss_name = str(body.get("boss_name") or "").strip()
+    user_id = str(body.get("user_id") or "bossplus").strip()
+    note = str(body.get("note") or "").strip()
+    if not group_id or len(group_id) > 255 or not boss_name or len(boss_name) > 255:
+        raise HTTPException(status_code=400, detail="group_id and boss_name are required")
+    try:
+        cooldown_minutes = int(body.get("cooldown_minutes") or 0)
+    except (TypeError, ValueError):
+        cooldown_minutes = 0
+    if cooldown_minutes <= 0:
+        cooldown_minutes = int(float(cd_map.get(boss_name, 0)) * 60)
+    if cooldown_minutes <= 0:
+        raise HTTPException(status_code=400, detail="cooldown_minutes is required")
+    try:
+        kill_at_ms = int(body.get("kill_at_ms") or int(time.time() * 1000))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="invalid kill_at_ms")
+    kill_time = datetime.fromtimestamp(kill_at_ms / 1000.0, timezone.utc)
+    respawn_time = kill_time + timedelta(minutes=cooldown_minutes)
+    conn = get_pg_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO boss_time
+                    (group_id, boss_name, kill_time, respawn_time, note,
+                     user_id, source, cooldown_minutes)
+                VALUES (%s, %s, %s, %s, %s, %s, 'bossplus', %s)
+                RETURNING id
+            """, (group_id, boss_name, kill_time, respawn_time, note,
+                  user_id, cooldown_minutes))
+            record_id = cur.fetchone()[0]
+        conn.commit()
+        return {
+            "ok": True,
+            "id": record_id,
+            "boss_name": boss_name,
+            "kill_at_ms": kill_at_ms,
+            "respawn_at_ms": int(respawn_time.timestamp() * 1000),
+            "cooldown_minutes": cooldown_minutes,
+        }
+    except Exception as error:
+        conn.rollback()
+        print(f"BossPlus API write error: {error}")
+        raise HTTPException(status_code=500, detail="failed to record boss death")
+    finally:
+        conn.close()
+
+
 @app.get("/")
 def root():
     return {"status": "OK"}
@@ -4954,3 +5053,4 @@ if __name__ == "__main__":
     )
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL 未設定")
+
